@@ -1,13 +1,6 @@
 /* ============================================================
-   Golden Touch · Inventario · Modal de Reporte Dinámico de Pendientes por Recepcionar
-   (18/11/2026)
-
-   Permite moldear en tiempo real el reporte de órdenes pendientes por recepcionar
-   tanto en PDF (Tabla / Fichas) como en Mensaje de WhatsApp:
-   - Filtros por tipo (OC / CS / Directa), estado, analista encargado, almacén,
-     solicitante, búsqueda libre y rango de fechas (montada o pago Tesorería).
-   - Selección individual por casilla (incluir / excluir órdenes puntuales).
-   - Agrupación dinámica, ordenamiento y casillas de columnas/campos visibles.
+   Golden Touch · Modal de Reporte Dinámico de Pendientes por Recepcionar
+   (Alineado al estilo estándar MGG · 18/11/2026)
    ============================================================ */
 
 import { useMemo, useState } from 'react';
@@ -16,717 +9,613 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import {
-  AVISO_WHATSAPP_POR_DEFECTO,
-  CAMPOS_PENDIENTES_RECEPCION,
-  CAMPOS_POR_DEFECTO_PENDIENTES,
-  ETIQUETA_AGRUPACION_PENDIENTES,
-  calcularResumenPendientes,
+  calcularTotalesPendientes,
   construirWhatsappPendientesRecepcion,
-  describirFiltrosPendientes,
-  filtrarCandidatasPendientes,
+  filtrarPendientesRecepcion,
   isoADiaVE,
-  ordenarPendientesRecepcion,
-  type AgrupacionPendientesRecepcion,
-  type CampoPendienteRecepcion,
-  type CriterioFechaPendientes,
-  type EstadoPendienteRecepcion,
   type FilaPendienteRecepcion,
-  type OrigenPendienteRecepcion,
-  type OrdenPendientesRecepcion,
+  type FiltrosReportePendientes,
+  type TipoFiltroRecepcion,
 } from './pendientesRecepcionReporte';
-import { descargarPendientesRecepcionPdf } from './pendientesRecepcionPdf';
+import { generarReportePendientesRecepcionPdf } from './pendientesRecepcionPdf';
+
+const surf2 = {
+  background: 'var(--surface-2, #182230)',
+  border: '1px solid var(--border)',
+  borderRadius: '8px',
+  padding: '.75rem .9rem',
+} as const;
+
+const tituloSec = {
+  fontSize: '.78rem',
+  fontWeight: 700,
+  letterSpacing: '.03em',
+  color: 'var(--text-muted, #94a3b8)',
+  textTransform: 'uppercase',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '.35rem',
+  marginBottom: '.45rem',
+} as const;
 
 interface ReportePendientesRecepcionModalProps {
   filas: FilaPendienteRecepcion[];
-  modoInicial?: 'pdf' | 'whatsapp';
+  actor?: string | null;
+  modoInicial?: 'reporte' | 'pdf' | 'whatsapp';
   onClose: () => void;
 }
 
-function fechaHaceDiasVE(dias: number): string {
-  const d = new Date(Date.now() - dias * 86_400_000);
-  return isoADiaVE(d.toISOString());
+function rangoMesVE(offsetMeses: number): { desde: string; hasta: string } {
+  const hoy = isoADiaVE(new Date().toISOString());
+  const [yStr, mStr] = hoy.split('-');
+  const y0 = Number(yStr) || new Date().getFullYear();
+  const m0 = (Number(mStr) || 1) - 1 + offsetMeses;
+  const inicio = new Date(Date.UTC(y0, m0, 1));
+  const fin = new Date(Date.UTC(y0, m0 + 1, 0));
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  return { desde: fmt(inicio), hasta: offsetMeses === 0 ? hoy : fmt(fin) };
 }
 
 export function ReportePendientesRecepcionModal({
   filas,
-  modoInicial = 'pdf',
+  actor,
+  modoInicial = 'reporte',
   onClose,
 }: ReportePendientesRecepcionModalProps) {
-  const [vistaActiva, setVistaActiva] = useState<'tabla' | 'whatsapp'>(
-    modoInicial === 'whatsapp' ? 'whatsapp' : 'tabla',
-  );
+  const totalesBase = useMemo(() => calcularTotalesPendientes(filas), [filas]);
 
-  // Filtros dinámicos (por defecto «todas» para mostrar las 10 órdenes completas de inmediato)
-  const [busqueda, setBusqueda] = useState('');
-  const [origenes, setOrigenes] = useState<OrigenPendienteRecepcion[]>([]);
-  const [estados, setEstados] = useState<EstadoPendienteRecepcion[]>([]);
+  const { sedesDisponibles, analistasDisponibles } = useMemo(() => {
+    const s = new Set<string>();
+    const a = new Set<string>();
+    for (const f of filas) {
+      if (f.almacenDestino && f.almacenDestino !== '—') s.add(f.almacenDestino);
+      if (f.analista && f.analista !== '—') a.add(f.analista);
+    }
+    return {
+      sedesDisponibles: Array.from(s).sort((x, y) => x.localeCompare(y, 'es-VE')),
+      analistasDisponibles: Array.from(a).sort((x, y) => x.localeCompare(y, 'es-VE')),
+    };
+  }, [filas]);
+
+  // Estado de filtros interactivos idéntico a MGG
+  const [texto, setTexto] = useState('');
+  const [sede, setSede] = useState('');
   const [analista, setAnalista] = useState('');
-  const [almacen, setAlmacen] = useState('');
-  const [solicitante, setSolicitante] = useState('');
-  const [criterioFecha, setCriterioFecha] = useState<CriterioFechaPendientes>('todas');
+  const [tipo, setTipo] = useState<TipoFiltroRecepcion>('todos');
+  const [criterioFecha, setCriterioFecha] = useState<'montada' | 'pago'>('montada');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const [excluidos, setExcluidos] = useState<Set<string>>(() => new Set());
+  const [presetFecha, setPresetFecha] = useState<'todos' | 'hoy' | 'mes' | 'mesPasado'>('todos');
 
-  // Estructura, agrupación y campos visibles
-  const [agrupacion, setAgrupacion] = useState<AgrupacionPendientesRecepcion>('sin_agrupar');
-  const [orden, setOrden] = useState<OrdenPendientesRecepcion>('pago_reciente');
-  const [campos, setCampos] = useState<CampoPendienteRecepcion[]>(() => [...CAMPOS_POR_DEFECTO_PENDIENTES]);
-  const [formatoPdf, setFormatoPdf] = useState<'tabla' | 'fichas'>('tabla');
-  const [orientacionPdf, setOrientacionPdf] = useState<'landscape' | 'portrait'>('landscape');
-  const [incluirResumen, setIncluirResumen] = useState(true);
-  const [avisoWhatsapp, setAvisoWhatsapp] = useState(AVISO_WHATSAPP_POR_DEFECTO);
+  // Panel desplegable de WhatsApp integrado arriba
+  const [verWhatsapp, setVerWhatsapp] = useState(modoInicial === 'whatsapp');
   const [generandoPdf, setGenerandoPdf] = useState(false);
 
-  // Catálogos dinámicos derivados de las órdenes reales
-  const analistasUnicos = useMemo(
-    () => Array.from(new Set(filas.map((f) => f.analista).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE')),
-    [filas],
-  );
-  const almacenesUnicos = useMemo(
-    () => Array.from(new Set(filas.map((f) => f.almacenDestino).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es-VE')),
-    [filas],
-  );
-  const solicitantesUnicos = useMemo(
-    () => Array.from(new Set(filas.map((f) => f.solicitante).filter((s) => s && s !== '—'))).sort((a, b) => a.localeCompare(b, 'es-VE')),
-    [filas],
-  );
-
-  const filtrosBase = useMemo(
+  const filtrosActuales: FiltrosReportePendientes = useMemo(
     () => ({
-      busqueda,
-      origenes,
-      estados,
+      texto,
+      sede,
       analista,
-      almacen,
-      solicitante,
+      tipo,
       criterioFecha,
       desde,
       hasta,
     }),
-    [busqueda, origenes, estados, analista, almacen, solicitante, criterioFecha, desde, hasta],
+    [texto, sede, analista, tipo, criterioFecha, desde, hasta],
   );
 
-  const candidatas = useMemo(
-    () => ordenarPendientesRecepcion(filtrarCandidatasPendientes(filas, filtrosBase), orden),
-    [filas, filtrosBase, orden],
+  const filasFiltradas = useMemo(
+    () => filtrarPendientesRecepcion(filas, filtrosActuales),
+    [filas, filtrosActuales],
   );
 
-  const seleccionadas = useMemo(
-    () => candidatas.filter((f) => !excluidos.has(f.uid)),
-    [candidatas, excluidos],
-  );
-
-  const resumen = useMemo(() => calcularResumenPendientes(seleccionadas), [seleccionadas]);
-  const subtituloFiltros = useMemo(() => describirFiltrosPendientes(filtrosBase), [filtrosBase]);
+  const totales = useMemo(() => calcularTotalesPendientes(filasFiltradas), [filasFiltradas]);
 
   const textoWhatsapp = useMemo(
-    () =>
-      construirWhatsappPendientesRecepcion({
-        filas: seleccionadas,
-        agrupacion,
-        campos,
-        incluirResumen,
-        subtituloFiltros,
-        avisoEstado: avisoWhatsapp,
-      }),
-    [seleccionadas, agrupacion, campos, incluirResumen, subtituloFiltros, avisoWhatsapp],
+    () => construirWhatsappPendientesRecepcion(filasFiltradas, filtrosActuales, actor),
+    [filasFiltradas, filtrosActuales, actor],
   );
 
-  function toggleOrigen(o: OrigenPendienteRecepcion) {
-    setOrigenes((prev) => (prev.includes(o) ? prev.filter((x) => x !== o) : [...prev, o]));
-  }
-
-  function toggleEstado(e: EstadoPendienteRecepcion) {
-    setEstados((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
-  }
-
-  function toggleCampo(c: CampoPendienteRecepcion) {
-    setCampos((prev) => {
-      if (prev.includes(c)) {
-        if (prev.length <= 1) return prev;
-        return prev.filter((x) => x !== c);
-      }
-      return [...prev, c];
-    });
-  }
-
-  function toggleFila(uid: string) {
-    setExcluidos((prev) => {
-      const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid);
-      else next.add(uid);
-      return next;
-    });
-  }
-
-  function marcarVisibles(marcar: boolean) {
-    setExcluidos((prev) => {
-      const next = new Set(prev);
-      for (const f of candidatas) {
-        if (marcar) next.delete(f.uid);
-        else next.add(f.uid);
-      }
-      return next;
-    });
-  }
-
-  function limpiarFiltros() {
-    setBusqueda('');
-    setOrigenes([]);
-    setEstados([]);
-    setAnalista('');
-    setAlmacen('');
-    setSolicitante('');
-    setCriterioFecha('todas');
-    setDesde('');
-    setHasta('');
-    setExcluidos(new Set());
-  }
-
-  function aplicarPresetFechas(preset: 'todas' | 'hoy' | '7d' | 'mes') {
-    const hoy = isoADiaVE(new Date().toISOString());
-    if (preset === 'todas') {
-      setCriterioFecha('todas');
-      setDesde('');
-      setHasta('');
+  async function handleDescargarPdf() {
+    if (!filasFiltradas.length) {
+      toast('No hay recepciones pendientes para generar el PDF.', 'warning');
       return;
     }
-    if (criterioFecha === 'todas') setCriterioFecha('pago');
-    if (preset === 'hoy') {
-      setDesde(hoy);
-      setHasta(hoy);
-    } else if (preset === '7d') {
-      setDesde(fechaHaceDiasVE(7));
-      setHasta(hoy);
-    } else if (preset === 'mes') {
-      setDesde(`${hoy.slice(0, 8)}01`);
-      setHasta(hoy);
-    }
-  }
-
-  function aplicarPresetCampos(preset: 'estandar' | 'completo' | 'almacen_sin_montos') {
-    if (preset === 'estandar') {
-      setCampos([...CAMPOS_POR_DEFECTO_PENDIENTES]);
-    } else if (preset === 'completo') {
-      setCampos(CAMPOS_PENDIENTES_RECEPCION.map((c) => c.clave));
-    } else {
-      setCampos([
-        'codigo',
-        'tipo_estado',
-        'analista',
-        'fecha_montada',
-        'fecha_pago',
-        'proveedor',
-        'solicitante',
-        'almacen',
-        'items',
-        'detalle_items',
-      ]);
-    }
-  }
-
-  async function handleGenerarPdf() {
-    if (!seleccionadas.length) {
-      toast('Selecciona al menos una orden pendiente para generar el PDF.', 'warning');
-      return;
-    }
-    setGenerandoPdf(true);
     try {
-      await descargarPendientesRecepcionPdf({
-        filas: seleccionadas,
-        campos,
-        agrupacion,
-        formatoPresentacion: formatoPdf,
-        orientacion: orientacionPdf,
-        incluirResumen,
-        subtituloFiltros,
-      });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF.', 'error');
+      setGenerandoPdf(true);
+      await generarReportePendientesRecepcionPdf(filasFiltradas, filtrosActuales, actor);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo generar el PDF', 'error');
     } finally {
       setGenerandoPdf(false);
     }
   }
 
-  const hayFiltrosActivos = Boolean(
-    busqueda.trim() ||
-    origenes.length ||
-    estados.length ||
-    analista ||
-    almacen ||
-    solicitante ||
-    criterioFecha !== 'todas' ||
-    excluidos.size > 0,
-  );
+  function handleAplicarPreset(p: 'todos' | 'hoy' | 'mes' | 'mesPasado') {
+    setPresetFecha(p);
+    if (p === 'todos') {
+      setDesde('');
+      setHasta('');
+    } else if (p === 'hoy') {
+      const h = isoADiaVE(new Date().toISOString());
+      setDesde(h);
+      setHasta(h);
+    } else if (p === 'mes') {
+      const r = rangoMesVE(0);
+      setDesde(r.desde);
+      setHasta(r.hasta);
+    } else {
+      const r = rangoMesVE(-1);
+      setDesde(r.desde);
+      setHasta(r.hasta);
+    }
+  }
 
-  const todasVisiblesMarcadas = candidatas.length > 0 && candidatas.every((f) => !excluidos.has(f.uid));
+  function handleLimpiarFiltros() {
+    setTexto('');
+    setSede('');
+    setAnalista('');
+    setTipo('todos');
+    setCriterioFecha('montada');
+    setDesde('');
+    setHasta('');
+    setPresetFecha('todos');
+  }
+
+  const desgloseKpi = [
+    `${totales.totalOc} OC`,
+    totales.totalCs > 0 ? `${totales.totalCs} CS` : null,
+    `${totales.totalDirectas} Compras directas`,
+  ].filter(Boolean).join(' · ');
 
   return (
     <Modal
-      title="📊 Reporte dinámico · Pendientes por recepcionar"
+      title="📦 Reporte Dinámico de Pendientes por Recepcionar"
       size="xl"
       onClose={onClose}
       footer={
-        <>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={generandoPdf}>
-            Cerrar
-          </button>
-          <button
-            type="button"
-            className={`btn ${vistaActiva === 'whatsapp' ? 'btn-ghost' : 'btn-wsp'}`}
-            onClick={() => setVistaActiva(vistaActiva === 'whatsapp' ? 'tabla' : 'whatsapp')}
-          >
-            {vistaActiva === 'whatsapp' ? '📋 Ver tabla de órdenes' : `📲 Mensaje WhatsApp (${num(seleccionadas.length)})`}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void handleGenerarPdf()}
-            disabled={generandoPdf || seleccionadas.length === 0}
-          >
-            {generandoPdf ? 'Generando PDF…' : `📄 Generar PDF (${num(seleccionadas.length)})`}
-          </button>
-        </>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
+          <div className="muted" style={{ fontSize: '.84rem' }}>
+            Mostrando <strong>{num(filasFiltradas.length)}</strong> de <strong>{num(filas.length)}</strong> registros
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={generandoPdf || filasFiltradas.length === 0}
+              onClick={() => void handleDescargarPdf()}
+            >
+              {generandoPdf ? 'Generando PDF…' : '📄 Generar PDF'}
+            </button>
+            <button
+              type="button"
+              className={`btn ${verWhatsapp ? 'btn-primary' : 'btn-outline-success'}`}
+              style={verWhatsapp ? {} : { color: '#25D366', borderColor: '#25D366' }}
+              onClick={() => setVerWhatsapp((v) => !v)}
+            >
+              💬 {verWhatsapp ? 'Ocultar WhatsApp' : 'Compartir por WhatsApp'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              Cerrar
+            </button>
+          </div>
+        </div>
       }
     >
-      {/* ─── 1. Franja de KPIs en vivo ─── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))',
-          gap: '.55rem',
-          marginBottom: '.75rem',
-        }}
-      >
-        <div className="card" style={{ margin: 0, padding: '.55rem .75rem', borderLeft: '3px solid var(--brand, #ff8a00)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Incluidas en reporte</div>
-          <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700 }}>
-            {num(seleccionadas.length)} <span className="muted" style={{ fontSize: '.78rem', fontWeight: 400 }}>de {num(filas.length)}</span>
-          </div>
-          <div className="muted" style={{ fontSize: '.7rem' }}>
-            {resumen.totalOc} OC · {resumen.totalCs} CS{resumen.totalDirectas ? ` · ${resumen.totalDirectas} CD` : ''}
-          </div>
-        </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
 
-        <div className="card" style={{ margin: 0, padding: '.55rem .75rem', borderLeft: '3px solid var(--primary-3, #38bdf8)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Renglones / Unidades</div>
-          <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700 }}>{num(resumen.totalUnidades)} und.</div>
-          <div className="muted" style={{ fontSize: '.7rem' }}>{num(resumen.totalItems)} ítem(s) por ingresar</div>
-        </div>
-
-        <div className="card" style={{ margin: 0, padding: '.55rem .75rem', borderLeft: '3px solid var(--success, #10b981)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Monto seleccionado</div>
-          <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--success, #10b981)' }}>
-            {money(resumen.totalMontoUsd)}
-          </div>
-          <div className="muted" style={{ fontSize: '.7rem' }}>
-            {num(resumen.totalPagadas)} pagada(s) · {num(resumen.totalPorRecibirSinPago)} sin pago
-          </div>
-        </div>
-
-        <div className="card" style={{ margin: 0, padding: '.55rem .75rem', borderLeft: '3px solid var(--warning, #f59e0b)' }}>
-          <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', fontWeight: 700 }}>Tiempo esperando</div>
-          <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700 }}>{resumen.promedioDiasPendiente} d prom.</div>
-          <div className="muted" style={{ fontSize: '.7rem' }}>Máxima espera: {resumen.maxDiasPendiente} día(s)</div>
-        </div>
-      </div>
-
-      {/* ─── 2. Panel de filtros dinámicos ─── */}
-      <div className="card" style={{ margin: '0 0 .75rem', padding: '.75rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.55rem' }}>
-          <strong style={{ fontSize: '.82rem', textTransform: 'uppercase', letterSpacing: '.03em' }}>🎛 Filtros dinámicos</strong>
-          <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
-            {(['oc', 'cs', 'directa'] as OrigenPendienteRecepcion[]).map((tipo) => {
-              const activo = origenes.includes(tipo);
-              const lbl = tipo === 'oc' ? '📦 OC' : tipo === 'cs' ? '🔧 CS (Servicios)' : '⚡ Directas';
-              return (
-                <button
-                  key={tipo}
-                  type="button"
-                  className={`btn btn-sm ${activo ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => toggleOrigen(tipo)}
-                >
-                  {lbl}
-                </button>
-              );
-            })}
-            {(['pagada', 'por_recibir'] as EstadoPendienteRecepcion[]).map((est) => {
-              const activo = estados.includes(est);
-              const lbl = est === 'pagada' ? '🟢 Pagadas' : '🟠 Sin pago aún';
-              return (
-                <button
-                  key={est}
-                  type="button"
-                  className={`btn btn-sm ${activo ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => toggleEstado(est)}
-                >
-                  {lbl}
-                </button>
-              );
-            })}
-            {hayFiltrosActivos && (
-              <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>
-                ↺ Restablecer todo
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.55rem' }}>
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Búsqueda libre</label>
-            <input
-              className="input"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="🔎 Código, analista, proveedor, ítem…"
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Analista encargado</label>
-            <select className="select" value={analista} onChange={(e) => setAnalista(e.target.value)}>
-              <option value="">Todos los analistas ({analistasUnicos.length})</option>
-              {analistasUnicos.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Almacén destino</label>
-            <select className="select" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-              <option value="">Todos los destinos ({almacenesUnicos.length})</option>
-              {almacenesUnicos.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Solicitante</label>
-            <select className="select" value={solicitante} onChange={(e) => setSolicitante(e.target.value)}>
-              <option value="">Todos los solicitantes ({solicitantesUnicos.length})</option>
-              {solicitantesUnicos.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Filtro opcional de fechas (montada vs pago Tesorería) */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end', marginTop: '.55rem' }}>
-          <div style={{ minWidth: 195 }}>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Filtrar por fecha</label>
-            <select
-              className="select"
-              value={criterioFecha}
-              onChange={(e) => setCriterioFecha(e.target.value as CriterioFechaPendientes)}
+        {/* ── 1. Panel de WhatsApp Estructurado (Desplegable / Conmutador) ── */}
+        {verWhatsapp && (
+          <div
+            className="card"
+            style={{
+              margin: 0,
+              background: 'var(--surface-3, #1e293b)',
+              border: '1px solid var(--success, #25D366)',
+              padding: '.85rem',
+              borderRadius: '8px',
+              boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.25))',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '.6rem',
+              }}
             >
-              <option value="todas">Todas las pendientes (sin corte)</option>
-              <option value="pago">Por fecha pago Tesorería</option>
-              <option value="montada">Por fecha montada (OC)</option>
-            </select>
-          </div>
-
-          {criterioFecha !== 'todas' && (
-            <>
-              <div>
-                <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Desde</label>
-                <input type="date" className="input" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Hasta</label>
-                <input type="date" className="input" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-              </div>
-            </>
-          )}
-
-          <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetFechas('todas')}>Todas</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetFechas('hoy')}>Hoy</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetFechas('7d')}>Últimos 7 días</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetFechas('mes')}>Este mes</button>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── 3. Estructura, agrupación y campos visibles (PDF + WhatsApp) ─── */}
-      <div className="card" style={{ margin: '0 0 .75rem', padding: '.75rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '.55rem', marginBottom: '.6rem' }}>
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Agrupar reporte por</label>
-            <select
-              className="select"
-              value={agrupacion}
-              onChange={(e) => setAgrupacion(e.target.value as AgrupacionPendientesRecepcion)}
-            >
-              {Object.entries(ETIQUETA_AGRUPACION_PENDIENTES).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Ordenar por</label>
-            <select
-              className="select"
-              value={orden}
-              onChange={(e) => setOrden(e.target.value as OrdenPendientesRecepcion)}
-            >
-              <option value="pago_reciente">Pago Tesorería (más reciente)</option>
-              <option value="pago_antiguo">Pago Tesorería (más antigua)</option>
-              <option value="montada_reciente">Fecha montada (más reciente)</option>
-              <option value="montada_antigua">Fecha montada (más antigua)</option>
-              <option value="antiguedad_desc">Mayor tiempo esperando</option>
-              <option value="monto_desc">Mayor monto ($)</option>
-              <option value="codigo_asc">Código (A → Z)</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Diseño del PDF</label>
-            <div style={{ display: 'flex', gap: '.35rem' }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${formatoPdf === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ flex: 1 }}
-                onClick={() => setFormatoPdf('tabla')}
-              >
-                📋 Tabla
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${formatoPdf === 'fichas' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ flex: 1 }}
-                onClick={() => setFormatoPdf('fichas')}
-              >
-                🗂 Fichas
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '.73rem', display: 'block', marginBottom: '.2rem' }} className="muted">Orientación PDF</label>
-            <div style={{ display: 'flex', gap: '.35rem' }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${orientacionPdf === 'landscape' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ flex: 1 }}
-                onClick={() => setOrientacionPdf('landscape')}
-              >
-                ↔ Horizontal
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${orientacionPdf === 'portrait' ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ flex: 1 }}
-                onClick={() => setOrientacionPdf('portrait')}
-              >
-                ↕ Vertical
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Selector de columnas / campos */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
-          <span className="muted" style={{ fontSize: '.74rem', fontWeight: 600 }}>
-            Campos incluidos en PDF y WhatsApp ({campos.length} de {CAMPOS_PENDIENTES_RECEPCION.length}):
-          </span>
-          <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetCampos('estandar')}>Estándar</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetCampos('completo')}>Con renglones</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPresetCampos('almacen_sin_montos')}>Almacén (sin $)</button>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.75rem', marginLeft: '.35rem', cursor: 'pointer' }}>
-              <input type="checkbox" checked={incluirResumen} onChange={(e) => setIncluirResumen(e.target.checked)} />
-              Incluir KPIs de resumen
-            </label>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem .65rem' }}>
-          {CAMPOS_PENDIENTES_RECEPCION.map((c) => {
-            const activo = campos.includes(c.clave);
-            return (
-              <label
-                key={c.clave}
+              <strong
                 style={{
-                  display: 'inline-flex',
+                  fontSize: '.9rem',
+                  display: 'flex',
                   alignItems: 'center',
-                  gap: '.3rem',
-                  fontSize: '.76rem',
-                  padding: '.2rem .5rem',
-                  borderRadius: 6,
-                  border: `1px solid ${activo ? 'var(--brand, #ff8a00)' : 'var(--border, rgba(148,163,184,.25))'}`,
-                  background: activo ? 'rgba(255, 138, 0, 0.12)' : 'transparent',
-                  cursor: 'pointer',
+                  gap: '.45rem',
+                  color: 'var(--success, #25D366)',
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={activo}
-                  onChange={() => toggleCampo(c.clave)}
-                />
-                <span>{c.etiqueta}</span>
-              </label>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ─── 4. Selector de pestañas: Tabla interactiva vs Mensaje de WhatsApp ─── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-        <div style={{ display: 'flex', gap: '.4rem' }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${vistaActiva === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setVistaActiva('tabla')}
-          >
-            📋 Selección de órdenes ({num(seleccionadas.length)} / {num(candidatas.length)})
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${vistaActiva === 'whatsapp' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setVistaActiva('whatsapp')}
-          >
-            📲 Vista previa y envío por WhatsApp
-          </button>
-        </div>
-
-        {vistaActiva === 'tabla' && candidatas.length > 0 && (
-          <div style={{ display: 'flex', gap: '.35rem' }}>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarVisibles(true)}>
-              ☑ Marcar visibles
-            </button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => marcarVisibles(false)}>
-              ☐ Desmarcar visibles
-            </button>
+                <span>💬</span> Mensaje estructurado para WhatsApp · Pendientes por Recepcionar
+              </strong>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setVerWhatsapp(false)}
+                style={{ fontSize: '.78rem' }}
+              >
+                ✕ Ocultar
+              </button>
+            </div>
+            <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, marginBottom: '.65rem' }}>
+              Incluye analista, fechas de montaje y pago, destino sugerido y la leyenda obligatoria: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
+            </p>
+            <CompartirWhatsapp texto={textoWhatsapp} />
           </div>
         )}
-      </div>
 
-      {vistaActiva === 'whatsapp' ? (
-        <div className="card" style={{ margin: 0, padding: '.85rem' }}>
-          <div style={{ marginBottom: '.65rem' }}>
-            <label style={{ fontSize: '.74rem', display: 'block', marginBottom: '.25rem', fontWeight: 600 }} className="muted">
-              🚨 Encabezado / llamado de atención en WhatsApp
-            </label>
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              <input
-                className="input"
-                style={{ flex: 1, minWidth: 240, fontWeight: 700 }}
-                value={avisoWhatsapp}
-                onChange={(e) => setAvisoWhatsapp(e.target.value)}
-                placeholder={AVISO_WHATSAPP_POR_DEFECTO}
-              />
-              {avisoWhatsapp !== AVISO_WHATSAPP_POR_DEFECTO && (
+        {/* ── 2. Tarjetas de Filtros Dinámicos (Estilo Tarjetas MGG) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '.65rem' }}>
+
+          {/* Tarjeta A: Búsqueda y Segmentación */}
+          <div style={surf2}>
+            <div style={tituloSec}>
+              <span>🔍</span> Búsqueda y Segmentación
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.5rem', marginBottom: '.65rem' }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <input
+                  type="text"
+                  className="input"
+                  style={{ width: '100%', fontSize: '.84rem' }}
+                  placeholder="Buscar código (OC / CS / CD), analista, material o proveedor…"
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '.76rem', fontWeight: 600, display: 'block', marginBottom: '.2rem' }}>
+                  🏢 Destino sugerido
+                </label>
+                <select
+                  className="select"
+                  style={{ width: '100%', fontSize: '.82rem' }}
+                  value={sede}
+                  onChange={(e) => setSede(e.target.value)}
+                >
+                  <option value="">Todos ({sedesDisponibles.length})</option>
+                  {sedesDisponibles.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '.76rem', fontWeight: 600, display: 'block', marginBottom: '.2rem' }}>
+                  👤 Analista encargado
+                </label>
+                <select
+                  className="select"
+                  style={{ width: '100%', fontSize: '.82rem' }}
+                  value={analista}
+                  onChange={(e) => setAnalista(e.target.value)}
+                >
+                  <option value="">Todos ({analistasDisponibles.length})</option>
+                  {analistasDisponibles.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Chips de Tipo de Orden */}
+            <div>
+              <span className="muted" style={{ fontSize: '.74rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                📦 Tipo de documento:
+              </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
                 <button
                   type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => setAvisoWhatsapp(AVISO_WHATSAPP_POR_DEFECTO)}
+                  className={`btn btn-xs ${tipo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                  onClick={() => setTipo('todos')}
                 >
-                  ↺ Restaurar aviso
+                  Todos ({filas.length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${tipo === 'oc' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                  onClick={() => setTipo('oc')}
+                >
+                  Solo OC ({totalesBase.totalOc})
+                </button>
+                {totalesBase.totalCs > 0 && (
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${tipo === 'cs' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                    onClick={() => setTipo('cs')}
+                  >
+                    Solo Servicios CS ({totalesBase.totalCs})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`btn btn-xs ${tipo === 'directa' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                  onClick={() => setTipo('directa')}
+                >
+                  Solo Directas ({totalesBase.totalDirectas})
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Tarjeta B: Período y Fechas */}
+          <div style={surf2}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+              <div style={tituloSec}>
+                <span>📅</span> Rango de Fechas
+              </div>
+              {(texto || sede || analista || tipo !== 'todos' || desde || hasta) && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  style={{ fontSize: '.74rem', padding: '0 .4rem' }}
+                  onClick={handleLimpiarFiltros}
+                >
+                  ✕ Limpiar filtros
                 </button>
               )}
             </div>
+
+            {/* Criterio de Fecha (Pills) */}
+            <div style={{ marginBottom: '.5rem' }}>
+              <span className="muted" style={{ fontSize: '.74rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                Filtrar período por:
+              </span>
+              <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${criterioFecha === 'montada' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                  onClick={() => setCriterioFecha('montada')}
+                >
+                  📅 Fecha montada
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${criterioFecha === 'pago' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ borderRadius: '999px', padding: '.2rem .65rem', fontSize: '.78rem' }}
+                  onClick={() => setCriterioFecha('pago')}
+                >
+                  💳 Fecha que pagó Tesorería
+                </button>
+              </div>
+            </div>
+
+            {/* Presets Rápidos */}
+            <div style={{ marginBottom: '.5rem' }}>
+              <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${presetFecha === 'todos' && !desde && !hasta ? 'btn-secondary' : 'btn-ghost'}`}
+                  style={{ padding: '.15rem .45rem', fontSize: '.75rem' }}
+                  onClick={() => handleAplicarPreset('todos')}
+                >
+                  Histórico completo
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${presetFecha === 'hoy' ? 'btn-secondary' : 'btn-ghost'}`}
+                  style={{ padding: '.15rem .45rem', fontSize: '.75rem' }}
+                  onClick={() => handleAplicarPreset('hoy')}
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${presetFecha === 'mes' ? 'btn-secondary' : 'btn-ghost'}`}
+                  style={{ padding: '.15rem .45rem', fontSize: '.75rem' }}
+                  onClick={() => handleAplicarPreset('mes')}
+                >
+                  Este mes
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${presetFecha === 'mesPasado' ? 'btn-secondary' : 'btn-ghost'}`}
+                  style={{ padding: '.15rem .45rem', fontSize: '.75rem' }}
+                  onClick={() => handleAplicarPreset('mesPasado')}
+                >
+                  Mes pasado
+                </button>
+              </div>
+            </div>
+
+            {/* Inputs Desde y Hasta */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+              <div>
+                <label style={{ fontSize: '.74rem', color: 'var(--text-muted)', display: 'block', marginBottom: '.15rem' }}>Desde</label>
+                <input
+                  type="date"
+                  className="input input-sm"
+                  style={{ width: '100%', fontSize: '.8rem' }}
+                  value={desde}
+                  onChange={(e) => {
+                    setDesde(e.target.value);
+                    setPresetFecha('todos');
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '.74rem', color: 'var(--text-muted)', display: 'block', marginBottom: '.15rem' }}>Hasta</label>
+                <input
+                  type="date"
+                  className="input input-sm"
+                  style={{ width: '100%', fontSize: '.8rem' }}
+                  value={hasta}
+                  onChange={(e) => {
+                    setHasta(e.target.value);
+                    setPresetFecha('todos');
+                  }}
+                />
+              </div>
+            </div>
           </div>
-          <CompartirWhatsapp texto={textoWhatsapp} />
+
         </div>
-      ) : (
-        <div className="table-wrap" style={{ maxHeight: '38vh', overflow: 'auto' }}>
-          <table className="table" style={{ fontSize: '.8rem' }}>
-            <thead>
-              <tr>
-                <th style={{ width: 34, textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={todasVisiblesMarcadas}
-                    onChange={(e) => marcarVisibles(e.target.checked)}
-                    aria-label="Seleccionar o desmarcar todas las órdenes visibles"
-                  />
-                </th>
-                <th>Código</th>
-                <th>Estado</th>
-                <th>Analista encargado</th>
-                <th>Fecha montada</th>
-                <th>Pago Tesorería</th>
-                <th>Proveedor</th>
-                <th>Solicita / Destino</th>
-                <th className="num">Ítems</th>
-                {campos.includes('monto') && <th className="num">Monto ($)</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {candidatas.length === 0 ? (
+
+        {/* ── 3. Tarjetas KPI Ejecutivas (Estilo MGG) ── */}
+        <div
+          style={{
+            background: 'var(--surface-1, #0f172a)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '.65rem .85rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '.65rem',
+          }}
+        >
+          <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+              Pendientes por recibir
+            </div>
+            <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f59e0b', margin: '.2rem 0' }}>
+              {num(totales.totalRegistros)}
+            </div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>
+              {desgloseKpi}
+            </div>
+          </div>
+
+          <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+              Ítems y unidades
+            </div>
+            <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#38bdf8', margin: '.2rem 0' }}>
+              {num(totales.totalItems)}
+            </div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>
+              {num(totales.totalUnidades)} und. estimadas
+            </div>
+          </div>
+
+          <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+              Total en divisas
+            </div>
+            <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#22c55e', margin: '.2rem 0' }}>
+              {money(totales.totalUsd, 'USD')}
+            </div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>
+              En órdenes y compras en $
+            </div>
+          </div>
+
+          {totales.totalBs > 0 && (
+            <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+                Total en bolívares
+              </div>
+              <div className="mono" style={{ fontSize: '1.4rem', fontWeight: 800, color: '#eab308', margin: '.2rem 0' }}>
+                {money(totales.totalBs, 'Bs')}
+              </div>
+              <div className="muted" style={{ fontSize: '.72rem' }}>
+                En órdenes y compras en Bs
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── 4. Vista Previa Tabular Ejecutiva (Estilo Tabla MGG) ── */}
+        <div style={surf2}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span style={{ ...tituloSec, fontSize: '.84rem', color: 'var(--text, #f1f5f9)' }}>
+              <span>👁️</span> Vista previa del listado
+              <span className="badge" style={{ fontSize: '.72rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
+                {filasFiltradas.length} {filasFiltradas.length === 1 ? 'registro' : 'registros'}
+              </span>
+            </span>
+          </div>
+
+          <div style={{ maxHeight: '42vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.78rem', margin: 0 }}>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-1, #0f172a)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>
                 <tr>
-                  <td colSpan={campos.includes('monto') ? 10 : 9} className="muted" style={{ textAlign: 'center', padding: '1.2rem' }}>
-                    Ninguna orden pendiente coincide con los filtros actuales.
-                  </td>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', width: 36, color: '#94a3b8', fontWeight: 600 }}>#</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>DOCUMENTO / TIPO</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>FECHA MONTADA</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>PAGÓ TESORERÍA</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>ANALISTA ENCARGADO</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'left', color: '#94a3b8', fontWeight: 600 }}>DESTINO SUGERIDO</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ÍTEMS / UND.</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>MONTO TOTAL</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ESTADO</th>
                 </tr>
-              ) : (
-                candidatas.map((f) => {
-                  const marcada = !excluidos.has(f.uid);
-                  return (
+              </thead>
+              <tbody>
+                {!filasFiltradas.length ? (
+                  <tr>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                      No hay recepciones pendientes que coincidan con los filtros aplicados.
+                    </td>
+                  </tr>
+                ) : (
+                  filasFiltradas.map((f, idx) => (
                     <tr
                       key={f.uid}
-                      onClick={() => toggleFila(f.uid)}
                       style={{
-                        cursor: 'pointer',
-                        opacity: marcada ? 1 : 0.48,
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent',
                       }}
                     >
-                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={marcada}
-                          onChange={() => toggleFila(f.uid)}
-                          aria-label={`Incluir ${f.codigo}`}
-                        />
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                      <td style={{ padding: '.45rem .6rem' }}>
+                        <div className="mono" style={{ fontWeight: 700, color: '#f1f5f9' }}>{f.codigo}</div>
+                        <span className="muted" style={{ fontSize: '.72rem' }}>{f.origenLabel}</span>
                       </td>
-                      <td className="mono">
-                        <strong>{f.codigo}</strong>
-                        {f.codigoSolicitud && <div className="muted" style={{ fontSize: '.68rem' }}>{f.codigoSolicitud}</div>}
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        {f.fechaMontadaFmt}
                       </td>
-                      <td>
-                        <span className={`badge ${f.estado === 'pagada' ? 'success' : 'warning'}`}>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <span
+                          className={`badge ${f.tienePagoTesoreria ? 'success' : 'warning'}`}
+                          style={{ fontSize: '.74rem' }}
+                        >
+                          {f.fechaPagoFmt}
+                        </span>
+                      </td>
+                      <td style={{ padding: '.45rem .6rem' }}>
+                        <span style={{ fontWeight: 600, color: '#f1f5f9' }}>👤 {f.analista}</span>
+                      </td>
+                      <td style={{ padding: '.45rem .6rem' }}>
+                        <span>🏭 {f.almacenDestino}</span>
+                      </td>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center' }}>
+                        <div>{f.numItems} ítem{f.numItems !== 1 ? 's' : ''}</div>
+                        <div className="muted" style={{ fontSize: '.72rem' }}>({num(f.totalUnidades)} und.)</div>
+                      </td>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span className="mono" style={{ fontWeight: 700, color: '#22c55e' }}>
+                          {money(f.montoNativo, f.moneda)}
+                        </span>
+                      </td>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center' }}>
+                        <span className="badge info" style={{ fontSize: '.72rem' }}>
                           {f.estadoLabel}
                         </span>
                       </td>
-                      <td style={{ fontWeight: 600 }}>{f.analista}</td>
-                      <td className="mono" style={{ whiteSpace: 'nowrap' }}>{f.fechaMontadaFmt}</td>
-                      <td
-                        className="mono"
-                        style={{
-                          whiteSpace: 'nowrap',
-                          color: f.tienePagoTesoreria ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)',
-                          fontWeight: f.tienePagoTesoreria ? 600 : 400,
-                        }}
-                      >
-                        {f.fechaPagoFmt}
-                      </td>
-                      <td>{f.proveedor}</td>
-                      <td>
-                        <div>{f.solicitante}</div>
-                        <div className="muted" style={{ fontSize: '.7rem' }}>↳ {f.almacenDestino}</div>
-                      </td>
-                      <td className="num mono" style={{ whiteSpace: 'nowrap' }}>
-                        {num(f.numItems)} · {num(f.totalUnidades)}u
-                      </td>
-                      {campos.includes('monto') && (
-                        <td className="num mono" style={{ fontWeight: 600 }}>
-                          {money(f.montoUsd)}
-                        </td>
-                      )}
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
+
+      </div>
     </Modal>
   );
 }

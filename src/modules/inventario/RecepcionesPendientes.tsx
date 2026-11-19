@@ -22,9 +22,11 @@ import { MAX_RECEPCIONES_VISIBLES, filtrarRecepciones, partirRecepciones, unidad
 import {
   construirWhatsappDetallePendiente,
   etiquetaSinPagoTesoreria,
+  fechaEstiloMgg,
   fechaMontadaOrden,
   fechaPagoTesoreriaOrden,
   limpiarNombrePersona,
+  nombreSedeAlmacen,
   normalizarPendientesRecepcion,
   resolverAnalistaCompraDirecta,
   resolverAnalistaOrden,
@@ -764,101 +766,48 @@ export function RecepcionesPendientes({
       normalizarPendientesRecepcion({
         ordenesPendientes: pendientes,
         comprasPendientes,
+        almacenes,
         proveedoresMap,
         resolverPersona: quien,
         tasaUsdHoy: tasaHoy,
       }),
-    [pendientes, comprasPendientes, proveedoresMap, quien, tasaHoy],
+    [pendientes, comprasPendientes, almacenes, proveedoresMap, quien, tasaHoy],
   );
 
   return (
     <>
-      {/* ─── Compras directas pagadas por recibir ─── */}
-      {comprasPendientes.length > 0 && (
-        <div className="card">
-          <div className="card-title">
-            <span>Compras directas por recibir</span>
-            <span className="muted mono">{num(comprasPendientes.length)} compra{comprasPendientes.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
-            {comprasPendientes.map((c) => {
-              const items = Array.isArray(c.items) ? c.items : [];
-              const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
-              const analistaCd = resolverAnalistaCompraDirecta(c, quien);
-              const fMontadaCd = c.enviada_pagar_at ?? c.created_at;
-              return (
-                <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--warning, #f59e0b)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
-                    <div>
-                      <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? 'Compra directa'}</div>
-                      <div className="muted" style={{ fontSize: '.72rem' }}>Destino: {c.almacen || 'General'}</div>
-                    </div>
-                    <span className="badge success">Pagada</span>
-                  </div>
-                  <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
-                    <div>{num(items.length)} material{items.length !== 1 ? 'es' : ''} · {num(totalUnidades)} und.</div>
-                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{montoMoneda(Number(c.gasto) || 0, c.moneda)}</div>
-                  </div>
-                  <div style={{ marginTop: '.45rem', fontSize: '.73rem', display: 'grid', gap: '.18rem' }}>
-                    <div><span className="muted">Analista encargado:</span> <strong>{analistaCd}</strong></div>
-                    <div title={fMontadaCd ? dateTime(fMontadaCd) : undefined}>
-                      <span className="muted">Fecha montada:</span> <span className="mono">{fMontadaCd ? date(fMontadaCd) : '—'}</span>
-                    </div>
-                    <div title={c.pagada_at ? dateTime(c.pagada_at) : undefined}>
-                      <span className="muted">Pago Tesorería:</span>{' '}
-                      <span className="mono" style={{ color: 'var(--success, #10b981)', fontWeight: 600 }}>
-                        {c.pagada_at ? date(c.pagada_at) : '—'}
-                      </span>
-                    </div>
-                    {c.proveedor_nombre && (
-                      <div className="muted">Proveedor: {c.proveedor_nombre}</div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
-                    {canWrite && (
-                      <button type="button" className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setRecibirCompra(c)} title="Ver el detalle y dar entrada al inventario eligiendo el almacén">
-                        📦 Recibir
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ─── Pendientes por recepción ─── */}
+      {/* ─── Recepciones por recibir (estilo estándar MGG) ─── */}
       <div className="card">
-        <div className="card-title" style={{ flexWrap: 'wrap', gap: '.5rem' }}>
-          <span>Pendientes por recepción</span>
-          <span style={{ display: 'flex', gap: '.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            <span>Recepciones por recibir</span>
             <span className="muted mono">{num(pendientes.length)} órden{pendientes.length !== 1 ? 'es' : ''}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
-              disabled={filasReportePendientes.length === 0}
+              className="btn btn-sm btn-secondary"
               onClick={() => setModoReporte('pdf')}
-              title="Generar reporte dinámico en PDF de las órdenes pendientes por recepcionar"
+              title="Abrir reporte dinámico con filtros, métricas y PDF"
             >
-              📄 Reporte PDF
+              📊 Reporte Dinámico
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-wsp"
-              disabled={filasReportePendientes.length === 0}
+              className="btn btn-sm btn-outline-success"
+              style={{ color: '#25D366', borderColor: '#25D366' }}
               onClick={() => setModoReporte('whatsapp')}
-              title="Generar mensaje dinámico de WhatsApp (NO HA LLEGADO A ALMACEN DAR STATUS)"
+              title="Compartir resumen por WhatsApp"
             >
-              📲 Reporte WhatsApp
+              💬 WhatsApp
             </button>
-          </span>
+          </div>
         </div>
 
         {!pendientes.length ? (
-          <EmptyState message="No hay órdenes pendientes por recibir." icon="📦" />
+          <EmptyState message="No hay mercancía por recibir. Cuando llegue una orden, aparecerá acá para asignarle el almacén." icon="📦" />
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.75rem' }}>
             {pendientes.map((o) => {
               const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
               const totalUnidades = Array.isArray(o.items)
@@ -867,73 +816,142 @@ export function RecepcionesPendientes({
               const analista = resolverAnalistaOrden(o, quien);
               const fMontada = fechaMontadaOrden(o);
               const fPago = fechaPagoTesoreriaOrden(o);
-              const provNombre = (o.proveedor_id ? proveedoresMap.get(o.proveedor_id) : '')?.trim() || null;
-              const solicitanteLimpio = limpiarNombrePersona(o.solicitante, o.solicitante_email, quien) || o.solicitante;
+              const fechaPagoTxt = fPago
+                ? fechaEstiloMgg(fPago)
+                : etiquetaSinPagoTesoreria(o.condiciones_pago);
+              const destinoSugerido = o.tipo === 'servicio'
+                ? 'Servicio (Equipo)'
+                : nombreSedeAlmacen(o.almacen_destino || 'General', almacenes);
+
               return (
-                <div key={o.id} className="card" style={{ margin: 0, padding: '.85rem', borderColor: 'var(--primary-3, #2563eb)' }}>
+                <div key={o.id} className="card" style={{ margin: 0, padding: '.85rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                     <div>
-                      <div className="mono" style={{ fontWeight: 700 }}>{o.oc_codigo ?? o.codigo}</div>
-                      {o.oc_codigo && o.codigo && o.codigo !== o.oc_codigo && (
-                        <div className="muted mono" style={{ fontSize: '.7rem' }}>{o.codigo}</div>
-                      )}
+                      <div
+                        className="mono"
+                        style={{ fontWeight: 700, cursor: 'pointer' }}
+                        onClick={() => setDetalle(o)}
+                        title="Ver el detalle de la orden"
+                      >
+                        {o.oc_codigo ?? o.codigo}
+                      </div>
+                      <div className="muted" style={{ fontSize: '.75rem' }}>
+                        📅 Montada: {fMontada ? fechaEstiloMgg(fMontada) : '—'}
+                      </div>
                     </div>
                     <StatusBadge estado={o.estado} />
                   </div>
 
-                  <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                  <div style={{ marginTop: '.5rem', fontSize: '.82rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                    <div>
+                      <span className="muted">👤 Analista:</span> <strong>{analista}</strong>
+                    </div>
+                    <div>
+                      <span className="muted">💳 Pagó Tesorería:</span>{' '}
+                      <span style={{ color: fPago ? 'var(--primary-3)' : 'var(--text-muted)' }}>
+                        {fechaPagoTxt}
+                      </span>
+                    </div>
                     <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
                     <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total)}</div>
                   </div>
 
-                  <div style={{ marginTop: '.45rem', fontSize: '.73rem', display: 'grid', gap: '.18rem' }}>
-                    <div>
-                      <span className="muted">Analista encargado:</span>{' '}
-                      <strong>{analista}</strong>
-                    </div>
-                    <div title={fMontada ? dateTime(fMontada) : undefined}>
-                      <span className="muted">Fecha montada:</span>{' '}
-                      <span className="mono">{fMontada ? date(fMontada) : '—'}</span>
-                    </div>
-                    <div title={fPago ? dateTime(fPago) : undefined}>
-                      <span className="muted">Pago Tesorería:</span>{' '}
-                      <span
-                        className="mono"
-                        style={{
-                          color: fPago ? 'var(--success, #10b981)' : 'var(--warning, #f59e0b)',
-                          fontWeight: fPago ? 600 : 400,
-                        }}
-                      >
-                        {fPago ? date(fPago) : etiquetaSinPagoTesoreria(o.condiciones_pago)}
-                      </span>
-                    </div>
-                    {provNombre && (
-                      <div className="muted">Proveedor: {provNombre}</div>
-                    )}
-                    {solicitanteLimpio && (
-                      <div className="muted">Solicita: {solicitanteLimpio}</div>
-                    )}
-                    <div className="muted">
-                      Destino sugerido: {o.tipo === 'servicio' ? 'Servicio (Equipo)' : (o.almacen_destino || 'General')}
-                    </div>
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
+                    Sugerido: 🏭 {destinoSugerido}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '.4rem', marginTop: '.6rem' }}>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDetalle(o)} title="Ver el detalle de la orden">
-                      👁 Detalle
+                  {canWrite ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      style={{ marginTop: '.6rem', width: '100%' }}
+                      onClick={() => setRecibir(o)}
+                      title="Recibir esta orden y elegir el almacén destino"
+                    >
+                      📦 Recibir / asignar almacén
                     </button>
-                    {canWrite && (
-                      <button type="button" className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setRecibir(o)} title="Recibir esta orden y elegir el almacén destino">
-                        📦 Recibir
-                      </button>
-                    )}
-                  </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ marginTop: '.6rem', width: '100%' }}
+                      onClick={() => setDetalle(o)}
+                    >
+                      👁 Ver detalle
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* ─── Compras directas pagadas por recibir ─── */}
+      {comprasPendientes.length > 0 && (
+        <div className="card">
+          <div className="card-title">
+            <span>🛒 Compras directas por recibir</span>
+            <span className="muted mono">{num(comprasPendientes.length)} compra{comprasPendientes.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.75rem' }}>
+            {comprasPendientes.map((c) => {
+              const items = Array.isArray(c.items) ? c.items : [];
+              const itemsCount = items.length;
+              const totalUnidades = items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+              const analistaCd = resolverAnalistaCompraDirecta(c, quien);
+              const fMontadaCd = c.enviada_pagar_at ?? c.created_at;
+              const fechaPagoCd = c.pagada_at ? fechaEstiloMgg(c.pagada_at) : 'Pagada';
+              return (
+                <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
+                    <div>
+                      <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? '—'}</div>
+                      <div className="muted" style={{ fontSize: '.75rem' }}>
+                        📅 Montada: {fMontadaCd ? fechaEstiloMgg(fMontadaCd) : '—'}
+                      </div>
+                    </div>
+                    <span className="badge warning">🛒 Directo</span>
+                  </div>
+                  <div style={{ marginTop: '.5rem', fontSize: '.82rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                    <div>
+                      <strong>{itemsCount > 1 ? `${num(itemsCount)} materiales` : c.producto_nombre}</strong>
+                      {itemsCount > 1 && (
+                        <div className="muted" style={{ fontSize: '.76rem' }} title={items.map((it) => it.producto_nombre).join(' · ')}>
+                          {items.slice(0, 2).map((it) => it.producto_nombre).join(' · ')}{itemsCount > 2 ? ` · +${num(itemsCount - 2)}` : ''}
+                        </div>
+                      )}
+                    </div>
+                    <div><span className="muted">👤 Responsable:</span> <strong>{analistaCd}</strong></div>
+                    <div>
+                      <span className="muted">💳 Pagó Tesorería:</span>{' '}
+                      <span style={{ color: 'var(--primary-3)' }}>{fechaPagoCd}</span>
+                    </div>
+                    <div className="muted">{num(totalUnidades)} und.</div>
+                    <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{montoMoneda(Number(c.gasto) || 0, c.moneda)}</div>
+                  </div>
+                  {c.almacen && (
+                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>
+                      Sugerido: 🏭 {nombreSedeAlmacen(c.almacen, almacenes)}
+                    </div>
+                  )}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      style={{ marginTop: '.6rem', width: '100%' }}
+                      onClick={() => setRecibirCompra(c)}
+                      title="Ver el detalle y dar entrada al inventario eligiendo el almacén"
+                    >
+                      📦 Recibir / asignar almacén
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ─── Historial (finalizadas) ─── */}
       <div className="card">
@@ -1032,6 +1050,7 @@ export function RecepcionesPendientes({
       {modoReporte && (
         <ReportePendientesRecepcionModal
           filas={filasReportePendientes}
+          actor={quien(actorName, actor) || actorName || actor}
           modoInicial={modoReporte}
           onClose={() => setModoReporte(null)}
         />
