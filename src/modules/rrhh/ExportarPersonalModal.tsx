@@ -51,6 +51,7 @@ import {
   descargarPersonalCsv,
   descargarPersonalExcel,
   descargarPersonalPdf,
+  descargarPersonalTxt,
   type MetadatosExportacionPersonal,
 } from './exportarPersonalReporte';
 import {
@@ -86,7 +87,7 @@ const MODOS_AGRUPACION: { id: ModoAgrupacionPersonal; icon: string; label: strin
   { id: 'estado', icon: '🟢', label: 'Por Estado' },
   { id: 'genero', icon: '👤', label: 'Por Género' },
   { id: 'hijos', icon: '👶', label: 'Por Carga Familiar' },
-  { id: 'antiguedad', icon: '⏳ Por Antigüedad', label: 'Por Antigüedad' },
+  { id: 'antiguedad', icon: '⏳', label: 'Por Antigüedad' },
   { id: 'grado_instruccion', icon: '🎓', label: 'Por Instrucción' },
   { id: 'detallado', icon: '📋', label: 'Detallado' },
 ];
@@ -586,7 +587,7 @@ export function ExportarPersonalModal({
   };
 
   // Acciones de descarga estándar
-  const descargar = async (tipo: 'xlsx' | 'pdf' | 'csv') => {
+  const descargar = async (tipo: 'xlsx' | 'pdf' | 'csv' | 'txt') => {
     if (marcados.length === 0) {
       toast('Selecciona al menos una columna para exportar.', 'warning');
       return;
@@ -626,6 +627,9 @@ export function ExportarPersonalModal({
         await descargarPersonalExcel(filasExportar, resultadoExportar.resumen, resultadoExportar.grupos, marcados, meta);
       } else if (tipo === 'pdf') {
         await descargarPersonalPdf(filasExportar, resultadoExportar.resumen, resultadoExportar.grupos, marcados, meta);
+      } else if (tipo === 'txt') {
+        descargarPersonalTxt(filasExportar, marcados, meta);
+        toast(`TXT descargado (${filasExportar.length} registros)`, 'success');
       } else {
         descargarPersonalCsv(filasExportar, marcados, meta);
       }
@@ -701,9 +705,17 @@ export function ExportarPersonalModal({
               <span>·</span>
               <span>Masa salarial: <strong style={{ color: '#22c55e' }}>${resultado.resumen.masaSalarialTotalUsd.toLocaleString('es-VE')}</strong></span>
             </div>
-            <div style={{ display: 'flex', gap: '.45rem' }}>
+            <div style={{ display: 'flex', gap: '.45rem', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>
                 Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void descargar('txt')}
+                disabled={!!ocupado || !filasFiltradas.length || !marcados.length}
+              >
+                {ocupado === 'txt' ? 'Generando…' : '📝 TXT'}
               </button>
               <button
                 type="button"

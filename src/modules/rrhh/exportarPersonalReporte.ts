@@ -682,3 +682,45 @@ export function descargarPersonalCsv(
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/* ============================================================
+   4. TXT (Texto plano tabulado UTF-8 con las columnas marcadas)
+   ============================================================ */
+
+export function descargarPersonalTxt(
+  filas: FilaReportePersonal[],
+  columnasClaves: string[],
+  meta: MetadatosExportacionPersonal,
+): void {
+  const columnas = columnasClaves
+    .map((c) => CAMPOS_REPORTE_PERSONAL.find((col) => col.clave === c))
+    .filter(Boolean) as CampoColumnaPersonal[];
+
+  if (!columnas.length) throw new Error('Selecciona al menos una columna para exportar.');
+
+  const sanear = (txt: string) => txt.replace(/[\r\n\t]+/g, ' ').trim();
+
+  const lineas: string[] = [];
+  // Encabezados
+  lineas.push(columnas.map((c) => sanear(c.etiqueta)).join('\t'));
+
+  // Filas con los valores formateados según las columnas marcadas
+  filas.forEach((f) => {
+    const valores = columnas.map((c) => {
+      const celda = formatearValorCelda(f, c);
+      return celda === '—' ? '' : sanear(celda);
+    });
+    lineas.push(valores.join('\t'));
+  });
+
+  const blob = new Blob([lineas.join('\r\n') + '\r\n'], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const nombreSufijo = meta.empresaPrincipal ? `${meta.empresaPrincipal.toLowerCase()}-` : '';
+  a.download = `rrhh-${nombreSufijo}${meta.agrupacion}-${hoyStr()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
