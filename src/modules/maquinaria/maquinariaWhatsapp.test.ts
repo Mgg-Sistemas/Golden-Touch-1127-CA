@@ -274,15 +274,17 @@ describe('maquinariaWhatsapp', () => {
       expect(txt).not.toContain('\uFE0F');
     });
 
-    it('incluye filtros activos cuando se especifican', () => {
+    it('incluye filtros activos cuando se especifican y personaliza el título si hay tipo puntual', () => {
       const txt = textoReporteFlotaWhatsapp({
         equipos: [eq1],
+        tipoSel: 'RETROEXCAVADORA',
         categoriaSel: 'maquinaria',
         propietarioSel: 'GOLDEN TOUCH',
         estatusSel: 'operativa',
       });
 
-      expect(txt).toContain('Filtros activos: Categoría: MAQUINARIA · Propietario: GOLDEN TOUCH · Estatus: OPERATIVA');
+      expect(txt).toContain('Reporte de RETROEXCAVADORA');
+      expect(txt).toContain('Filtros activos: Tipo: RETROEXCAVADORA · Categoría: MAQUINARIA · Propietario: GOLDEN TOUCH · Estatus: OPERATIVA');
       expect(txt).toContain('CAT 320D');
     });
   });

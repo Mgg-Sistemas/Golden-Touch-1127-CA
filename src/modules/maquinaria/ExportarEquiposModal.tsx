@@ -133,6 +133,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const [menuUbicAbierto, setMenuUbicAbierto] = useState(false);
   const dropdownUbicRef = useRef<HTMLDivElement>(null);
   const [categoriaSel, setCategoriaSel] = useState<'todas' | ClaseEquipo>('todas');
+  const [tipoSel, setTipoSel] = useState<string>('todos');
   const [estatusSel, setEstatusSel] = useState<string>('todos');
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
   const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
@@ -251,6 +252,66 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return Array.from(s);
   }, [equipos]);
 
+  // Helper de normalización para comparar tipos sin importar acentos ni mayúsculas/minúsculas
+  const normTipo = (s: string | null | undefined) => (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+
+  // Lista de tipos de equipos disponibles en el subconjunto filtrado por propietario, ubicación, categoría y estatus
+  const infoTipos = useMemo(() => {
+    const base = equipos.filter((e) => {
+      if (propietarioSel !== 'todos') {
+        const p = (e.propietario ?? '').trim();
+        if (propietarioSel === '__sin__') {
+          if (p) return false;
+        } else if (p.toUpperCase() !== propietarioSel.toUpperCase()) {
+          return false;
+        }
+      }
+      if (ubicacionesSel.length > 0) {
+        if (ubicacionesSel.includes('__ninguna__') && ubicacionesSel.length === 1) return false;
+        const u = normalizarUbicacion(e.ubicacion);
+        if (!u) {
+          if (!ubicacionesSel.includes('__sin__')) return false;
+        } else {
+          if (!ubicacionesSel.includes(u)) return false;
+        }
+      }
+      if (categoriaSel !== 'todas') {
+        if (claseEquipo(e) !== categoriaSel) return false;
+      }
+      if (estatusSel !== 'todos') {
+        if (estadoEfectivo(e) !== estatusSel) return false;
+      }
+      return true;
+    });
+
+    const mapa = new Map<string, { tipoOriginal: string; cant: number }>();
+    let sinTipo = 0;
+    for (const e of base) {
+      const t = (e.tipo ?? '').trim();
+      if (!t) {
+        sinTipo++;
+      } else {
+        const k = normTipo(t);
+        const item = mapa.get(k);
+        if (item) item.cant++;
+        else mapa.set(k, { tipoOriginal: t, cant: 1 });
+      }
+    }
+    const lista = Array.from(mapa.values()).sort((a, b) => a.tipoOriginal.localeCompare(b.tipoOriginal, 'es'));
+    return { lista, sinTipo, total: base.length };
+  }, [equipos, propietarioSel, ubicacionesSel, categoriaSel, estatusSel]);
+
+  // Si el tipo activo no existe en la combinación actual, se restablece
+  useEffect(() => {
+    if (tipoSel !== 'todos') {
+      if (tipoSel === '__sin__') {
+        if (infoTipos.sinTipo === 0) setTipoSel('todos');
+      } else if (!infoTipos.lista.some((t) => normTipo(t.tipoOriginal) === normTipo(tipoSel))) {
+        setTipoSel('todos');
+      }
+    }
+  }, [tipoSel, infoTipos]);
+
   // Filtrado reactivo de equipos con todos los criterios combinados
   const equiposAExportar = useMemo(() => {
     return equipos.filter((e) => {
@@ -280,6 +341,16 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         if (claseEquipo(e) !== categoriaSel) return false;
       }
 
+      // 3b. Tipo de equipo específico (ej. Retroexcavadoras, Generadores)
+      if (tipoSel !== 'todos') {
+        const t = (e.tipo ?? '').trim();
+        if (tipoSel === '__sin__') {
+          if (t) return false;
+        } else if (normTipo(t) !== normTipo(tipoSel)) {
+          return false;
+        }
+      }
+
       // 4. Estatus / Condición operativa
       if (estatusSel !== 'todos') {
         if (estadoEfectivo(e) !== estatusSel) return false;
@@ -287,7 +358,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
 
       return true;
     });
-  }, [equipos, propietarioSel, ubicacionesSel, categoriaSel, estatusSel]);
+  }, [equipos, propietarioSel, ubicacionesSel, categoriaSel, tipoSel, estatusSel]);
 
   // Conteos de categorías calculados sobre el subconjunto de los otros filtros
   const conteoCategorias = useMemo(() => {
@@ -312,6 +383,14 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
       if (estatusSel !== 'todos') {
         if (estadoEfectivo(e) !== estatusSel) return false;
       }
+      if (tipoSel !== 'todos') {
+        const t = (e.tipo ?? '').trim();
+        if (tipoSel === '__sin__') {
+          if (t) return false;
+        } else if (normTipo(t) !== normTipo(tipoSel)) {
+          return false;
+        }
+      }
       return true;
     });
 
@@ -321,21 +400,29 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
       m.set(c, (m.get(c) ?? 0) + 1);
     }
     return { mapa: m, total: base.length };
-  }, [equipos, propietarioSel, ubicacionesSel, estatusSel]);
+  }, [equipos, propietarioSel, ubicacionesSel, estatusSel, tipoSel]);
 
   const apartados = useMemo(() => listarApartados(), []);
 
   const categoriaLabel = categoriaSel === 'todas' ? null : (apartados.find((c) => c.id === categoriaSel)?.label ?? null);
+  const tipoLabel = tipoSel === 'todos' ? null : tipoSel === '__sin__' ? 'Sin tipo' : tipoSel;
   const propietarioLabel = propietarioSel === 'todos' ? null : propietarioSel === '__sin__' ? 'Sin propietario' : propietarioSel;
   const ubicacionesLabel = ubicacionesSel.length === 0 ? null : ubicacionesSel.includes('__ninguna__') ? 'Ninguna ubicación' : ubicacionesSel.length === 1 ? (ubicacionesSel[0] === '__sin__' ? 'Sin ubicación' : ubicacionesSel[0]) : `${ubicacionesSel.length} ubicaciones`;
   const estatusLabel = estatusSel === 'todos' ? null : (ESTADOS_EQUIPO[estatusSel as EstadoEquipo]?.label ?? estatusSel);
 
-  const hayFiltrosActivos = propietarioSel !== 'todos' || ubicacionesSel.length > 0 || categoriaSel !== 'todas' || estatusSel !== 'todos';
+  const subtituloExportacion = useMemo(() => {
+    if (tipoLabel && categoriaLabel) return `${categoriaLabel} · ${tipoLabel}`;
+    if (tipoLabel) return tipoLabel;
+    return categoriaLabel;
+  }, [tipoLabel, categoriaLabel]);
+
+  const hayFiltrosActivos = propietarioSel !== 'todos' || ubicacionesSel.length > 0 || categoriaSel !== 'todas' || tipoSel !== 'todos' || estatusSel !== 'todos';
 
   const resetearFiltros = () => {
     setPropietarioSel('todos');
     setUbicacionesSel([]);
     setCategoriaSel('todas');
+    setTipoSel('todos');
     setEstatusSel('todos');
   };
 
@@ -359,7 +446,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
           modoAgrupacion,
           contextoMap,
           orientacion,
-          categoriaLabel,
+          subtituloExportacion,
           resumen,
         );
       } else {
@@ -370,7 +457,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
           contextoMap,
           orientacion,
           fotosMap,
-          categoriaLabel,
+          subtituloExportacion,
           resumen,
         );
       }
@@ -385,13 +472,14 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return textoReporteFlotaWhatsapp({
       equipos: equiposAExportar,
       categoriaSel,
+      tipoSel: tipoLabel ?? undefined,
       propietarioSel,
       ubicacionesSel,
       estatusSel,
       modoAgrupacion,
       contextoMap,
     });
-  }, [equiposAExportar, categoriaSel, propietarioSel, ubicacionesSel, estatusSel, modoAgrupacion, contextoMap]);
+  }, [equiposAExportar, categoriaSel, tipoLabel, propietarioSel, ubicacionesSel, estatusSel, modoAgrupacion, contextoMap]);
 
     // Con «Solo el resumen» se puede descargar aunque no haya datos marcados.
   const nada = marcados.length === 0 && !soloResumen;
@@ -453,7 +541,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>
           Se exportarán <strong style={{ color: 'var(--primary, #f97316)' }}>{equiposAExportar.length}</strong> de {total || equipos.length} equipo(s) disponible(s)
           {hayFiltrosActivos ? (
-            <> ({[categoriaLabel, propietarioLabel, ubicacionesLabel, estatusLabel].filter(Boolean).join(' · ')})</>
+            <> ({[tipoLabel, categoriaLabel, propietarioLabel, ubicacionesLabel, estatusLabel].filter(Boolean).join(' · ')})</>
           ) : null}.
         </p>
         {hayFiltrosActivos && (
@@ -797,6 +885,36 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
                 </option>
               );
             })}
+          </select>
+        </div>
+
+        {/* Filtro: Tipo de equipo específico (ej. Retroexcavadoras, Generadores, Jumbos, etc.) */}
+        <div>
+          <label htmlFor="exp-filtro-tipo" style={{ fontSize: '.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '.3rem', marginBottom: '.25rem', color: 'var(--text, #f1f5f9)' }}>
+            ⚙️ Tipo de equipo:
+          </label>
+          <select
+            id="exp-filtro-tipo"
+            className="select"
+            style={{
+              width: '100%',
+              fontSize: '.82rem',
+              padding: '.3rem .55rem',
+              borderColor: tipoSel !== 'todos' ? 'var(--primary, #f97316)' : undefined,
+              boxShadow: tipoSel !== 'todos' ? '0 0 0 1px var(--primary, #f97316)' : undefined,
+            }}
+            value={tipoSel}
+            onChange={(e) => setTipoSel(e.target.value)}
+          >
+            <option value="todos">Todos los tipos ({infoTipos.total})</option>
+            {infoTipos.lista.map((t) => (
+              <option key={t.tipoOriginal} value={t.tipoOriginal}>
+                {t.tipoOriginal} ({t.cant})
+              </option>
+            ))}
+            {infoTipos.sinTipo > 0 && (
+              <option value="__sin__">Sin tipo especificado ({infoTipos.sinTipo})</option>
+            )}
           </select>
         </div>
       </div>

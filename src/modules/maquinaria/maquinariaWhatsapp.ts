@@ -380,6 +380,7 @@ export function textoAlertaMantenimientoWhatsapp(d: DatosAlertaMantenimientoWhat
 export interface DatosReporteFlotaWhatsapp {
   equipos: MaquinariaEquipo[];
   categoriaSel?: string;
+  tipoSel?: string;
   propietarioSel?: string;
   ubicacionesSel?: string[];
   estatusSel?: string;
@@ -416,8 +417,14 @@ export function textoReporteFlotaWhatsapp(d: DatosReporteFlotaWhatsapp): string 
     else esp++;
   }
 
+  const tituloPrincipal = d.tipoSel && d.tipoSel !== 'todos'
+    ? (d.tipoSel === '__sin__' ? '🚜 *Reporte de Equipos Sin Tipo Asignado*' : `🚜 *Reporte de ${d.tipoSel.toUpperCase()}*`)
+    : (d.categoriaSel && d.categoriaSel !== 'todas'
+      ? `🚜 *Reporte de ${d.categoriaSel.toUpperCase()}*`
+      : '🚜 *Reporte de Flota y Maquinaria*');
+
   const lineas: string[] = [
-    sinSelector('🚜 *Reporte de Flota y Maquinaria*'),
+    sinSelector(tituloPrincipal),
     sinSelector(`_GOLDEN TOUCH 1127 C.A. · ${fecha}_`),
     '',
     sinSelector(`📊 *Resumen de Flota (${equipos.length} equipo${equipos.length === 1 ? '' : 's'}):*`),
@@ -433,6 +440,7 @@ export function textoReporteFlotaWhatsapp(d: DatosReporteFlotaWhatsapp): string 
 
   // Filtros aplicados si alguno está activo
   const filtros: string[] = [];
+  if (d.tipoSel && d.tipoSel !== 'todos') filtros.push(d.tipoSel === '__sin__' ? 'Sin tipo asignado' : `Tipo: ${d.tipoSel.toUpperCase()}`);
   if (d.categoriaSel && d.categoriaSel !== 'todas') filtros.push(`Categoría: ${d.categoriaSel.toUpperCase()}`);
   if (d.propietarioSel && d.propietarioSel !== 'todos') filtros.push(`Propietario: ${d.propietarioSel}`);
   if (d.estatusSel && d.estatusSel !== 'todos') filtros.push(`Estatus: ${d.estatusSel.toUpperCase()}`);

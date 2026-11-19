@@ -30,7 +30,7 @@ import { num, date, dateTime, money } from '@/shared/lib/format';
 import type { CatalogoCombustible, MovimientoTanque, TanqueCombustible, TipoCatalogoCombustible, TipoMovTanque } from '@/shared/lib/types';
 import {
   listTanques, listCatalogos, listMovimientosTanque, registrarUso, registrarTraslado, registrarEntrada, registrarMerma,
-  eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
+  actualizarMovimientoTanque, eliminarMovimientoTanque, ultimoHorometroEquipo, ultimoContadorTanque, ultimoKilometrajeEquipo,
   setMovimientoCuaderno,
 } from './tanques.repository';
 import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
@@ -42,7 +42,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { horaAInput, horaDesdeInput } from './horaMovimiento';
 import { contadorFinalPropuesto, pasaPorSurtidor } from './contadorSurtidor';
 import { errorHorometro, faltaHorometroFinal, horasTrabajadas } from './horometroEquipo';
-import { errorSaldoInsuficiente, tanqueSinLitros } from './saldoSuficiente';
+import { errorSaldoInsuficiente, litrosExtraQueSalen, tanqueSinLitros } from './saldoSuficiente';
 import { esBidon, etiquetaTanqueDestino } from './bidonCombustible';
 import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
 import { MARGEN_MERMA_DEFECTO, mermaDeRecepcion } from './mermaRecepcion';
@@ -263,9 +263,19 @@ export function SurtidorMovilView() {
       )}
 
       {detalleVivo && (
-        <DetalleMovil mov={detalleVivo} tanque={tanques.find((t) => t.id === detalleVivo.tanque_id) ?? null} tanques={tanques}
-          canWrite={canWrite} esSurtidor={esSurtidor} actor={actor} onClose={() => setDetalle(null)}
-          onBorrado={async () => { setDetalle(null); await reloadBase().catch(() => {}); await reloadMovs(selId).catch(() => {}); }} />
+        <DetalleMovil
+          mov={detalleVivo}
+          tanque={tanques.find((t) => t.id === detalleVivo.tanque_id) ?? null}
+          tanques={tanques}
+          catalogos={catalogos}
+          fichas={fichas}
+          canWrite={canWrite}
+          esSurtidor={esSurtidor}
+          actor={actor}
+          onClose={() => setDetalle(null)}
+          onBorrado={async () => { setDetalle(null); await reloadBase().catch(() => {}); await reloadMovs(selId).catch(() => {}); }}
+          onActualizado={async () => { await reloadBase().catch(() => {}); await reloadMovs(selId).catch(() => {}); }}
+        />
       )}
 
       {reporte && <SurtidorReporteMovil tanques={tanques} tanqueInicial={selId} onClose={() => setReporte(false)} />}
@@ -917,19 +927,175 @@ function FormularioSurtido({ tipo, tanque, tanques, catalogos, fichas, movimient
   );
 }
 
-/* ───────────── Detalle de un movimiento (fotos y borrado) ───────────── */
-function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClose, onBorrado }: {
-  mov: MovimientoTanque; tanque: TanqueCombustible | null; tanques: TanqueCombustible[];
-  canWrite: boolean; esSurtidor: boolean; actor: string; onClose: () => void; onBorrado: () => Promise<void>;
+/* ───────────── Detalle de un movimiento (ver, editar, fotos y borrado) ───────────── */
+function DetalleMovil({
+  mov,
+  tanque,
+  tanques,
+  catalogos,
+  fichas,
+  canWrite,
+  esSurtidor: _esSurtidor,
+  actor,
+  onClose,
+  onBorrado,
+  onActualizado,
+}: {
+  mov: MovimientoTanque;
+  tanque: TanqueCombustible | null;
+  tanques: TanqueCombustible[];
+  catalogos: CatalogoCombustible[];
+  fichas: MaquinariaEquipo[];
+  canWrite: boolean;
+  esSurtidor: boolean;
+  actor: string;
+  onClose: () => void;
+  onBorrado: () => Promise<void>;
+  onActualizado?: () => Promise<void>;
 }) {
+  const [modo, setModo] = useState<'ver' | 'editar'>('ver');
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorEdit, setErrorEdit] = useState<string | null>(null);
+
+  // Estados editables inicializados desde el movimiento
+  const [fechaEdit, setFechaEdit] = useState(mov.fecha || hoyVE());
+  const [horaEdit, setHoraEdit] = useState(mov.hora || '');
+  const [litrosEdit, setLitrosEdit] = useState(String(mov.litros ?? ''));
+  const [equipoEdit, setEquipoEdit] = useState(mov.equipo || '');
+  const [autorizadoEdit, setAutorizadoEdit] = useState(mov.autorizado_por || '');
+  const [ubicacionEdit, setUbicacionEdit] = useState(mov.ubicacion || '');
+  const [observacionEdit, setObservacionEdit] = useState(mov.observacion || '');
+  const [hiEdit, setHiEdit] = useState(mov.horometro_ini != null ? String(mov.horometro_ini) : '');
+  const [hfEdit, setHfEdit] = useState(mov.horometro_fin != null ? String(mov.horometro_fin) : '');
+  const [ciEdit, setCiEdit] = useState(mov.contador_marcaba_ini != null ? String(mov.contador_marcaba_ini) : '');
+  const [cfEdit, setCfEdit] = useState(mov.contador_marcaba_fin != null ? String(mov.contador_marcaba_fin) : '');
+  const [kmEdit, setKmEdit] = useState(mov.kilometraje != null ? String(mov.kilometraje) : '');
+  const [enCuadernoEdit, setEnCuadernoEdit] = useState(!!mov.registrado_en_cuaderno);
+  const [cuadernoLitrosEdit, setCuadernoLitrosEdit] = useState(
+    mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : '')
+  );
+  const [tasaEdit, setTasaEdit] = useState(mov.tasa_usd_litro != null ? String(mov.tasa_usd_litro) : '');
+
   const [enCuaderno, setEnCuaderno] = useState(!!mov.registrado_en_cuaderno);
   const quien = useQuien();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
-  const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
-    <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
-  ) : null;
+
+  const opts = (t: TipoCatalogoCombustible) => catalogos.filter((c) => c.tipo === t && c.activo);
+
+  const equiposOpts = useMemo(() => opcionesEquipos({
+    catalogo: catalogos.filter((c) => c.tipo === 'equipo'),
+    fichas,
+    bidones: tanque && esBidon(tanque.nombre) ? tanques.filter((t) => esBidon(t.nombre)).map((t) => t.nombre) : [],
+    modo: 'telefono',
+    tanqueActual: tanque ?? undefined,
+    incluirValor: equipoEdit,
+  }), [catalogos, tanques, fichas, tanque, equipoEdit]);
+
+  const litrosEditNum = Number(String(litrosEdit).replace(',', '.')) || 0;
+  const extraSale = litrosExtraQueSalen(
+    { tipo: mov.tipo, litros: mov.litros },
+    { tipo: mov.tipo, litros: litrosEditNum }
+  );
+  const errSaldo = tanque && extraSale > 0
+    ? errorSaldoInsuficiente({ nombre: tanque.nombre, saldo: tanque.saldo_litros, litros: extraSale, edicion: true })
+    : null;
+
+  const hiNum = hiEdit === '' ? null : Number(hiEdit);
+  const hfNum = hfEdit === '' ? null : Number(hfEdit);
+  const hrsEdit = horasTrabajadas(hiNum, hfNum);
+  const ciNum = ciEdit === '' ? null : Number(ciEdit);
+  const cfNum = cfEdit === '' ? null : Number(cfEdit);
+  const litrosContadorEdit = ciNum != null && cfNum != null ? cfNum - ciNum : null;
+  const kmNum = kmEdit === '' ? null : Number(kmEdit);
+
+  function cancelarEdicion() {
+    setErrorEdit(null);
+    setFechaEdit(mov.fecha || hoyVE());
+    setHoraEdit(mov.hora || '');
+    setLitrosEdit(String(mov.litros ?? ''));
+    setEquipoEdit(mov.equipo || '');
+    setAutorizadoEdit(mov.autorizado_por || '');
+    setUbicacionEdit(mov.ubicacion || '');
+    setObservacionEdit(mov.observacion || '');
+    setHiEdit(mov.horometro_ini != null ? String(mov.horometro_ini) : '');
+    setHfEdit(mov.horometro_fin != null ? String(mov.horometro_fin) : '');
+    setCiEdit(mov.contador_marcaba_ini != null ? String(mov.contador_marcaba_ini) : '');
+    setCfEdit(mov.contador_marcaba_fin != null ? String(mov.contador_marcaba_fin) : '');
+    setKmEdit(mov.kilometraje != null ? String(mov.kilometraje) : '');
+    setEnCuadernoEdit(!!mov.registrado_en_cuaderno);
+    setCuadernoLitrosEdit(mov.cuaderno_litros != null ? String(mov.cuaderno_litros) : (mov.registrado_en_cuaderno ? String(mov.litros) : ''));
+    setTasaEdit(mov.tasa_usd_litro != null ? String(mov.tasa_usd_litro) : '');
+    setModo('ver');
+  }
+
+  async function guardarEdicion() {
+    setErrorEdit(null);
+    if (litrosEdit.trim() === '' || litrosEditNum <= 0) {
+      setErrorEdit('Indica los litros (distinto de 0).');
+      return;
+    }
+    if (errSaldo) {
+      setErrorEdit(errSaldo);
+      return;
+    }
+    const errHor = errorHorometro(hiNum, hfNum);
+    if (errHor) {
+      setErrorEdit(errHor);
+      return;
+    }
+    setGuardando(true);
+    try {
+      const cLitrosNum = enCuadernoEdit
+        ? (cuadernoLitrosEdit.trim() !== '' ? Number(cuadernoLitrosEdit.replace(',', '.')) : litrosEditNum)
+        : null;
+
+      await actualizarMovimientoTanque(mov.id, {
+        fecha: fechaEdit,
+        hora: horaEdit || null,
+        equipo: equipoEdit || null,
+        autorizado_por: autorizadoEdit || null,
+        ubicacion: ubicacionEdit || null,
+        observacion: observacionEdit || null,
+        litros: litrosEditNum,
+        tasaUsdLitro: tasaEdit.trim() !== '' ? Number(tasaEdit.replace(',', '.')) : (mov.tasa_usd_litro ?? 0),
+        horometroIni: hiNum,
+        horometroFin: hfNum,
+        kilometraje: kmNum,
+        contadorGlobalIni: ciNum,
+        contadorGlobalFin: cfNum,
+        registrado_en_cuaderno: enCuadernoEdit,
+        cuaderno_litros: cLitrosNum,
+      });
+
+      mov.fecha = fechaEdit;
+      mov.hora = horaEdit || null;
+      mov.equipo = equipoEdit || null;
+      mov.autorizado_por = autorizadoEdit || null;
+      mov.ubicacion = ubicacionEdit || null;
+      mov.observacion = observacionEdit || null;
+      mov.litros = litrosEditNum;
+      mov.horometro_ini = hiNum;
+      mov.horometro_fin = hfNum;
+      mov.horas_utilizadas = hrsEdit;
+      mov.kilometraje = kmNum;
+      mov.contador_marcaba_ini = ciNum;
+      mov.contador_marcaba_fin = cfNum;
+      mov.registrado_en_cuaderno = enCuadernoEdit;
+      mov.cuaderno_litros = cLitrosNum;
+      if (tasaEdit.trim() !== '') mov.tasa_usd_litro = Number(tasaEdit.replace(',', '.'));
+      setEnCuaderno(enCuadernoEdit);
+
+      toast('Movimiento actualizado', 'success');
+      if (onActualizado) await onActualizado();
+      setModo('ver');
+    } catch (e) {
+      setErrorEdit(mensajeError(e, 'No se pudo actualizar'));
+    } finally {
+      setGuardando(false);
+    }
+  }
 
   async function borrar() {
     setBorrando(true);
@@ -943,98 +1109,432 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, onClo
     }
   }
 
-  return (
-    <Modal title={`${ICONO[mov.tipo]} ${NOMBRE_TIPO[mov.tipo]} · ${num(mov.litros)} L`} size="md" onClose={() => { if (!borrando) onClose(); }}
-      footer={<>
-        {canWrite && !confirmando && <button className="btn btn-danger btn-grande" onClick={() => setConfirmando(true)} disabled={borrando}>🗑 Eliminar</button>}
-        {!esSurtidor && <Link to="/app/combustible" className="btn btn-ghost btn-grande" onClick={onClose}>🖥 Corregir en la PC</Link>}
-        <button className="btn btn-primary btn-grande" onClick={onClose} disabled={borrando}>Cerrar</button>
-      </>}>
-      {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
-      <CompartirWhatsapp texto={mensajeMovimiento({
-        mov,
-        tanque: tanque?.nombre,
-        tanqueDestino: destino,
-        registradoPor: quien(mov.actor_name, mov.created_by),
-        registradoEnCuaderno: enCuaderno,
-        cuadernoLitros: enCuaderno ? (mov.cuaderno_litros ?? mov.litros) : null,
-        // Drive es solo de la PC: null deja la línea fuera del aviso.
-        registradoEnDrive: null,
-      })} />
+  const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
+    <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
+  ) : null;
 
-      <div className="surt-detalle">
-        <Fila k="Tanque" v={tanque?.nombre} />
-        <Fila k="Fecha" v={`${date(mov.fecha)}${mov.hora ? ` · ${mov.hora}` : ''}`} />
-        <Fila k="Equipo" v={mov.equipo} />
-        <Fila k="A qué tanque" v={destino} />
-        <Fila k="Autorizado por" v={mov.autorizado_por} />
-        <Fila k="Destino / mina" v={mov.ubicacion} />
-        <Fila k="Observación" v={mov.observacion} />
-        {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
-        {/* Lo que marcaba el aparato, no el acumulado del sistema: el telefono
-            habla siempre el idioma del contador (ver listMovimientosTanque). */}
-        <Fila k="Contador" v={mov.contador_marcaba_ini != null || mov.contador_marcaba_fin != null
-          ? `${mov.contador_marcaba_ini ?? '\u2014'} \u2192 ${mov.contador_marcaba_fin ?? '\u2014'}` : null} />
-        <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
-        <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
-        <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
-          <span className="muted" style={{ fontSize: '.84rem' }}>📖 Registro Cuaderno</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-            <span style={{
-              fontWeight: 700,
-              color: enCuaderno ? '#34d399' : '#f87171',
-              fontSize: '.88rem',
-            }}>
-              {enCuaderno ? `✓ ${mov.cuaderno_litros != null ? `${num(mov.cuaderno_litros)} L` : 'Registrado'}` : '✕ No registrado'}
-            </span>
-            {canWrite && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={async () => {
-                  try {
-                    const nuevo = !enCuaderno;
-                    const cant = nuevo ? (mov.cuaderno_litros ?? mov.litros) : null;
-                    await setMovimientoCuaderno(mov.id, nuevo, cant);
-                    mov.registrado_en_cuaderno = nuevo;
-                    mov.cuaderno_litros = cant;
-                    setEnCuaderno(nuevo);
-                    toast(nuevo ? 'Marcado como registrado en cuaderno' : 'Marcado como no registrado', 'success');
-                  } catch (e) {
-                    toast(mensajeError(e, 'No se pudo actualizar'), 'error');
+  return (
+    <Modal
+      title={
+        modo === 'editar'
+          ? `✏️ Editar ${NOMBRE_TIPO[mov.tipo].toLowerCase()} · ${tanque?.nombre ?? 'Tanque'}`
+          : `${ICONO[mov.tipo]} ${NOMBRE_TIPO[mov.tipo]} · ${num(mov.litros)} L`
+      }
+      size="md"
+      onClose={() => { if (!borrando && !guardando) onClose(); }}
+      footer={<>
+        {modo === 'ver' ? (
+          <>
+            {canWrite && !confirmando && (
+              <>
+                <button type="button" className="btn btn-primary btn-grande" onClick={() => { setErrorEdit(null); setModo('editar'); }} disabled={borrando}>
+                  ✏️ Editar
+                </button>
+                <button type="button" className="btn btn-danger btn-grande" onClick={() => setConfirmando(true)} disabled={borrando}>
+                  🗑 Eliminar
+                </button>
+              </>
+            )}
+            <button type="button" className="btn btn-ghost btn-grande" onClick={onClose} disabled={borrando}>
+              Cerrar
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn btn-ghost btn-grande" onClick={cancelarEdicion} disabled={guardando}>
+              ↩ Cancelar
+            </button>
+            <button type="button" className="btn btn-primary btn-grande" onClick={guardarEdicion} disabled={guardando || !!errSaldo}>
+              {guardando ? 'Guardando…' : '✔ Guardar cambios'}
+            </button>
+          </>
+        )}
+      </>}
+    >
+      {modo === 'ver' ? (
+        <>
+          {/* El que surte manda el aviso al grupo apenas carga el surtido. */}
+          <CompartirWhatsapp texto={mensajeMovimiento({
+            mov,
+            tanque: tanque?.nombre,
+            tanqueDestino: destino,
+            registradoPor: quien(mov.actor_name, mov.created_by),
+            registradoEnCuaderno: enCuaderno,
+            cuadernoLitros: enCuaderno ? (mov.cuaderno_litros ?? mov.litros) : null,
+            // Drive es solo de la PC: null deja la línea fuera del aviso.
+            registradoEnDrive: null,
+          })} />
+
+          <div className="surt-detalle">
+            <Fila k="Tanque" v={tanque?.nombre} />
+            <Fila k="Fecha" v={`${date(mov.fecha)}${mov.hora ? ` · ${mov.hora}` : ''}`} />
+            <Fila k="Equipo" v={mov.equipo} />
+            <Fila k="A qué tanque" v={destino} />
+            <Fila k="Autorizado por" v={mov.autorizado_por} />
+            <Fila k="Destino / mina" v={mov.ubicacion} />
+            <Fila k="Observación" v={mov.observacion} />
+            {mov.tipo === 'entrada' && <Fila k="Costo por litro" v={money(mov.tasa_usd_litro)} />}
+            {/* Lo que marcaba el aparato, no el acumulado del sistema: el telefono
+                habla siempre el idioma del contador (ver listMovimientosTanque). */}
+            <Fila k="Contador" v={mov.contador_marcaba_ini != null || mov.contador_marcaba_fin != null
+              ? `${mov.contador_marcaba_ini ?? '\u2014'} \u2192 ${mov.contador_marcaba_fin ?? '\u2014'}` : null} />
+            <Fila k="Horómetro" v={mov.horometro_ini != null || mov.horometro_fin != null ? `${mov.horometro_ini ?? '—'} → ${mov.horometro_fin ?? '—'}` : null} />
+            <Fila k="Horas trabajadas" v={(() => { const h = mov.horas_utilizadas ?? horasTrabajadas(mov.horometro_ini, mov.horometro_fin); return h != null ? `${num(h)} h` : null; })()} />
+            <Fila k="Kilometraje" v={mov.kilometraje != null ? num(mov.kilometraje) : null} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '.45rem 0', borderBottom: '1px solid #1e293b' }}>
+              <span className="muted" style={{ fontSize: '.84rem' }}>📖 Registro Cuaderno</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                <span style={{
+                  fontWeight: 700,
+                  color: enCuaderno ? '#34d399' : '#f87171',
+                  fontSize: '.88rem',
+                }}>
+                  {enCuaderno ? `✓ ${mov.cuaderno_litros != null ? `${num(mov.cuaderno_litros)} L` : 'Registrado'}` : '✕ No registrado'}
+                </span>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs"
+                    onClick={async () => {
+                      try {
+                        const nuevo = !enCuaderno;
+                        const cant = nuevo ? (mov.cuaderno_litros ?? mov.litros) : null;
+                        await setMovimientoCuaderno(mov.id, nuevo, cant);
+                        mov.registrado_en_cuaderno = nuevo;
+                        mov.cuaderno_litros = cant;
+                        setEnCuaderno(nuevo);
+                        setEnCuadernoEdit(nuevo);
+                        setCuadernoLitrosEdit(cant != null ? String(cant) : '');
+                        toast(nuevo ? 'Marcado como registrado en cuaderno' : 'Marcado como no registrado', 'success');
+                      } catch (e) {
+                        toast(mensajeError(e, 'No se pudo actualizar'), 'error');
+                      }
+                    }}
+                    style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
+                  >
+                    Cambiar
+                  </button>
+                )}
+              </div>
+            </div>
+            <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${quien(mov.actor_name, mov.created_by)}` : ''}`} />
+          </div>
+
+          {confirmando && (
+            <div className="surt-confirmar" role="alertdialog" aria-label="Confirmar borrado">
+              <div style={{ fontSize: '1.05rem' }}>
+                <strong>¿Borrar este {NOMBRE_TIPO[mov.tipo].toLowerCase()} de {num(mov.litros)} L?</strong>
+                <div className="muted" style={{ marginTop: '.3rem', fontSize: '.9rem' }}>
+                  Se borran también sus fotos{mov.mov_vinculado_id ? ' y el movimiento vinculado del otro tanque' : ''}, y el saldo del tanque se recalcula. No se puede deshacer. Se refleja al instante en la PC.
+                </div>
+              </div>
+              <div className="botones">
+                <button type="button" className="btn btn-peligro" onClick={() => void borrar()} disabled={borrando}>{borrando ? 'Borrando…' : '🗑 SÍ, BORRAR'}</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setConfirmando(false)} disabled={borrando}>↩ VOLVER</button>
+              </div>
+            </div>
+          )}
+
+          <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} grande
+            titulo="📷 Fotos y documentos" />
+          <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
+            Aquí puedes editar los litros, equipo, hora, medidores o fotos, o borrar el movimiento directamente desde el teléfono.
+          </small>
+        </>
+      ) : (
+        <div style={{ display: 'grid', gap: '.85rem', padding: '.25rem 0' }}>
+          {errorEdit && (
+            <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{errorEdit}</div></div>
+          )}
+
+          <div className="surt-campo">
+            <label htmlFor="edit-litros">
+              <span>⛽ Litros {mov.tipo === 'entrada' ? 'que entraron' : 'despachados'}</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                id="edit-litros"
+                className="input surt-input surt-litros"
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min={0}
+                value={litrosEdit}
+                onChange={(e) => setLitrosEdit(e.target.value)}
+                placeholder="0"
+                required
+              />
+              <span style={{
+                position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)',
+                fontWeight: 800, color: 'var(--primary-2, #ffa733)', fontSize: '1.15rem',
+                userSelect: 'none', pointerEvents: 'none', opacity: 0.85,
+              }}>
+                Ltrs
+              </span>
+            </div>
+            {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}
+          </div>
+
+          {mov.tipo === 'entrada' && (
+            <div className="surt-campo">
+              <label htmlFor="edit-costo">Costo por litro (USD)</label>
+              <input
+                id="edit-costo"
+                className="input surt-input"
+                type="number"
+                inputMode="decimal"
+                step="0.0001"
+                min={0}
+                value={tasaEdit}
+                onChange={(e) => setTasaEdit(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+          )}
+
+          <div className="surt-campo">
+            <label htmlFor="edit-equipo">
+              <span>🚜 {mov.tipo === 'uso' ? '¿A qué equipo o camión fue?' : 'Equipo / camión relacionado'}</span>
+            </label>
+            <div className="surt-buscable">
+              <SearchSelect
+                id="edit-equipo"
+                value={equipoEdit}
+                onChange={setEquipoEdit}
+                placeholder="🔍 Escribe el alias, placa o nombre…"
+                options={equiposOpts}
+              />
+            </div>
+          </div>
+
+          {(mov.tipo === 'uso' || mov.tipo === 'traslado') && (
+            <>
+              <div className="surt-grid2">
+                <div className="surt-campo">
+                  <label htmlFor="edit-hi">Horómetro inicial</label>
+                  <input
+                    id="edit-hi"
+                    className="input surt-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={hiEdit}
+                    onChange={(e) => setHiEdit(e.target.value)}
+                    placeholder="inicial"
+                  />
+                </div>
+                <div className="surt-campo">
+                  <label htmlFor="edit-hf">Horómetro final</label>
+                  <input
+                    id="edit-hf"
+                    className="input surt-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={hfEdit}
+                    onChange={(e) => setHfEdit(e.target.value)}
+                    placeholder="final"
+                  />
+                </div>
+              </div>
+              <div className="surt-campo">
+                <label htmlFor="edit-hrs">Horas trabajadas (HF − HI)</label>
+                <input
+                  id="edit-hrs"
+                  className="input surt-input"
+                  value={hrsEdit == null ? '' : num(hrsEdit)}
+                  readOnly
+                  placeholder="se calcula sola"
+                  style={{ background: 'color-mix(in srgb, var(--warning) 12%, var(--bg-1))', borderColor: 'var(--warning)', fontWeight: 700 }}
+                />
+              </div>
+
+              <div className="surt-grid2">
+                <div className="surt-campo">
+                  <label htmlFor="edit-ci">Contador inicial</label>
+                  <input
+                    id="edit-ci"
+                    className="input surt-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={ciEdit}
+                    onChange={(e) => setCiEdit(e.target.value)}
+                    placeholder="arranque"
+                  />
+                </div>
+                <div className="surt-campo">
+                  <label htmlFor="edit-cf">Contador final</label>
+                  <input
+                    id="edit-cf"
+                    className="input surt-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={cfEdit}
+                    onChange={(e) => setCfEdit(e.target.value)}
+                    placeholder="cierre"
+                  />
+                </div>
+              </div>
+              {litrosContadorEdit != null && (
+                <small className={Math.abs(litrosContadorEdit - litrosEditNum) > 1 ? 'surt-alerta' : 'muted'} style={{ marginTop: '-.3rem', display: 'block' }}>
+                  Según el contador salieron {num(litrosContadorEdit)} L{Math.abs(litrosContadorEdit - litrosEditNum) > 1 && litrosEditNum > 0 ? ' · no coincide con los litros' : ''}
+                </small>
+              )}
+
+              <div className="surt-campo">
+                <label htmlFor="edit-km">Kilometraje</label>
+                <input
+                  id="edit-km"
+                  className="input surt-input"
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={kmEdit}
+                  onChange={(e) => setKmEdit(e.target.value)}
+                  placeholder="odómetro"
+                />
+              </div>
+            </>
+          )}
+
+          <div className="surt-campo">
+            <label htmlFor="edit-autorizado"><span>👤 Autorizado por</span></label>
+            <div className="surt-buscable">
+              <SearchSelect
+                id="edit-autorizado"
+                value={autorizadoEdit}
+                onChange={setAutorizadoEdit}
+                placeholder="🔍 Busca quién autorizó…"
+                options={opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))}
+              />
+            </div>
+          </div>
+
+          <div className="surt-campo">
+            <label htmlFor="edit-ubic">Destino / mina</label>
+            <div className="surt-buscable">
+              <SearchSelect
+                id="edit-ubic"
+                value={ubicacionEdit}
+                onChange={setUbicacionEdit}
+                placeholder="🔍 Busca el destino…"
+                options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]}
+              />
+            </div>
+          </div>
+
+          <div className="surt-grid2">
+            <div className="surt-campo">
+              <label htmlFor="edit-fecha">Fecha</label>
+              <input
+                id="edit-fecha"
+                className="input surt-input"
+                type="date"
+                value={fechaEdit}
+                onChange={(e) => setFechaEdit(e.target.value)}
+              />
+            </div>
+            <div className="surt-campo">
+              <label htmlFor="edit-hora">Hora</label>
+              <input
+                id="edit-hora"
+                className="input surt-input"
+                type="time"
+                step={1}
+                value={horaAInput(horaEdit)}
+                onChange={(e) => setHoraEdit(horaDesdeInput(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="surt-campo">
+            <label htmlFor="edit-obs">Observación</label>
+            <input
+              id="edit-obs"
+              className="input surt-input"
+              value={observacionEdit}
+              onChange={(e) => setObservacionEdit(e.target.value)}
+              placeholder="Notas adicionales…"
+            />
+          </div>
+
+          {/* Control de Registro Cuaderno en Edición */}
+          <div className="surt-campo" style={{ margin: '.4rem 0' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '.75rem',
+                background: enCuadernoEdit ? 'rgba(16, 185, 129, 0.14)' : 'rgba(30, 41, 59, 0.7)',
+                border: enCuadernoEdit ? '1.5px solid rgba(16, 185, 129, 0.5)' : '1px solid #334155',
+                borderRadius: enCuadernoEdit ? '12px 12px 0 0' : '12px',
+                padding: '.75rem 1rem',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
+                <span style={{ fontSize: '1.35rem' }}>📖</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: enCuadernoEdit ? '#34d399' : '#f1f5f9', fontSize: '.95rem' }}>
+                    Registro Cuaderno
+                  </div>
+                  <div style={{ fontSize: '.75rem', color: enCuadernoEdit ? '#6ee7b7' : '#94a3b8' }}>
+                    {enCuadernoEdit ? 'Registrado' : 'No registrado'}
+                  </div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={enCuadernoEdit}
+                onChange={(e) => {
+                  const v = e.target.checked;
+                  setEnCuadernoEdit(v);
+                  if (v && (!cuadernoLitrosEdit || cuadernoLitrosEdit === '')) {
+                    setCuadernoLitrosEdit(litrosEdit || '');
                   }
                 }}
-                style={{ fontSize: '.72rem', padding: '2px 6px', background: 'rgba(255,255,255,0.06)' }}
-              >
-                Cambiar
-              </button>
+                style={{
+                  width: '22px',
+                  height: '22px',
+                  accentColor: '#10b981',
+                  cursor: 'pointer',
+                }}
+              />
+            </label>
+            {enCuadernoEdit && (
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.85)',
+                border: '1.5px solid rgba(16, 185, 129, 0.5)',
+                borderTop: 'none',
+                borderRadius: '0 0 12px 12px',
+                padding: '.65rem 1rem',
+              }}>
+                <label htmlFor="edit-cuaderno-litros" style={{ fontSize: '.78rem', color: '#6ee7b7', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                  ¿Cuánto está registrado en cuaderno?
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                  <input
+                    id="edit-cuaderno-litros"
+                    className="input surt-input"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    value={cuadernoLitrosEdit}
+                    onChange={(e) => setCuadernoLitrosEdit(e.target.value)}
+                    placeholder={litrosEdit || '0'}
+                    style={{ fontWeight: 700, borderColor: 'rgba(16, 185, 129, 0.6)', background: 'rgba(6, 78, 59, 0.2)' }}
+                  />
+                  <span className="mono" style={{ color: '#34d399', fontWeight: 700 }}>Ltrs</span>
+                </div>
+              </div>
             )}
           </div>
         </div>
-        <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.created_by ? ` · ${quien(mov.actor_name, mov.created_by)}` : ''}`} />
-      </div>
-
-      {confirmando && (
-        <div className="surt-confirmar" role="alertdialog" aria-label="Confirmar borrado">
-          <div style={{ fontSize: '1.05rem' }}>
-            <strong>¿Borrar este {NOMBRE_TIPO[mov.tipo].toLowerCase()} de {num(mov.litros)} L?</strong>
-            <div className="muted" style={{ marginTop: '.3rem', fontSize: '.9rem' }}>
-              Se borran también sus fotos{mov.mov_vinculado_id ? ' y el movimiento vinculado del otro tanque' : ''}, y el saldo del tanque se recalcula. No se puede deshacer. Se refleja al instante en la PC.
-            </div>
-          </div>
-          <div className="botones">
-            <button type="button" className="btn btn-peligro" onClick={() => void borrar()} disabled={borrando}>{borrando ? 'Borrando…' : '🗑 SÍ, BORRAR'}</button>
-            <button type="button" className="btn btn-ghost" onClick={() => setConfirmando(false)} disabled={borrando}>↩ VOLVER</button>
-          </div>
-        </div>
       )}
-
-      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} grande
-        titulo="📷 Fotos y documentos" />
-      <small className="muted" style={{ display: 'block', marginTop: '.6rem' }}>
-        Aquí se agregan o quitan fotos, o se borra el movimiento completo. Los litros, el equipo, la hora y los medidores se corrigen desde el módulo de Combustible en la PC; el cambio se ve aquí al instante.
-      </small>
     </Modal>
   );
 }
