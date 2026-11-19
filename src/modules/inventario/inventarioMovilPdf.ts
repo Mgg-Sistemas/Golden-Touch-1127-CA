@@ -14,6 +14,7 @@ import type { OpcionesOrdenPdf } from '@/modules/salidas/salidaPdf';
 import { num } from '@/shared/lib/format';
 import { pendienteRetorno, type SalidaMina } from './salidasMina';
 import { nombreDepositoChat, type TrasladoAlmacen } from './inventarioMovil';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 
 /** Lo que el PDF necesita: la solicitud armada y los ajustes del formato. */
 export interface DocMovilPdf {
@@ -74,16 +75,17 @@ export function docSalidaMovil(
     cantidad: Number(s.cantidad) || 0,
     precio_unit: costoProducto(producto),
   }];
-  return { sol, actor: sol.actor ?? null, opciones: { autorizadoPor: s.autorizado_por ?? null } };
+  return { sol, actor: sol.actor ?? null, opciones: { solicitadoPor: s.autorizado_por ?? null } };
 }
 
 /** Traslado entre almacenes del teléfono (TRA-####) → «ORDEN DE TRASLADO». */
 export function docTrasladoMovil(t: TrasladoAlmacen, precioUnit: number, q: Quien): DocMovilPdf {
   const sol = base(q, t.codigo, t.at, 'traslado');
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   sol.almacen_origen = nombreDepositoChat(t.origen);
   sol.almacen_destino = nombreDepositoChat(t.destino);
   sol.motivo = [
-    t.nota?.trim(),
+    notaLimpia,
     t.creado_en_destino ? `El producto se creó en ${nombreDepositoChat(t.destino)} (${t.sku_destino})` : '',
   ].filter(Boolean).join(' · ') || null;
   sol.items = [{
@@ -94,7 +96,7 @@ export function docTrasladoMovil(t: TrasladoAlmacen, precioUnit: number, q: Quie
     cantidad: Number(t.cantidad) || 0,
     precio_unit: Number(precioUnit) || 0,
   }];
-  return { sol, actor: sol.actor ?? null, opciones: { autorizadoPor: null } };
+  return { sol, actor: sol.actor ?? null, opciones: { solicitadoPor: solicitadoPor ?? null } };
 }
 
 export interface EntradaMovil {
@@ -154,7 +156,7 @@ export function docRetornoMovil(s: SalidaMina, cantidad: number, nota: string | 
   }];
   return {
     sol, actor: sol.actor ?? null,
-    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Retorno de material', rotuloAlmacen: 'Almacén de entrada', autorizadoPor: s.autorizado_por ?? null },
+    opciones: { titulo: 'ORDEN DE ENTRADA', subtitulo: 'Retorno de material', rotuloAlmacen: 'Almacén de entrada', solicitadoPor: s.autorizado_por ?? null },
   };
 }
 
@@ -204,10 +206,12 @@ export function docTrasladosMovil(ts: TrasladoAlmacen[], precioUnit: (productoId
   const codigos = ts.map((t) => t.codigo);
   primero.sol.codigo = codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]}`;
   const nuevos = ts.filter((t) => t.creado_en_destino).map((t) => `${t.nombre} (${t.sku_destino})`);
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(ts[0].nota);
   primero.sol.motivo = [
-    ts[0].nota?.trim(),
+    notaLimpia,
     nuevos.length ? `Se crearon en ${nombreDepositoChat(ts[0].destino)}: ${nuevos.join(', ')}` : '',
   ].filter(Boolean).join(' · ') || null;
+  primero.opciones = { solicitadoPor: solicitadoPor ?? null };
   primero.sol.items = ts.map((t) => ({
     producto_id: t.producto_origen_id,
     producto_nombre: t.nombre,

@@ -81,7 +81,7 @@ export function errorSalidaMina(d: {
   if (!(d.cantidad > 0)) return 'Escribe cuánto sale.';
   if (d.cantidad > d.stock) return `No alcanza: en el depósito hay ${num(d.stock)}.`;
   if (d.motivo.trim().length < 3) return 'Escribe el motivo de la salida.';
-  if (!d.autorizado.trim()) return 'Indica quién autorizó la salida.';
+  if (!d.autorizado.trim()) return 'Indica quién solicitó la salida.';
   if (d.retorna === null) return '¿Retorna? Marca SÍ o NO.';
   return null;
 }
@@ -159,7 +159,7 @@ export function mensajeSalidaMina(s: SalidaMina, quien?: string | null): string 
     `🔢 *Cantidad:* ${num(s.cantidad)}${u}`,
     `📝 *Motivo:* ${s.motivo}`,
   ];
-  if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  if (s.autorizado_por) lineas.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
   lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at, general));
@@ -223,7 +223,7 @@ export function mensajeSalidasMina(ss: SalidaMina[], quien?: string | null): str
     '',
     `📝 *Motivo:* ${s.motivo}`,
   ];
-  if (s.autorizado_por) lineas.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  if (s.autorizado_por) lineas.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   lineas.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) lineas.push(`📷 *Fotos:* ${s.fotos.length}`);
   lineas.push('', ...pie(quien ?? quienSync(s.actor_name, s.actor), s.created_at, general));

@@ -7,6 +7,15 @@
 import { money } from '@/shared/lib/format';
 import { TITULOS_CIERRE, etiquetaPeriodo, fechaCaracas, momentoImpresion, type PeriodoCierre, type ResumenCierre } from './cierreDiario';
 
+/** Emoji de modalidad de retiro SIN U+FE0F (WhatsApp conserva intactos los emojis de un solo codepoint). */
+function emojiEntregaRetiro(entrega: string): string {
+  const norm = entrega.toLowerCase();
+  if (norm.includes('delivery')) return '🛵';
+  if (norm.includes('pesada')) return '🚛';
+  if (norm.includes('domicilio')) return '🏠';
+  return '📍';
+}
+
 export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ahora: Date = new Date()): string {
   const L: string[] = [];
   L.push('📊 *CIERRE DIARIO · COMPRAS*', '');
@@ -30,8 +39,11 @@ export function textoCierreDiarioWhatsapp(r: ResumenCierre, p: PeriodoCierre, ah
     if (r.ocPorRetirar.length === 0) {
       L.push('No hay órdenes pagadas esperando que se confirme el retiro.', '');
     } else {
-      for (const o of r.ocPorRetirar) L.push(`• ${o.proveedor}${o.codigo ? ` · ${o.codigo}` : ''}: ${o.entrega} · pagada ${o.pagada}`);
-      L.push('');
+      for (const o of r.ocPorRetirar) {
+        const icono = emojiEntregaRetiro(o.entrega);
+        L.push(`📦 *${o.proveedor}*${o.codigo ? ` · *${o.codigo}*` : ''}`);
+        L.push(`   ${icono} ${o.entrega} · 📅 Pagada: ${o.pagada}`, '');
+      }
     }
   }
 

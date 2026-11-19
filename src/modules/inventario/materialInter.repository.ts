@@ -18,6 +18,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { TransferenciaMaterialInter, ItemMaterialInter } from '@/shared/lib/types';
 import { registrarMovimiento } from './movimientos.repository';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 
 const EMPRESA = (import.meta.env.VITE_EMPRESA_CODIGO as string | undefined)?.trim() || 'golden-touch';
 /** Almacén Los Pinos de GT (el General es Los Pinos). */
@@ -231,6 +232,7 @@ export async function listTransferenciasMaterial(): Promise<TransferenciaMateria
 export function mensajeEnvioMaterial(t: Pick<TransferenciaMaterialInter, 'items' | 'total_usd' | 'motivo' | 'created_at'>, quien: string): string {
   const items = (t.items ?? []) as ItemMaterialInter[];
   const lineas = items.map((i) => `• ${cantTxt(i.cantidad)} ${i.unidad ?? ''} ${i.nombre}`.replace(/\s+/g, ' '));
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.motivo);
   return [
     '📦 *ENVÍO DE MATERIAL A MGG LOS PINOS*',
     '',
@@ -238,8 +240,9 @@ export function mensajeEnvioMaterial(t: Pick<TransferenciaMaterialInter, 'items'
     `🏬 *Para:* Almacén Los Pinos (MGG) · por confirmar allá`,
     ...lineas,
     t.total_usd != null ? `💵 *Valor:* $ ${Number(t.total_usd).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '',
-    t.motivo ? `📝 *Nota:* ${t.motivo}` : '',
-    `👤 *Envió:* ${quien}`,
+    solicitadoPor ? `👤 *Solicitado por:* ${solicitadoPor}` : '',
+    notaLimpia ? `📝 *Nota:* ${notaLimpia}` : '',
+    `👷 *Envió:* ${quien}`,
     '🏢 *GOLDEN TOUCH 1127 C.A.*',
   ].filter(Boolean).join('\n');
 }

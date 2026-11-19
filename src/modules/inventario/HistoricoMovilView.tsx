@@ -8,6 +8,7 @@
    fila, «📄 Ver PDF» (el mismo formato de siempre) y «💬 WhatsApp» (el mismo aviso).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
@@ -63,7 +64,7 @@ function Filtros({ f, id }: { f: ReturnType<typeof useFiltros>; id: string }) {
           <input id={`${id}-hasta`} type="date" className="input surt-input" value={f.hasta} max={f.hoy} onChange={(e) => f.setHasta(e.target.value)} />
         </div>
       </div>
-      <input className="input surt-input" type="search" name={`${id}-buscar`} placeholder="🔍 Código, material, motivo, autorizado, quién…"
+      <input className="input surt-input" type="search" name={`${id}-buscar`} placeholder="🔍 Código, material, motivo, solicitado por, quién…"
         value={f.busca} onChange={(e) => f.setBusca(e.target.value)} autoComplete="off" aria-label="Buscar en el histórico" />
       {f.problema && <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>{f.problema}</div></div>}
     </>
@@ -180,7 +181,7 @@ export function HistoricoSalidasMovil({ almacen, nombre, actor, onVolver }: { al
                   <div className="titulo">{varios ? `${ss.length} productos · ${s.producto_nombre} y más` : s.producto_nombre}</div>
                   <div className="sub">{rangoCodigos(ss.map((x) => x.codigo))} · {fechaHoraVE(s.created_at)}</div>
                   <div className="sub">{s.motivo} · Retorna: {s.retorna ? 'SÍ' : 'NO'}{s.fotos.length ? ` · ${s.fotos.length} foto(s)` : ''}</div>
-                  {s.autorizado_por && <div className="sub">Autorizó: {s.autorizado_por}</div>}
+                  {s.autorizado_por && <div className="sub">Solicitado por: {s.autorizado_por}</div>}
                 </span>
                 <span className="litros">{varios ? <>{ss.length} <small>prod.</small></> : <>{num(s.cantidad)} <small>{s.unidad}</small></>}</span>
               </button>
@@ -242,6 +243,7 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
         const varios = g.length > 1;
         const abiertaEsta = abierta === t.codigo;
         const quien = quienSync(t.actor_name, t.actor);
+        const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
         return (
           <div key={t.codigo}>
             <button type="button" className="surt-mov" onClick={() => setAbierta(abiertaEsta ? null : t.codigo)} aria-expanded={abiertaEsta}>
@@ -249,7 +251,8 @@ export function HistoricoTrasladosMovil({ almacen, nombre, onVolver }: { almacen
               <span style={{ minWidth: 0 }}>
                 <div className="titulo">{varios ? `${g.length} productos · ${t.nombre} y más` : t.nombre}</div>
                 <div className="sub">{rangoCodigos(g.map((x) => x.codigo))} · {fechaHoraVE(t.at)}</div>
-                <div className="sub">{nombreDepositoChat(t.origen)} → {nombreDepositoChat(t.destino)}{t.nota ? ` · ${t.nota}` : ''}</div>
+                <div className="sub">{nombreDepositoChat(t.origen)} → {nombreDepositoChat(t.destino)}{notaLimpia ? ` · ${notaLimpia}` : ''}</div>
+                {solicitadoPor && <div className="sub">Solicitado por: {solicitadoPor}</div>}
               </span>
               <span className="litros">{varios ? <>{g.length} <small>prod.</small></> : <>{num(t.cantidad)} <small>{t.unidad}</small></>}</span>
             </button>

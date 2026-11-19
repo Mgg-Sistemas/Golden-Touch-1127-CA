@@ -68,6 +68,8 @@ import { MSG_FALTA_SQL_TRASLADOS, enviarTrasladoTransito } from './trasladosTran
 import { FotosTrasladoInput, RecepcionTrasladosMovil, useTrasladosEnTransito } from './RecepcionTrasladosMovil';
 import { DESTINO_MATERIAL_LABEL, enviarMaterialAMgg, mensajeEnvioMaterial } from './materialInter.repository';
 import { EnviarMaterialMggModal } from './EnviarMaterialMggModal';
+import { CampoSolicitadoPorMovil } from './CampoSolicitadoPorMovil';
+import { armarNotaConSolicitadoPor } from './solicitantesMovil';
 
 type Dep = InfoDeposito;
 /** Destino «otro sistema» del traslado (puente a MGG Los Pinos). No es un almacén de aquí. */
@@ -819,6 +821,7 @@ function FormTraslado({
   const [destinoAlmacen, setDestinoAlmacen] = useState<string>(otros[0]?.almacen ?? 'General');
   // Varios productos en un solo traslado (04/11/2026): todos o ninguno.
   const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
+  const [solicitado, setSolicitado] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; texto: string; pdf: DocMovilPdf | null; fotos?: File[] } | null>(null);
@@ -835,6 +838,8 @@ function FormTraslado({
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (malItems) return toast(malItems, 'error');
+    if (!solicitado.trim()) return toast('Indica quién solicitó el traslado.', 'error');
+    const notaConSolicitante = armarNotaConSolicitadoPor(nota, solicitado);
     setGuardando(true);
     if (aMgg) {
       try {
@@ -846,7 +851,7 @@ function FormTraslado({
             },
             cantidad: it.cantidad,
           })),
-          nota: nota.trim() || null, actor, actorName,
+          nota: notaConSolicitante, actor, actorName,
         });
         if (!r.entregada) toast(`El material salió, pero MGG no respondió: ${r.error ?? 'sin respuesta'}. Reinténtalo en «Envíos a MGG Los Pinos».`, 'warning');
         setAviso({
@@ -863,7 +868,7 @@ function FormTraslado({
     if (conRecepcion) {
       try {
         const t = await enviarTrasladoTransito({
-          destino: destinoDep.almacen, nota: nota.trim() || null, fotos, actorName,
+          destino: destinoDep.almacen, nota: notaConSolicitante, fotos, actorName,
           items: listos.map((it) => ({ producto_id: it.producto.id, cantidad: it.cantidad })),
         });
         setAviso({ titulo: `Traslado ${t.codigo} en camino a ${destinoDep.nombre}`, texto: mensajeEnvioTraslado(t, actorName ?? actor), pdf: null, fotos });
@@ -880,7 +885,7 @@ function FormTraslado({
       }
     }
     try {
-      const comun = { destino: destinoDep.almacen, nota: nota.trim() || null, actor, actor_name: actorName };
+      const comun = { destino: destinoDep.almacen, nota: notaConSolicitante, actor, actor_name: actorName };
       const ts = listos.length === 1
         ? [await trasladarEntreAlmacenes({ ...comun, producto_id: listos[0].producto.id, cantidad: listos[0].cantidad })]
         : await trasladarVariosEntreAlmacenes({ ...comun, items: listos.map((it) => ({ producto_id: it.producto.id, cantidad: it.cantidad })) });
@@ -948,6 +953,12 @@ function FormTraslado({
       </div>
       )}
       <ItemsLoteMovil items={items} onChange={setItems} productos={productos} lugar={dep.nombre} disabled={guardando} />
+      <CampoSolicitadoPorMovil
+        id="inv-traslado-solicitado"
+        value={solicitado}
+        onChange={setSolicitado}
+        disabled={guardando}
+      />
       <div className="surt-campo">
         <label htmlFor="inv-traslado-nota">Nota</label>
         <input id="inv-traslado-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)}
@@ -956,7 +967,7 @@ function FormTraslado({
       {conRecepcion && (
         <FotosTrasladoInput id="inv-traslado-fotos" fotos={fotos} onChange={setFotos} rotulo="Fotos de lo que envías" disabled={guardando} />
       )}
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || (!otros.length && !aMgg)}>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando || !!malItems || !solicitado.trim() || (!otros.length && !aMgg)}>
         {guardando ? (conRecepcion || aMgg ? 'Enviando…' : 'Trasladando…') : aMgg ? '🌐 Enviar a MGG Los Pinos' : conRecepcion ? `🚚 Enviar a ${destinoDep.nombre}` : `🔁 Trasladar a ${destinoDep.nombre}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro producto</button>

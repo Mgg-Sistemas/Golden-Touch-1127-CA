@@ -10,9 +10,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { useRealtime } from '@/shared/lib/useRealtime';
-import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import type { Producto } from '@/shared/lib/types';
+import { CampoSolicitadoPorMovil } from './CampoSolicitadoPorMovil';
 import {
   MAX_FOTOS_SALIDA_MINA, MAX_ITEMS_LOTE_MOVIL, errorFotosSalidaMina, errorItemsLote, errorRetornoMina, errorSalidaMina, fechaHoraVE, filtrarPorRetornar, leerCantidad,
   mensajeRetornoMina, mensajeSalidasMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
@@ -140,7 +139,6 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
-  const [autorizadores, setAutorizadores] = useState<string[]>([]);
   const [retorna, setRetorna] = useState<boolean | null>(null);
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -164,12 +162,6 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   const motivoFinal = [motivo.trim(), paraMant && equipo ? `Mantenimiento: ${equipo.equipo}` : ''].filter(Boolean).join(' · ');
   const listos = itemsLoteListos(items);
   const malItems = errorItemsLote(listos);
-  // Quién autoriza: la MISMA lista que Combustible (Catálogos › Autorizado por).
-  const cargarAutorizadores = () => listCatalogos()
-    .then((cs) => setAutorizadores(cs.filter((c) => c.tipo === 'autorizado' && c.activo).map((c) => c.valor)))
-    .catch(() => {});
-  useEffect(() => { void cargarAutorizadores(); }, []);
-  useRealtime(['combustible_catalogos'], () => { void cargarAutorizadores(); });
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
   useEffect(() => () => { previas.forEach((u) => URL.revokeObjectURL(u)); }, [previas]);
 
@@ -337,16 +329,13 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
           </div>
         </>
       )}
-      <div className="surt-campo">
-        <label htmlFor="mina-salida-autorizado">
-          Autorizado por {mostrarPreSalidas && <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small>}
-        </label>
-        <div className="surt-buscable">
-          <SearchSelect id="mina-salida-autorizado" value={autorizado} onChange={setAutorizado} placeholder="🔍 Busca quién autorizó…"
-            options={autorizadores.map((v) => ({ value: v, label: v }))} />
-        </div>
-        {!autorizadores.length && <small className="muted">La lista sale de Combustible › Catálogos › Autorizado por.</small>}
-      </div>
+      <CampoSolicitadoPorMovil
+        id="mina-salida-autorizado"
+        value={autorizado}
+        onChange={setAutorizado}
+        disabled={guardando}
+        notaExtra={mostrarPreSalidas ? <small className="muted">(para salida directa)</small> : undefined}
+      />
       <div className="surt-campo">
         <span className="surt-rotulo" id="mina-salida-retorna">¿Retorna?</span>
         <div className="surt-sino" role="group" aria-labelledby="mina-salida-retorna">
@@ -472,7 +461,7 @@ export function PorRetornarMina({ salidas, actor, actorName, canWrite, onVolver,
           <div className="surt-fila"><span>Salida</span><span className="mono">{elegida.codigo}</span></div>
           <div className="surt-fila"><span>Salió</span><span>{num(elegida.cantidad)} {u} · {fechaHoraVE(elegida.created_at)}</span></div>
           <div className="surt-fila"><span>Motivo</span><span>{elegida.motivo}</span></div>
-          {elegida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{elegida.autorizado_por}</span></div>}
+          {elegida.autorizado_por && <div className="surt-fila"><span>Solicitado por</span><span>{elegida.autorizado_por}</span></div>}
           {elegida.retornado > 0 && <div className="surt-fila"><span>Ya retornó</span><span>{num(elegida.retornado)} {u}</span></div>}
           <div className="surt-fila"><span>Falta</span><span>{num(falta)} {u}</span></div>
         </div>

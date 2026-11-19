@@ -9,6 +9,7 @@
 import { ALMACEN_MINA, DEPOSITOS_FIJOS } from './depositos';
 import { nombreDepositoChat } from './inventarioMovil';
 import { fechaHoraVE, num } from './salidasMina';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 
 export const MAX_FOTOS_TRASLADO = 4;
 
@@ -78,6 +79,7 @@ function lineasItems(t: TrasladoTransito): string[] {
 
 /** Aviso de WhatsApp al ENVIAR: va en camino, la Mina tiene que recibirlo. */
 export function mensajeEnvioTraslado(t: TrasladoTransito, quien?: string | null): string {
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   const l = [
     '🚚 *TRASLADO EN CAMINO*',
     `🔖 *N°:* ${t.codigo}`,
@@ -87,14 +89,17 @@ export function mensajeEnvioTraslado(t: TrasladoTransito, quien?: string | null)
     `📦 *Productos (${t.items.length}):*`,
     ...lineasItems(t),
   ];
-  if (t.nota?.trim()) l.push('', `📝 *Nota:* ${t.nota.trim()}`);
+  if (solicitadoPor || notaLimpia) l.push('');
+  if (solicitadoPor) l.push(`👤 *Solicitado por:* ${solicitadoPor}`);
+  if (notaLimpia) l.push(`📝 *Nota:* ${notaLimpia}`);
   if (t.fotos_envio.length) l.push(`📷 *Fotos del envío:* ${t.fotos_envio.length}`);
-  l.push('', `👤 *Envió:* ${quien || t.enviado_por_nombre || t.enviado_por || '—'}`, `🕒 ${fechaHoraVE(t.created_at)}`);
+  l.push('', `👷 *Envió:* ${quien || t.enviado_por_nombre || t.enviado_por || '—'}`, `🕒 ${fechaHoraVE(t.created_at)}`);
   return l.join('\n');
 }
 
 /** Aviso de WhatsApp al RECIBIR en la Mina. */
 export function mensajeRecepcionTraslado(t: TrasladoTransito, quien?: string | null): string {
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   const l = [
     '✅ *TRASLADO RECIBIDO*',
     `🔖 *N°:* ${t.codigo}`,
@@ -104,7 +109,9 @@ export function mensajeRecepcionTraslado(t: TrasladoTransito, quien?: string | n
     `📦 *Productos (${t.items.length}):*`,
     ...lineasItems(t),
   ];
-  if (t.nota?.trim()) l.push('', `📝 *Nota del envío:* ${t.nota.trim()}`);
+  if (solicitadoPor || notaLimpia || t.nota_recepcion?.trim()) l.push('');
+  if (solicitadoPor) l.push(`👤 *Solicitado por:* ${solicitadoPor}`);
+  if (notaLimpia) l.push(`📝 *Nota del envío:* ${notaLimpia}`);
   if (t.nota_recepcion?.trim()) l.push(`📝 *Nota de la recepción:* ${t.nota_recepcion.trim()}`);
   if (t.fotos_recepcion.length) l.push(`📷 *Fotos de la recepción:* ${t.fotos_recepcion.length}`);
   l.push('', `👤 *Recibió:* ${quien || t.recibido_por_nombre || t.recibido_por || '—'}`, `🕒 ${fechaHoraVE(t.recibido_en ?? new Date().toISOString())}`);

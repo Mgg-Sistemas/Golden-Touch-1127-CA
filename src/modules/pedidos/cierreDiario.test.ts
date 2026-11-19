@@ -217,6 +217,18 @@ describe('salidas', () => {
 
   it('WhatsApp: ningún emoji necesita el selector invisible', () => {
     expect(textoCierreDiarioWhatsapp(r, p, AHORA)).not.toContain('️');
+    const conRetiros = textoCierreDiarioWhatsapp({
+      ...r,
+      ocPorRetirar: [
+        { codigo: 'OC-2026-0258', proveedor: 'CHUTO DIESEL', entrega: 'Delivery', pagada: '18/11/2026' },
+        { codigo: 'OC-2026-0241', proveedor: 'FERRETERIA PRINCIPAL', entrega: 'Carga pesada', pagada: '18/11/2026' },
+        { codigo: 'OC-2026-0246', proveedor: 'LA GRAN FERIA', entrega: 'Con entrega a domicilio', pagada: '18/11/2026' },
+      ],
+    }, p, AHORA);
+    expect(conRetiros).not.toContain('️');
+    expect(conRetiros).toContain('📦 *CHUTO DIESEL* · *OC-2026-0258*\n   🛵 Delivery · 📅 Pagada: 18/11/2026\n\n📦 *FERRETERIA PRINCIPAL* · *OC-2026-0241*');
+    expect(conRetiros).toContain('🚛 Carga pesada · 📅 Pagada: 18/11/2026');
+    expect(conRetiros).toContain('🏠 Con entrega a domicilio · 📅 Pagada: 18/11/2026');
   });
 
   it('Excel: título, período, impreso y tablas con analistas', async () => {

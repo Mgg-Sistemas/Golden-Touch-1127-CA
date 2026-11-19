@@ -47,5 +47,14 @@ describe('Inventario · avisos de WhatsApp del teléfono', () => {
     expect(t).toContain('📊 *Queda en Depósito Mina:* 2 lt');
     expect(t).not.toContain('Nota');
     expect(t).not.toMatch(SIN_SELECTOR);
+
+    const trConSolicitante: TrasladoAlmacen = {
+      ...tr,
+      nota: 'Solicitado por: CARLOS PEREZ · Urgente taller',
+    };
+    const t2 = mensajeTraslado(trConSolicitante, 'ANA');
+    expect(t2).toContain('👤 *Solicitado por:* CARLOS PEREZ');
+    expect(t2).toContain('📝 *Nota:* Urgente taller');
+    expect(t2).not.toMatch(SIN_SELECTOR);
   });
 });

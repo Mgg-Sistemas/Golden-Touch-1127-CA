@@ -18,7 +18,7 @@ describe('salida del Depósito Mina', () => {
     expect(errorSalidaMina({ ...ok, cantidad: 0 })).toMatch(/cuánto sale/);
     expect(errorSalidaMina({ ...ok, cantidad: 6 })).toMatch(/No alcanza/);
     expect(errorSalidaMina({ ...ok, motivo: ' a ' })).toMatch(/motivo/);
-    expect(errorSalidaMina({ ...ok, autorizado: ' ' })).toMatch(/quién autorizó/);
+    expect(errorSalidaMina({ ...ok, autorizado: ' ' })).toMatch(/quién solicitó/);
     expect(errorSalidaMina({ ...ok, retorna: null })).toMatch(/SÍ o NO/);
   });
   it('lee cantidades con coma', () => {
@@ -73,7 +73,7 @@ describe('aviso de WhatsApp', () => {
     expect(t).toContain('📦 *Material:* MANGUERA 2 PULGADAS');
     expect(t).toContain('🔢 *Cantidad:* 2 und');
     expect(t).toContain('📝 *Motivo:* Para la bomba del pozo 3');
-    expect(t).toContain('✅ *Autorizado por:* JESUS GARCIA');
+    expect(t).toContain('👤 *Solicitado por:* JESUS GARCIA');
     expect(t).toContain('🔄 *Retorna:* SÍ');
     expect(t).toContain('📷 *Fotos:* 1');
     expect(t).toContain('👷 *Registrado por:* Pedro');

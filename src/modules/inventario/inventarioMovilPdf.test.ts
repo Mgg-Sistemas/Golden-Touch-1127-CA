@@ -40,7 +40,7 @@ describe('Inventario · PDF de la vista de teléfono (formato Orden de Salida/Tr
     }]);
     expect(d.sol.motivo).toContain('Para la bomba del pozo 3');
     expect(d.sol.motivo).toContain('Retorna: SÍ');
-    expect(d.opciones).toEqual({ autorizadoPor: 'JESUS GARCIA' });
+    expect(d.opciones).toEqual({ solicitadoPor: 'JESUS GARCIA' });
     expect(d.opciones.titulo).toBeUndefined();
   });
 
@@ -61,7 +61,12 @@ describe('Inventario · PDF de la vista de teléfono (formato Orden de Salida/Tr
     expect(d.sol.items?.[0]).toMatchObject({ producto_nombre: 'ACEITE 15W40', producto_sku: 'LUB-001', unidad: 'lt', cantidad: 3, precio_unit: 2.5 });
     expect(d.sol.motivo).toContain('Para el cargador');
     expect(d.sol.motivo).toContain('LUB-090');
-    expect(d.opciones.autorizadoPor).toBeNull();
+    expect(d.opciones.solicitadoPor).toBeNull();
+
+    const dConSol = docTrasladoMovil({ ...traslado, nota: 'Solicitado por: EDINSON ANGULO · Para el cargador' }, 2.5, quien);
+    expect(dConSol.opciones.solicitadoPor).toBe('EDINSON ANGULO');
+    expect(dConSol.sol.motivo).toContain('Para el cargador');
+    expect(dConSol.sol.motivo).not.toContain('Solicitado por:');
   });
 
   it('entrada: mismo formato con título ORDEN DE ENTRADA', () => {

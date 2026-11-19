@@ -18,6 +18,7 @@ import {
   type FotoTraslado, type TrasladoTransito,
 } from './trasladosTransito';
 import { anularTrasladoTransito, listTrasladosEnTransito, recibirTrasladoTransito, urlFotoTraslado } from './trasladosTransito.repository';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
@@ -97,19 +98,21 @@ function FotosGuardadas({ fotos, titulo }: { fotos: FotoTraslado[]; titulo: stri
 }
 
 function ResumenTraslado({ t }: { t: TrasladoTransito }) {
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   return (
     <>
       <div className="muted" style={{ fontSize: '.85rem' }}>
         De <strong>{nombreDepositoChat(t.origen)}</strong> a <strong>{nombreDepositoChat(t.destino)}</strong>
         {' · '}{t.enviado_por_nombre || t.enviado_por || '—'} · {fechaHoraVE(t.created_at)}
       </div>
+      {solicitadoPor && <div style={{ fontSize: '.88rem', marginTop: '.2rem' }}>👤 Solicitado por: <strong>{solicitadoPor}</strong></div>}
       <ul style={{ margin: '.4rem 0', paddingLeft: '1.1rem' }}>
         {t.items.map((x, i) => (
           <li key={`${x.producto_id}-${i}`}><strong>{x.nombre}</strong> — {num(Number(x.cantidad) || 0)} {x.unidad}
             {x.codigo && <span className="muted mono" style={{ fontSize: '.75rem' }}> · {x.codigo}</span>}</li>
         ))}
       </ul>
-      {t.nota && <div style={{ fontSize: '.88rem' }}>📝 {t.nota}</div>}
+      {notaLimpia && <div style={{ fontSize: '.88rem' }}>📝 {notaLimpia}</div>}
     </>
   );
 }

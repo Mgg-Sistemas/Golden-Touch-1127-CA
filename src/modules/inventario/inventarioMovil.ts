@@ -9,6 +9,7 @@
    ============================================================ */
 import { num } from '@/shared/lib/format';
 import { fechaHoraVE } from './salidasMina';
+import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
 
 /** Nombre del depósito como se lee en el chat. */
 export function nombreDepositoChat(almacen: string): string {
@@ -98,10 +99,11 @@ export interface TrasladoAlmacen {
   at: string;
 }
 
-/** «Traslado entre almacenes»: de dónde a dónde, cuánto y cómo quedan los dos. */
+/** «Traslado entre almacenes»: de dónde a dónde, cuánto, quién solicitó y cómo quedan los dos. */
 export function mensajeTraslado(t: TrasladoAlmacen, quien?: string | null): string {
   const o = nombreDepositoChat(t.origen);
   const d = nombreDepositoChat(t.destino);
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   const l = [
     '🔁 *TRASLADO ENTRE ALMACENES*',
     `🔖 *N°:* ${t.codigo}`,
@@ -114,7 +116,8 @@ export function mensajeTraslado(t: TrasladoAlmacen, quien?: string | null): stri
     `📊 *Queda en ${o}:* ${conUnidad(Number(t.stock_origen), t.unidad)}`,
     `📊 *Queda en ${d}:* ${conUnidad(Number(t.stock_destino), t.unidad)}`,
   ];
-  if (t.nota?.trim()) l.push(`📝 *Nota:* ${t.nota.trim()}`);
+  if (solicitadoPor) l.push(`👤 *Solicitado por:* ${solicitadoPor}`);
+  if (notaLimpia) l.push(`📝 *Nota:* ${notaLimpia}`);
   l.push('', ...pie(o, quien, t.at));
   return l.join('\n');
 }
@@ -127,6 +130,7 @@ export function mensajeTraslados(ts: TrasladoAlmacen[], quien?: string | null): 
   const o = nombreDepositoChat(t.origen);
   const d = nombreDepositoChat(t.destino);
   const codigos = ts.map((x) => x.codigo);
+  const { solicitadoPor, notaLimpia } = extraerSolicitadoPorDeNota(t.nota);
   const l = [
     '🔁 *TRASLADO ENTRE ALMACENES*',
     `🔖 *N°:* ${codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]} (${codigos.length})`}`,
@@ -140,7 +144,9 @@ export function mensajeTraslados(ts: TrasladoAlmacen[], quien?: string | null): 
     l.push(`${i + 1}. ${x.nombre} — *${conUnidad(Number(x.cantidad), x.unidad)}*${x.creado_en_destino ? ' · nuevo en ese almacén' : ''}`);
     l.push(`    📊 Queda: ${o} ${conUnidad(Number(x.stock_origen), x.unidad)} · ${d} ${conUnidad(Number(x.stock_destino), x.unidad)}`);
   });
-  if (t.nota?.trim()) l.push('', `📝 *Nota:* ${t.nota.trim()}`);
+  if (solicitadoPor || notaLimpia) l.push('');
+  if (solicitadoPor) l.push(`👤 *Solicitado por:* ${solicitadoPor}`);
+  if (notaLimpia) l.push(`📝 *Nota:* ${notaLimpia}`);
   l.push('', ...pie(o, quien, t.at));
   return l.join('\n');
 }
