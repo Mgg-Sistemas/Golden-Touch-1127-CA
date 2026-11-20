@@ -27,7 +27,7 @@ const EMOJI_AMBITO: Record<AmbitoTesoreria, string> = {
 const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
   movimientos: 'Movimientos de caja',
   por_pagar: 'Pendientes por pagar',
-  creditos_cartera: 'Cuentas a crédito (cartera)',
+  creditos_cartera: 'Cuentas a crédito (OC y OS)',
 };
 
 /** Marcador de cada renglón según el tipo de flujo: a dónde va o de dónde viene la plata. */
@@ -63,6 +63,12 @@ function etiquetaFila(f: FilaReporteTesoreria): string {
   return unaLinea(f.categoria) || unaLinea(f.concepto) || '—';
 }
 
+/** Textos cuando no hay deudas (19-11-2026). */
+export const POR_PAGAR_CERO = 'ÓRDENES PENDIENTES POR PAGAR: 0';
+export const TESORERIA_AL_DIA = 'TESORERÍA AL DÍA EN PAGOS PENDIENTES';
+export const CREDITOS_OC_OS_CERO = 'CUENTAS A CRÉDITO (OC Y OS) PENDIENTES: 0';
+export const CREDITOS_AL_DIA = 'TESORERÍA AL DÍA EN CUENTAS A CRÉDITO';
+
 export interface OpcionesWhatsappTesoreria {
   ambito: AmbitoTesoreria;
   desde: string;
@@ -74,6 +80,8 @@ export interface OpcionesWhatsappTesoreria {
   tasaRef?: number;
   /** «Por preparar» (solo por_pagar, si el toggle está encendido): totales nativos por moneda/método. */
   preparacion?: PreparacionPorPagar;
+  /** Sin nada por pagar / sin créditos (sin filtros). Sale el aviso «al día». */
+  alDia?: boolean;
 }
 
 /**
@@ -97,6 +105,14 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   L.push('');
 
   if (!filas.length) {
+    if ((opts.ambito === 'por_pagar' || opts.ambito === 'creditos_cartera') && opts.alDia) {
+      L.push(`🧾 *${opts.ambito === 'creditos_cartera' ? CREDITOS_OC_OS_CERO : POR_PAGAR_CERO}*`);
+      L.push('');
+      L.push(`✅ *${opts.ambito === 'creditos_cartera' ? CREDITOS_AL_DIA : TESORERIA_AL_DIA}*`);
+      L.push('');
+      L.push(`🏢 *${emp.nombre}*`);
+      return L.join('\n');
+    }
     L.push('Sin registros en este ámbito. ✅');
     return L.join('\n');
   }
@@ -122,7 +138,14 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
     }
 
     const cod = f.codigo && f.codigo.trim() && f.codigo !== '—' ? `${f.codigo.trim()} · ` : '';
-    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${cod}${etiquetaFila(f)} — *${montoTxt}*`);
+    const tagCred = f.es_credito_compras ? `[Crédito ${f.tipo_credito_compras === 'OS' ? 'OS' : 'OC'}] ` : '';
+    const emojiItem = f.es_credito_compras ? '💳' : EMOJI_FLUJO[f.tipo_movimiento];
+    const valorMostrado = f.es_credito_compras ? `Saldo: ${montoTxt}` : montoTxt;
+    L.push(`${i + 1}. ${emojiItem} ${tagCred}${cod}${etiquetaFila(f)} — *${valorMostrado}*`);
+
+    if (f.es_credito_compras && mostrarUsd && (f.abonado_usd ?? 0) > 0.009) {
+      L.push(`   🔁 Abonado $ ${num(f.abonado_usd)} de $ ${num(f.total_credito_usd ?? 0)}`);
+    }
 
     const textoPago = unaLinea(f.datos_pago_resumen || f.metodo_pago);
     if (textoPago && textoPago !== '—') {
@@ -135,7 +158,7 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
         : '💳';
       L.push(`   ${emojiMetodo} ${textoPago}`);
     } else if (f.estado && f.estado !== '—') {
-      const emojiEst = f.estado.toLowerCase().includes('lista') ? '✅' : '⏳';
+      const emojiEst = f.estado.toLowerCase().includes('lista') ? '✅' : f.es_credito_compras ? '🔁' : '⏳';
       L.push(`   ${emojiEst} ${f.estado}`);
     }
   });
@@ -164,21 +187,43 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
     }
   }
 
+  const fmtPar = (u: number, b: number): string => {
+    if (soloUsd) return `$ ${num(u)}`;
+    if (soloBs) return `Bs ${num(b)}`;
+    const ps: string[] = [];
+    if (mostrarUsd) ps.push(`$ ${num(u)}`);
+    if (mostrarBs) ps.push(`Bs ${num(b)}`);
+    return ps.join(' · ');
+  };
+
+  const filasCredCompras = filas.filter((f) => f.es_credito_compras);
+  if (filasCredCompras.length > 0) {
+    const filasInmediatas = filas.filter((f) => !f.es_credito_compras);
+    const credUsd = filasCredCompras.reduce((a, f) => a + (f.monto_usd || 0), 0);
+    const credBs = filasCredCompras.reduce((a, f) => a + (f.monto_bs || 0), 0);
+    const nOc = filasCredCompras.filter((f) => f.tipo_credito_compras !== 'OS').length;
+    const nOs = filasCredCompras.filter((f) => f.tipo_credito_compras === 'OS').length;
+    L.push('');
+    if (opts.ambito === 'por_pagar' && filasInmediatas.length > 0) {
+      const inmUsd = filasInmediatas.reduce((a, f) => a + (f.monto_usd || 0), 0);
+      const inmBs = filasInmediatas.reduce((a, f) => a + (f.monto_bs || 0), 0);
+      L.push(`🧾 *Subtotal órdenes por pagar (${filasInmediatas.length}):* ${fmtPar(inmUsd, inmBs)}`);
+    }
+    const credUsdOc = filasCredCompras.filter((f) => f.tipo_credito_compras !== 'OS').reduce((a, f) => a + (f.monto_usd || 0), 0);
+    const credBsOc = filasCredCompras.filter((f) => f.tipo_credito_compras !== 'OS').reduce((a, f) => a + (f.monto_bs || 0), 0);
+    const credUsdOs = credUsd - credUsdOc;
+    const credBsOs = credBs - credBsOc;
+    L.push(`💳 *Cuentas a crédito Compras · OC y OS (${filasCredCompras.length} · OC: ${nOc}, OS: ${nOs}):* ${fmtPar(credUsd, credBs)}`);
+    L.push(`    ├ OC: ${fmtPar(credUsdOc, credBsOc)}`);
+    L.push(`    └ OS: ${fmtPar(credUsdOs, credBsOs)}`);
+  }
+
   // Total consolidado
   let totUsd = 0;
   let totBs = 0;
   for (const f of filas) { totUsd += f.monto_usd || 0; totBs += f.monto_bs || 0; }
-  const partes: string[] = [];
-  if (soloUsd) {
-    partes.push(`$ ${num(totUsd)}`);
-  } else if (soloBs) {
-    partes.push(`Bs ${num(totBs)}`);
-  } else {
-    if (mostrarUsd) partes.push(`$ ${num(totUsd)}`);
-    if (mostrarBs) partes.push(`Bs ${num(totBs)}`);
-  }
 
-  L.push('');
-  L.push(`💰 *Total consolidado (${filas.length}):* ${partes.join(' · ')}`);
+  if (!filasCredCompras.length) L.push('');
+  L.push(`💰 *Total consolidado (${filas.length}):* ${fmtPar(totUsd, totBs)}`);
   return L.join('\n');
 }

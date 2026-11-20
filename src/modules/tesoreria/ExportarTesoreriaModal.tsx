@@ -21,6 +21,8 @@ import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
 import { cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { listOrdenesEnCredito, type OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { listDatosPagoDeProveedores, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import { supabase } from '@/shared/lib/supabase';
 import type { PagoMetodo } from '@/shared/lib/types';
 import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
@@ -52,7 +54,11 @@ import {
   descargarTesoreriaPdf,
   type MetadatosExportacionTesoreria,
 } from './exportarTesoreria';
-import { textoWhatsappTesoreria } from './whatsappTesoreria';
+import {
+  textoWhatsappTesoreria,
+  CREDITOS_OC_OS_CERO as TITULO_CREDITOS_AL_DIA,
+  CREDITOS_AL_DIA as LEYENDA_CREDITOS_AL_DIA,
+} from './whatsappTesoreria';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { LEYENDA_AL_DIA, TITULO_AL_DIA, descargarTesoreriaAlDiaPdf, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 
@@ -160,6 +166,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   const [datosPP, setDatosPP] = useState<DatosPendientesPorPagar | null>(null);
   const [cxp, setCxp] = useState<CuentaPorPagar[]>([]);
   const [cxc, setCxc] = useState<CuentaPorCobrar[]>([]);
+  // 19-11-2026: cuentas a crédito OC/OS desde Compras (y sus datos de pago).
+  const [creditosCompras, setCreditosCompras] = useState<OrdenPorPagar[]>([]);
+  const [datosProvCred, setDatosProvCred] = useState<Record<string, Record<string, DatosPago>>>({});
+  const [creditosCargados, setCreditosCargados] = useState(false);
   const [ctx, setCtx] = useState<ContextoTasas>({ tasaBcvHoy: 0, tasaFecha: null });
 
   // Carga por ámbito + tasas
@@ -196,8 +206,24 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
           const datos = await cargarPendientesPorPagar(ordenIds, movil);
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
-          const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
-          if (!cancelado) { setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha }); }
+          // 19-11-2026: OC y OS a crédito desde Compras + CxP/CxC manuales de GT.
+          // En GT `ordenes` NO tiene `credito_cxp_id`: las cuentas de Compras vienen de
+          // `listOrdenesEnCredito()` (estado `cuenta_abierta`), que ya trae la ficha pegada.
+          setCreditosCargados(false);
+          const [credOcOs, p, c] = await Promise.all([
+            listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
+            listCuentasPorPagar(true),
+            listCuentasPorCobrar(true),
+          ]);
+          const abiertas: OrdenPorPagar[] = credOcOs.filter((r) => (Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0) > 0.01);
+          const datosProv = await listDatosPagoDeProveedores(abiertas.map((r) => r.orden.proveedor_id))
+            .catch(() => ({} as Record<string, Record<string, DatosPago>>));
+          if (!cancelado) {
+            setCreditosCompras(abiertas);
+            setDatosProvCred(datosProv);
+            setCreditosCargados(true);
+            setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha });
+          }
         }
       } catch (e) {
         if (!cancelado) toast(mensajeError(e, 'No se pudieron cargar los datos de Tesorería'), 'error');
@@ -213,8 +239,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
     if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa, pagoPorOrden);
     if (ambito === 'por_pagar') return datosPP ? normalizarPendientesPorPagar(datosPP) : [];
-    return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
-  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
+    return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa, creditosCompras, datosProvCred);
+  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, creditosCompras, datosProvCred, ctx, baseTasa]);
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
@@ -253,8 +279,11 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   }), [filasDetalle, cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel]);
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
-  // 07/11/2026: «Por pagar» sin NINGUNA orden pendiente (antes de filtros) → Tesorería al día.
-  const alDia = ambito === 'por_pagar' && !movil && !ordenIds?.length && !cargando && !!datosPP && filasDetalle.length === 0;
+  // 07/11/2026: «Por pagar» sin NINGUNA orden pendiente (antes de filtros) → Tesorería al día (ruta GT propia).
+  const alDiaPorPagar = ambito === 'por_pagar' && !movil && !ordenIds?.length && !cargando && !!datosPP && filasDetalle.length === 0;
+  // 19-11-2026: igual para «Cuentas a crédito (OC / OS)» sin saldo pendiente (ruta genérica MGG).
+  const alDiaCreditos = ambito === 'creditos_cartera' && !cargando && creditosCargados && filasDetalle.length === 0;
+  const alDia = alDiaPorPagar || alDiaCreditos;
   // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
   // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
   const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
@@ -285,7 +314,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
     if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
     // 07/11/2026: «Por pagar» sin nada pendiente → PDF «Tesorería al día».
-    if (filas.length === 0 && alDia && formato === 'pdf') {
+    if (filas.length === 0 && alDiaPorPagar && formato === 'pdf') {
       setOcupado('pdf');
       try { await descargarTesoreriaAlDiaPdf(); }
       catch (e) { toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'); }
@@ -313,6 +342,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
       incluirResumen, orientacion, formatoPresentacion, ordenarPor,
       kpisSimplificados,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+      creditosComprasDetalle: filtradas.filter((f) => f.es_credito_compras),
+      alDia,
     };
     try {
       if (formato === 'pdf') await descargarTesoreriaPdf(filas, resumen, marcados, meta);
@@ -358,12 +389,13 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
 
   // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
   const textoWsp = useMemo(
-    () => alDia ? textoWhatsappTesoreriaAlDia() : textoWhatsappTesoreria(filtradas, {
+    () => alDiaPorPagar ? textoWhatsappTesoreriaAlDia() : textoWhatsappTesoreria(filtradas, {
       ambito, desde, hasta, mostrarUsd, mostrarBs,
       tasaRef: resumen.tasaBcvReferencia,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+      alDia: alDiaCreditos,
     }),
-    [alDia, filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
+    [alDiaPorPagar, alDiaCreditos, filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
   );
 
   return (
@@ -828,8 +860,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>Cargando datos de Tesorería...</div>
           ) : filas.length === 0 && alDia ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', border: '1px solid #16a34a', borderRadius: 8, background: 'rgba(22,163,74,.08)' }}>
-              <div style={{ fontWeight: 800, fontSize: '1rem' }}>📋 {TITULO_AL_DIA}</div>
-              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#22c55e', marginTop: '.25rem' }}>✅ {LEYENDA_AL_DIA}</div>
+              <div style={{ fontWeight: 800, fontSize: '1rem' }}>📋 {alDiaCreditos ? TITULO_CREDITOS_AL_DIA : TITULO_AL_DIA}</div>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#22c55e', marginTop: '.25rem' }}>✅ {alDiaCreditos ? LEYENDA_CREDITOS_AL_DIA : LEYENDA_AL_DIA}</div>
             </div>
           ) : filas.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>No hay datos para el ámbito, período o filtros seleccionados.</div>

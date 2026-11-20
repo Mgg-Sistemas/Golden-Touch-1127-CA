@@ -139,6 +139,8 @@ import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_AUTORIZADOS_CANCELA, ESTADOS_
 // propia orden (sin leer libro ni caja); «retenida/pagada» coinciden con el módulo, solo
 // «parcial» puede diferir en bordes. Es la MISMA fuente (estadoRetencion.ts).
 import { estadoRetencionSoloOrden, badgeEstadoRetencion, textoPago } from '@/modules/retenciones/estadoRetencion';
+import { BannerAlertasCredito } from './CamposCreditoForm';
+import { listarAlertasCreditoPorVencer } from './creditoVencimiento';
 
 /** ¿La OC está en el flujo de retención? Solo entonces mostramos el badge, para no meter ruido. */
 function ocEnRetencion(o: Orden): boolean {
@@ -515,6 +517,14 @@ export function PedidosPage() {
   const proveedorMap = useMemo(
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
     [proveedoresAll]
+  );
+  // Alertas de vencimiento de créditos de Compras (19-11-2026).
+  const alertasCredito = useMemo(
+    () => listarAlertasCreditoPorVencer(
+      ordenes.filter((o) => o.estado === 'cuenta_abierta'),
+      new Map(proveedoresAll.map((p) => [p.id, p.razon_social])),
+    ),
+    [ordenes, proveedoresAll],
   );
   // email|id → "NOMBRE APELLIDO" para mostrar personas en vez del correo.
   const personaMap = useMemo(
@@ -919,6 +929,15 @@ export function PedidosPage() {
             {fijasQueTocan.length ? 'Ver y generar' : '⚙ Configurar'}
           </button>
         </div>
+      )}
+
+      {/* Alertas de vencimiento de créditos de Compras (19-11-2026). */}
+      {scope === 'oc' && (
+        <BannerAlertasCredito
+          alertas={alertasCredito}
+          contexto="compras"
+          onAccion={(item) => openDetail(item.orden.id)}
+        />
       )}
 
       {/* Alerta de Cocina: hay que montar el mercado. Tarjeta para el analista. */}

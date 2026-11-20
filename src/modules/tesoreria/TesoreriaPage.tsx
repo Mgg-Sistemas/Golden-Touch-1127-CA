@@ -89,6 +89,8 @@ import {
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
 import { EditarPreciosOcModal } from '@/modules/pedidos/EditarPreciosOcModal';
+import { BannerAlertasCredito } from '@/modules/pedidos/CamposCreditoForm';
+import { listarAlertasCreditoPorVencer } from '@/modules/pedidos/creditoVencimiento';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { impuestosEnBs, IMPUESTO_LABEL, IMPUESTOS_PAGO, impuestoEnBs } from '@/modules/pedidos/impuestosMoneda';
 import type { CamposRetencionesCompras } from '@/modules/pedidos/retencionesCompras';
@@ -115,6 +117,7 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { enviarMensaje } from '@/modules/pedidos/ordenChat.repository';
 import { construirTextoMotivoPagoLote, construirTextoMotivoPagoWhatsapp, errorResumenLote, MOTIVOS_NO_PAGO, type MotivoLote, type MotivoNoPagoTipo } from './motivoPagoWhatsapp';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import { ResumenPorPagarModal } from './ResumenPorPagarModal';
 import { errorReferencias, motivoConReferencias, nombreReferencia, tipoReferencia, ultimos4, type PataReferencia } from './referenciasPago';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
@@ -245,6 +248,15 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
   // Cuentas por pagar / cobrar abiertas (para el libro mayor por moneda).
   const [cxpRows, setCxpRows] = useState<CuentaPorPagar[]>([]);
   const [cxcRows, setCxcRows] = useState<CuentaPorCobrar[]>([]);
+  // 19-11-2026: OC/OS a crédito con saldo, para las alertas de vencimiento (2/1/0 días y vencido).
+  const [creditosParaAlertas, setCreditosParaAlertas] = useState<OrdenPorPagar[]>([]);
+  const alertasCredito = useMemo(
+    () => listarAlertasCreditoPorVencer(
+      creditosParaAlertas.map((x) => x.orden),
+      new Map(creditosParaAlertas.map((x) => [x.orden.proveedor_id ?? '', x.proveedorNombre || 'Sin proveedor'])),
+    ),
+    [creditosParaAlertas],
+  );
   // Filtros del libro mayor (rango de fechas para Debe/Haber + moneda).
   const [lmDesde, setLmDesde] = useState('');
   const [lmHasta, setLmHasta] = useState('');
@@ -284,7 +296,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
       setLibroTodo(mov);
       return;
     }
-    const [d, cs, sal, mov, pend, credOc, cxp, cxc, tr, nc] = await Promise.all([
+    const [d, cs, sal, mov, pend, credOc, cxp, cxc, tr, nc, credOcList] = await Promise.all([
       disponibilidadFinanciera(),
       listCajasActivas(),
       listSaldos().catch(() => [] as CajaSaldo[]),
@@ -295,9 +307,12 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
       listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
       countRenglonesPorPagar().catch(() => 0),
+      // 19-11-2026: para las alertas de vencimiento hace falta el detalle (solo el conteo no basta).
+      listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
     ]);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibroTodo(mov); setPorPagarCount(pend.porPagar); setCreditosCount(credOc + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
+    setCreditosParaAlertas(credOcList.filter((x) => (Number(x.orden.total) || 0) - (Number(x.orden.abonado_total) || 0) > 0.01));
   }, [movil]);
 
   // Movimientos que se ven en el registro: los filtros se resuelven aquí, sobre lo ya
@@ -449,6 +464,9 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
 
       {!movil && vista === 'tesoreria' && (
       <>
+          {/* 19-11-2026: alertas de vencimiento de créditos de Compras (OC / OS). */}
+          <BannerAlertasCredito alertas={alertasCredito} contexto="tesoreria" onAccion={() => setModal('creditos')} />
+
           {/* Disponibilidad financiera */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <DispCard titulo="Disponible en USD" valor={monto(disp?.usd ?? 0, 'USD')} />
@@ -4892,8 +4910,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
     <Modal title="Cuentas por pagar (créditos)" size="xl" onClose={() => !saving && onClose()}
       footer={<button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cerrar</button>}>
       {wspCreditos && (
-        <WhatsappLotePorPagarModal credito onClose={() => setWspCreditos(false)}
-          rows={ordenes.map((x) => ({ orden: x.orden, proveedorNombre: x.proveedorNombre, montoAPagar: round2((Number(x.orden.total) || 0) - (Number(x.orden.abonado_total) || 0)) }))} />
+        <ResumenPorPagarModal creditos onClose={() => setWspCreditos(false)}
+          rows={ordenes.filter((x) => (Number(x.orden.total) || 0) - (Number(x.orden.abonado_total) || 0) > 0.01)} />
       )}
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.8rem' }}>
         <button className={vista === 'oc' ? 'active' : ''} onClick={() => setVista('oc')}>🧾 Compras a crédito</button>

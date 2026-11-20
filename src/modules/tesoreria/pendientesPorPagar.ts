@@ -48,6 +48,35 @@ export interface FilaPendiente {
   pagos: LineaPago[];
   usd: number;
   bs: number;
+  /** En cuentas a crédito de Compras: distingue Orden de Compra (OC) vs Orden de Servicio (OS). */
+  tipoCredito?: 'OC' | 'OS';
+  /** Total original y lo ya abonado, en USD: para el desglose del reporte dinámico/PDF. */
+  totalOriginalUsd?: number;
+  abonadoUsd?: number;
+}
+
+/** Campos del crédito que llegan desde Compras y que GT aún no tiene tipados en `Orden`. */
+type OrdenConCamposCredito = OrdenPorPagar['orden'] & {
+  clase?: string | null;
+  credito_cxp_id?: string | null;
+  moneda?: string | null;
+};
+
+export function camposCreditoOrden(o: OrdenPorPagar['orden']): OrdenConCamposCredito {
+  return o as OrdenConCamposCredito;
+}
+
+/** Clasifica una orden a crédito como OC u OS (19-11-2026). */
+export function esOrdenServicioCredito(r: OrdenPorPagar): boolean {
+  const o = camposCreditoOrden(r.orden);
+  if (o.clase === 'servicio' || o.tipo === 'servicio') return true;
+  const cod = String(o.oc_codigo || o.codigo || '').trim().toUpperCase();
+  return cod.startsWith('CS-') || cod.startsWith('OS-') || cod.startsWith('SV-') || cod.startsWith('SD-');
+}
+
+/** Moneda en que está expresado el total de la orden (con el fallback histórico de GT). */
+export function monedaOrdenCredito(o: OrdenPorPagar['orden']): string {
+  return o.total_moneda || camposCreditoOrden(o).moneda || 'USD';
 }
 
 export type ClaveSegmento = 'compras_directas' | 'oc' | 'servicios' | 'servicios_directos' | 'credito';
@@ -480,10 +509,12 @@ export function armarPendientesPorPagar(e: EntradaPendientes, ordenIds?: readonl
   const incluirOtrosPendientes = !seleccion && !soloOrdenes;
   const creditos = incluirOtrosPendientes ? e.creditos ?? [] : [];
 
+  const esServicio = (r: OrdenPorPagar) => esOrdenServicioCredito(r);
+
   const filaOc = (r: OrdenPorPagar): FilaPendiente => {
     const usd = Number(r.montoAPagar || 0);
     return {
-      codigo: r.orden.oc_codigo || '—',
+      codigo: r.orden.oc_codigo || r.orden.codigo || '—',
       proveedor: r.proveedorNombre || '—',
       estado: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
       listaParaPagar: !r.esperandoMetodo,
@@ -521,20 +552,28 @@ export function armarPendientesPorPagar(e: EntradaPendientes, ordenIds?: readonl
     };
   };
   const filaCredito = (r: OrdenPorPagar): FilaPendiente => {
-    const usd = Number(r.orden.total || 0);
+    // 19-11-2026: una cuenta a crédito se reporta por su SALDO, no por el total.
+    const total = Number(r.orden.total || 0);
+    const abonado = Math.max(0, Number(r.orden.abonado_total) || 0);
+    const saldo = Math.max(0, redondear2(total - abonado));
+    const moneda = monedaOrdenCredito(r.orden);
+    const { usd, bs } = normMonto(saldo, moneda, tasa);
     return {
-      codigo: r.orden.oc_codigo || '—',
+      codigo: r.orden.oc_codigo || r.orden.codigo || '—',
       proveedor: r.proveedorNombre || '—',
       estado: 'Crédito · se salda por abonos',
       listaParaPagar: false,
       pagos: lineasDePago(r.orden.metodo_pago, r.orden.proveedor_id, datosProv),
       usd,
-      bs: tasa > 0 ? redondear2(usd * tasa) : 0,
+      bs,
+      tipoCredito: esServicio(r) ? 'OS' : 'OC',
+      totalOriginalUsd: normMonto(total, moneda, tasa).usd,
+      abonadoUsd: normMonto(abonado, moneda, tasa).usd,
     };
   };
 
-  const ocRows = rows.filter((r) => r.orden.tipo !== 'servicio');
-  const csRows = rows.filter((r) => r.orden.tipo === 'servicio');
+  const ocRows = rows.filter((r) => !esServicio(r));
+  const csRows = rows.filter((r) => esServicio(r));
   const comprasPP = (incluirOtrosPendientes ? e.comprasDir ?? [] : []).filter((c) => c.estado === 'por_pagar');
   const serviciosPP = (incluirOtrosPendientes ? e.serviciosDir ?? [] : []).filter((s) => s.estado === 'por_pagar');
 
@@ -558,9 +597,10 @@ export function armarPendientesPorPagar(e: EntradaPendientes, ordenIds?: readonl
   };
 }
 
-/** Lee las OC por pagar y a crédito (lo que ve Compras) y arma el reporte. */
+/** Lee las OC por pagar y a crédito con saldo pendiente (lo que ve Compras) y arma el reporte. */
 export async function cargarPendientesPorPagar(ordenIds?: readonly string[], soloOrdenes = false): Promise<DatosPendientesPorPagar> {
-  const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), soloOrdenes || ordenIds?.length ? [] : listOrdenesEnCredito()]);
+  const [rows, creditosRaw] = await Promise.all([listOrdenesPorPagar(), soloOrdenes || ordenIds?.length ? [] : listOrdenesEnCredito()]);
+  const creditos = creditosRaw.filter((r) => (Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0) > 0.01);
   return cargarConLecturas(rows, creditos, ordenIds, soloOrdenes);
 }
 

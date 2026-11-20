@@ -29,10 +29,12 @@ import {
 import type {
   AbonoCredito,
   AdjuntoOferta,
+  CreditoDetalle,
   CuentaCaja,
   DetalleServicioItem,
   EstadoOrden,
   EventoHistorial,
+  FichaOferta,
   ItemOrden,
   Orden,
   PagoMetodo,
@@ -42,6 +44,68 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import type { ModalidadEntrega } from '@/shared/lib/types';
+import { normalizarCreditoDetalle, sellarVencimientoAlConfirmar } from './creditoVencimiento';
+
+/** Las versiones anteriores guardaban la ficha de la oferta en `oferta_detalle` / `detalle`.
+ *  GT usa `ficha`; se leen todos los alias para no perder créditos ya registrados. */
+type OrdenConFicha = Orden & {
+  ficha?: FichaOferta | null;
+  oferta_detalle?: FichaOferta | null;
+  detalle?: FichaOferta | null;
+};
+
+function leerFichaCredito(o: Orden): FichaOferta | null {
+  const x = o as OrdenConFicha;
+  return x.ficha ?? x.oferta_detalle ?? x.detalle ?? null;
+}
+
+function sinCredito(ficha: FichaOferta | null): FichaOferta | null {
+  if (!ficha?.credito) return ficha;
+  const { credito: _omit, ...resto } = ficha;
+  void _omit;
+  return Object.keys(resto).length ? resto : null;
+}
+
+/** En GT la condición de crédito vive en `ofertas_proveedor.ficha`: la tabla `ordenes`
+ *  NO tiene columna `ficha` (ni `oferta_detalle`). La pegamos en memoria a cada orden al
+ *  listarla para que banners, reportes, PDF y WhatsApp lean siempre el mismo bloque, sin
+ *  consultar la oferta en cada pantalla. Es un campo TRANSITORIO: nunca se escribe a `ordenes`. */
+export async function adjuntarFichaCredito<T extends Orden | OrdenPorPagar>(filas: T[]): Promise<T[]> {
+  const ordenDe = (f: T): Orden => ('orden' in f ? (f as OrdenPorPagar).orden : (f as Orden));
+  // Solo interesan los estados del ciclo de compra donde el crédito puede afectar
+  // (alertas, confirmación o edición). Evita consultar ofertas de todas las órdenes
+  // históricas cada vez que se abre Compras o Tesorería.
+  const ESTADOS_CON_CREDITO = new Set(['pendiente', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'cuenta_abierta']);
+  const ids = [...new Set(filas.map((f) => ordenDe(f))
+    .filter((o) => ESTADOS_CON_CREDITO.has(o.estado))
+    .map((o) => o.id).filter(Boolean))];
+  if (!ids.length) return filas;
+  type Vista = { ficha: FichaOferta | null; aceptada: boolean };
+  const vistas = new Map<string, Vista>();
+  // PostgREST corta en 1.000 filas sin avisar: pedimos de 900 en 900.
+  for (let i = 0; i < ids.length; i += 900) {
+    const { data, error } = await supabase.from('ofertas_proveedor')
+      .select('orden_id, estado, registrada_en, ficha')
+      .in('orden_id', ids.slice(i, i + 900))
+      .order('registrada_en', { ascending: false });
+    if (error) continue; // best-effort: si falla, simplemente no hay alertas de crédito
+    for (const of of data ?? []) {
+      const id = (of as { orden_id?: string | null }).orden_id;
+      if (!id) continue;
+      const aceptada = (of as { estado?: string | null }).estado === 'aceptada';
+      const actual = vistas.get(id);
+      if (!actual || (!actual.aceptada && aceptada)) {
+        vistas.set(id, { ficha: ((of as { ficha?: FichaOferta | null }).ficha) ?? null, aceptada });
+      }
+    }
+  }
+  for (const f of filas) {
+    const o = ordenDe(f);
+    const vista = vistas.get(o.id);
+    if (vista) (o as OrdenConFicha).ficha = vista.ficha;
+  }
+  return filas;
+}
 
 /** Bucket de Storage para los adjuntos de pago de OC (factura / retención). */
 const BUCKET_OC = 'compras-oc';
@@ -104,13 +168,14 @@ export async function listOrdenes(): Promise<Orden[]> {
     .order('id')
     .range(d, h));
   const activas = filas.filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
-  return reconciliarSolicitudesServicioHuerfanas(activas);
+  return adjuntarFichaCredito(await reconciliarSolicitudesServicioHuerfanas(activas));
 }
 
 export async function getOrdenById(id: string): Promise<Orden | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return (data ?? null) as Orden | null;
+  const filas = await adjuntarFichaCredito((data ? [data as Orden] : []) as Orden[]);
+  return filas[0] ?? null;
 }
 
 /** Finalidad general fija de los pedidos de MERCADO (reposición de víveres).
@@ -472,6 +537,8 @@ export async function actualizarOrdenEditable(
     /** Condición de pago (contado, contra entrega, anticipado, crédito). Solo mientras la OC
      *  espera la aprobación del Gerente General: al aprobarla, el estado sale de aquí. */
     condiciones_pago?: string | null;
+    /** Ficha de la oferta, incluido el bloque `credito` (plazos y vencimiento). */
+    ficha?: FichaOferta | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -522,6 +589,23 @@ export async function actualizarOrdenEditable(
     }),
   };
   if (condCambia) upd.condiciones_pago = condNueva;
+  // El crédito viaja dentro de la ficha. Cambiar sus plazos es un cambio de TEXTO
+  // (no reabre la firma), igual que notas o motivo. Si la condición dejó de ser
+  // crédito, se quita el bloque para no arrastrar vencimientos anteriores.
+  const fichaNueva: FichaOferta | null | undefined = patch.ficha !== undefined
+    ? patch.ficha
+    : (condNueva !== undefined && condNueva !== 'credito' ? sinCredito(leerFichaCredito(o)) : undefined);
+  const fichaAGuardar: FichaOferta | null | undefined = fichaNueva?.credito
+    ? {
+        ...fichaNueva,
+        credito: normalizarCreditoDetalle(
+          fichaNueva.credito,
+          o.oc_aprobada_en ?? o.oc_creada_en ?? new Date().toISOString(),
+        ),
+      }
+    : fichaNueva;
+  // OJO: `ordenes` no tiene columna `ficha`. El bloque se guarda SOLO en la oferta
+  // aceptada (más abajo); aquí no se toca la tabla de órdenes.
   if (descCambia) upd.descuento_obtenido = descNuevo;
   if (vuelveAGerente) {
     upd.estado = 'oc_creada' as EstadoOrden;
@@ -596,6 +680,12 @@ export async function actualizarOrdenEditable(
     const { error: eCond } = await supabase.from('ofertas_proveedor').update({ condiciones_pago: condNueva })
       .eq('orden_id', o.id).eq('estado', 'aceptada');
     if (eCond) throw eCond;
+  }
+  // Y la ficha con el bloque de crédito: la oferta aceptada es la fuente de la OC.
+  if (fichaAGuardar !== undefined) {
+    const { error: eFicha } = await supabase.from('ofertas_proveedor').update({ ficha: fichaAGuardar ?? null })
+      .eq('orden_id', o.id).eq('estado', 'aceptada');
+    if (eFicha) throw eFicha;
   }
   return data as Orden;
 }
@@ -754,7 +844,7 @@ export async function listOrdenesPendientes(): Promise<Orden[]> {
   if (error) throw error;
   const activas = ((data ?? []) as Orden[]).filter((o) => !(o as { eliminado_en?: unknown }).eliminado_en);
   const reconciliadas = await reconciliarSolicitudesServicioHuerfanas(activas);
-  return reconciliadas.filter((o) => o.estado === 'pendiente');
+  return adjuntarFichaCredito(reconciliadas.filter((o) => o.estado === 'pendiente'));
 }
 
 /** Aprueba EN LOTE varias OP pendientes (pendiente → aprobada). Devuelve cuántas. */
@@ -833,7 +923,7 @@ export async function aprobarOrdenConOferta(
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
     .from('ofertas_proveedor')
-    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, iva_incluido, igtf_pct, igtf_monto, igtf_aplicado')
+    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, iva_incluido, igtf_pct, igtf_monto, igtf_aplicado, ficha')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -892,6 +982,8 @@ export async function aprobarOrdenConOferta(
     oc_codigo: ocCodigo,
     // Con anticipo parcial, la orden va a crédito (el resto queda como saldo pendiente).
     condiciones_pago: aplicaAnticipoParcial ? 'credito' : condOferta,
+    // El bloque `credito` ya vive en `ofertas_proveedor.ficha` (la oferta aceptada).
+    // `ordenes` no tiene columna `ficha`; las listas lo pegan en memoria al leer.
     oc_creada_por: actorEmail,
     oc_creada_en: nowIso,
     oc_seleccion_observacion: seleccion?.observacion?.trim() || null,
@@ -1217,6 +1309,12 @@ export async function aprobarOcsEnLote(
   const nowIso = new Date().toISOString();
   for (const o of elegibles) {
     const nuevoEstado = destinoPorCondicion(o.condiciones_pago);
+    const fichaActual = leerFichaCredito(o);
+    // Al confirmar una OC a crédito se SELLA la fecha base y el vencimiento (días),
+    // para que alertas y reportes no recalculen el plazo con la fecha de hoy.
+    const fichaConfirmada = nuevoEstado === 'cuenta_abierta' && fichaActual?.credito
+      ? sellarVencimientoAlConfirmar(fichaActual, nowIso)
+      : undefined;
     const patch = {
       estado: nuevoEstado,
       oc_aprobada_por: actorEmail,
@@ -1230,8 +1328,47 @@ export async function aprobarOcsEnLote(
     };
     const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id);
     if (error) throw error;
+    // Sellar el vencimiento significa fijar la fecha base en la OFERTA aceptada
+    // (aquí vive el bloque `credito` en GT), no en `ordenes`.
+    if (fichaConfirmada !== undefined) {
+      const { error: eFicha } = await supabase.from('ofertas_proveedor')
+        .update({ ficha: fichaConfirmada }).eq('orden_id', o.id).eq('estado', 'aceptada');
+      if (eFicha) throw eFicha;
+    }
   }
   return elegibles.length;
+}
+
+/**
+ * Actualiza los términos de vencimiento / recepción de una orden a crédito (`ficha.credito`),
+ * incluso cuando ya está en `cuenta_abierta`, sin reabrir la confirmación del Gerente.
+ * Equivale al `actualizarCondicionCreditoOrden` de la versión que usa `oferta_detalle`.
+ */
+export async function actualizarCondicionCreditoOrden(
+  o: Orden,
+  credito: CreditoDetalle | null,
+  actorEmail: string,
+): Promise<Orden> {
+  const baseFecha = o.oc_aprobada_en ?? o.oc_creada_en ?? new Date().toISOString();
+  const crNorm = normalizarCreditoDetalle(credito, baseFecha);
+  const fichaActual = leerFichaCredito(o);
+  const fichaNueva: FichaOferta | null = crNorm
+    ? { ...(fichaActual ?? {}), credito: crNorm }
+    : sinCredito(fichaActual);
+  const patch = {
+    historial: appendHistorial(o, 'orden_modificada', actorEmail, {
+      motivo: crNorm
+        ? `Condición de crédito: ${crNorm.primero_recibe ? 'Primero recibe y luego paga' : ''}${crNorm.dias ? `${crNorm.primero_recibe ? ' · ' : ''}Vence en ${crNorm.dias} día(s)` : ''}`
+        : 'Condición de crédito limpiada',
+    }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  // La oferta aceptada es la fuente de la ficha: se mantiene alineada.
+  const { error: eFicha } = await supabase.from('ofertas_proveedor').update({ ficha: fichaNueva ?? null })
+    .eq('orden_id', o.id).eq('estado', 'aceptada');
+  if (eFicha) throw eFicha;
+  return data as Orden;
 }
 
 /**
@@ -1813,13 +1950,14 @@ export const ESTADOS_REPORTE_COMPRAS: readonly EstadoOrden[] = [
  * No trae proveedores ni dispara la reconciliación de pagos: el reporte no los usa.
  */
 export async function listOrdenesReporteCompras(): Promise<Orden[]> {
-  return todasLasFilas<Orden>((d, h) => supabase
+  const filas = await todasLasFilas<Orden>((d, h) => supabase
     .from(TABLE)
     .select('*')
     .in('estado', [...ESTADOS_REPORTE_COMPRAS])
     .order('created_at', { ascending: true })
     .order('id')
     .range(d, h));
+  return adjuntarFichaCredito(filas);
 }
 
 /**
@@ -1887,9 +2025,10 @@ export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [(p as Proveedor).id, p as Proveedor]));
-  return (os ?? [])
+  const filas = (os ?? [])
     .filter((r) => Array.isArray((r as Orden).metodo_pago) && ((r as Orden).metodo_pago?.length ?? 0) > 0)
     .map((r) => mapPorPagar(r as Orden, pm));
+  return adjuntarFichaCredito(filas);
 }
 
 /** Resumen LIVIANO (solo conteos, sin writes) de lo pendiente por pagar, para el
@@ -1935,7 +2074,8 @@ export async function listOrdenesEnCredito(): Promise<OrdenPorPagar[]> {
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [(p as Proveedor).id, p as Proveedor]));
-  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+  const filas = (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+  return adjuntarFichaCredito(filas);
 }
 
 export interface PagarOcInput {

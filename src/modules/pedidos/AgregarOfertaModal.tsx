@@ -8,6 +8,8 @@ import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
+import { CamposCreditoForm, validarCamposCredito } from './CamposCreditoForm';
+import { normalizarCreditoDetalle } from './creditoVencimiento';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO, ligarRenglonesAInventario } from './ofertas.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { agruparVariantes, hayVariantes, representanteGrupo, totalesRepresentativos } from './variantesOferta';
@@ -356,7 +358,12 @@ export function AgregarOfertaModal({
       if (log[k]) logClean[k] = log[k];
     });
     if (Object.keys(logClean).length) base.logistica = logClean;
+    if (ficha.credito) base.credito = ficha.credito;
     return Object.keys(base).length ? base : null;
+  }
+
+  function baseFechaCredito(): string {
+    return orden.oc_aprobada_en ?? orden.oc_creada_en ?? (orden as { created_at?: string | null }).created_at ?? new Date().toISOString();
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -557,6 +564,11 @@ export function AgregarOfertaModal({
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
+    const errCredito = validarCamposCredito(condiciones.trim(), ficha.credito);
+    if (errCredito) {
+      toast(errCredito, 'error');
+      return;
+    }
     // «Se guarda en inventario como»: cada renglón tiene que saber con qué producto entra
     // (los genéricos de la SP y los repuestos de Maquinaria lo necesitan: la base también
     // lo exige para los genéricos).
@@ -567,6 +579,18 @@ export function AgregarOfertaModal({
     // Anticipo parcial: solo en servicio + condición 'anticipado' + monto > 0.
     const usaAnticipo = esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0;
     const actividadLimpia = actividad.replace(/\s+/g, ' ').trim();
+    // Crédito: se guarda normalizado dentro de la ficha (GT usa `ficha`, no `detalle`).
+    // Si la condición dejó de ser crédito, se quita el bloque para no arrastrar vencimientos viejos.
+    const fichaFinal: FichaOferta | null = (() => {
+      const base = fichaLimpia();
+      if (condiciones.trim() !== 'credito') {
+        if (!base) return null;
+        const { credito: _omit, ...resto } = base;
+        void _omit;
+        return Object.keys(resto).length ? resto : null;
+      }
+      return { ...(base ?? {}), credito: normalizarCreditoDetalle(ficha.credito, baseFechaCredito()) };
+    })();
     setSubmitting(true);
     try {
       // 1) Resolver proveedor (existente o crear uno nuevo)
@@ -676,7 +700,7 @@ export function AgregarOfertaModal({
           anticipo_monto: usaAnticipo ? Math.round(Number(anticipoMonto) * 100) / 100 : null,
           anticipo_moneda: usaAnticipo ? anticipoMoneda : null,
           notas: notas.trim() || null,
-          ficha: fichaLimpia(),
+          ficha: fichaFinal,
           adjuntos: adjuntosFinal,
           pdf_path: primero?.path ?? null,
           pdf_filename: primero?.filename ?? null,
@@ -701,7 +725,7 @@ export function AgregarOfertaModal({
         pdf_path,
         pdf_filename,
         adjuntos,
-        ficha: fichaLimpia(),
+        ficha: fichaFinal,
         precio_divisa: tieneUsd ? totalUsd : null,
         descuento_obtenido: descuentoNum,
         iva_pct: conIva ? ivaPctNum : 0,
@@ -1199,12 +1223,31 @@ export function AgregarOfertaModal({
         </div>
         <div className="form-row">
           <label>Condiciones del Pago *</label>
-          <select className="select" value={condiciones} onChange={(e) => setCondiciones(e.target.value)} required>
+          <select
+            className="select"
+            value={condiciones}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCondiciones(v);
+              if (v === 'credito' && !ficha.credito) {
+                setFicha((f) => ({ ...f, credito: normalizarCreditoDetalle({ modalidad: 'dias', dias: 15 }, baseFechaCredito()) }));
+              }
+            }}
+            required
+          >
             <option value="">— elegir —</option>
             {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
       </div>
+
+      {condiciones === 'credito' && (
+        <CamposCreditoForm
+          value={ficha.credito}
+          onChange={(credito) => setFicha((f) => ({ ...f, credito }))}
+          fechaBaseIso={orden.oc_aprobada_en ?? orden.oc_creada_en ?? (orden as { created_at?: string | null }).created_at}
+        />
+      )}
 
       {/* Pago anticipado (adelanto parcial): solo en órdenes de SERVICIO cuando la condición
           es 'anticipado'. El monto se aplica al aceptar la oferta (no toca caja, se resta del
