@@ -30,6 +30,7 @@ import {
   ETIQUETA_TIPO_COMPRA,
   filtrarFilasCompras,
   filtrarCuentasCreditoCompras,
+  normalizarCuentasCreditoFilas,
   resumenCompras,
   procesarFilasCompras,
   type AmbitoCompras,
@@ -60,6 +61,7 @@ type Formato = 'resumen' | 'detallado' | 'hibrido';
 const AMBITOS: { id: AmbitoCompras; icon: string; label: string }[] = [
   { id: 'ordenes', icon: '🧾', label: 'Órdenes de Compra' },
   { id: 'items', icon: '📦', label: 'Ítems' },
+  { id: 'creditos', icon: '💳', label: 'Cuentas a Crédito (OC y OS)' },
 ];
 
 const MODOS: { id: ModoAgrupacionCompras; icon: string; label: string; ambito?: AmbitoCompras }[] = [
@@ -196,7 +198,8 @@ export function ExportarComprasModal({ onClose }: Props) {
   }, [resumen, ordenRanking]);
 
   // Listado según el ámbito
-  const filasDetalle = ambito === 'ordenes' ? filasOrdenes : filasItems;
+  const filasCreditos = useMemo(() => normalizarCuentasCreditoFilas(cuentasCredito), [cuentasCredito]);
+  const filasDetalle = ambito === 'creditos' ? filasCreditos : (ambito === 'ordenes' ? filasOrdenes : filasItems);
   const filtradas = useMemo(() => filtrarFilasCompras(filasDetalle, {
     ...filtrosBase,
     categoriasSel: ambito === 'items' && categoriasSel.length ? categoriasSel : undefined,
@@ -211,15 +214,20 @@ export function ExportarComprasModal({ onClose }: Props) {
       for (const v of vals) if (v) m.set(v, (m.get(v) || 0) + 1);
       return Array.from(m.entries()).map(([nombre, count]) => ({ nombre, count })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     };
+    const soloCred = ambito === 'creditos';
     return {
-      departamentos: cuenta([...filasOrdenes.map((f) => f.departamento), ...cuentasCredito.map((c) => c.departamento)]),
-      proveedores: cuenta([
-        ...filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—'),
-        ...cuentasCredito.map((c) => c.proveedor).filter((p) => p !== '—'),
-      ]),
+      departamentos: cuenta(soloCred ? cuentasCredito.map((c) => c.departamento) : [...filasOrdenes.map((f) => f.departamento), ...cuentasCredito.map((c) => c.departamento)]),
+      proveedores: cuenta(
+        soloCred
+          ? cuentasCredito.map((c) => c.proveedor).filter((p) => p !== '—')
+          : [
+              ...filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—'),
+              ...cuentasCredito.map((c) => c.proveedor).filter((p) => p !== '—'),
+            ],
+      ),
       categorias: cuenta(filasItems.map((f) => f.categoria)),
     };
-  }, [filasOrdenes, filasItems, cuentasCredito]);
+  }, [filasOrdenes, filasItems, cuentasCredito, ambito]);
 
   const columnasAmbito = useMemo(() => CAMPOS_REPORTE_COMPRAS.filter((c) => !c.ambito || c.ambito === 'ambos' || c.ambito === ambito), [ambito]);
   const marcadosVisibles = useMemo(() => marcados.filter((c) => columnasAmbito.some((col) => col.clave === c)), [marcados, columnasAmbito]);
@@ -227,11 +235,18 @@ export function ExportarComprasModal({ onClose }: Props) {
 
   const cambiarAmbito = (nuevo: AmbitoCompras) => {
     setAmbito(nuevo);
+    if (nuevo === 'creditos') {
+      setAgrupacion('detallado');
+      setMarcados(CAMPOS_DETALLE_POR_AMBITO.creditos);
+      return;
+    }
     const modo = MODOS.find((m) => m.id === agrupacion);
     if (modo?.ambito && modo.ambito !== nuevo) {
       const base: ModoAgrupacionCompras = 'departamento';
       setAgrupacion(base);
       setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[base]);
+    } else if (agrupacion === 'detallado') {
+      setMarcados(CAMPOS_DETALLE_POR_AMBITO[nuevo]);
     }
   };
   const cambiarAgrupacion = (modo: ModoAgrupacionCompras) => {
@@ -265,9 +280,10 @@ export function ExportarComprasModal({ onClose }: Props) {
 
   const descargar = async (fmt: 'pdf' | 'xlsx' | 'csv') => {
     if (!mostrarUsd && !mostrarBs) { toast('Deja encendida al menos una moneda ($ o Bs).', 'warning'); return; }
-    if (formato !== 'resumen' && marcadosVisibles.length === 0) { toast('Marca al menos una columna para el listado.', 'warning'); return; }
+    if (ambito !== 'creditos' && formato !== 'resumen' && marcadosVisibles.length === 0) { toast('Marca al menos una columna para el listado.', 'warning'); return; }
+    if (ambito === 'creditos' && resumen.creditoCount === 0) { toast('No hay OC ni OS con cuenta a crédito abierta para exportar.', 'warning'); return; }
     if (resumen.totalCompras === 0 && resumen.creditoCount === 0) { toast('No hay compras ni cuentas a crédito con los filtros y el período seleccionados.', 'warning'); return; }
-    if (fmt === 'csv' && resumen.totalCompras === 0) { toast('No hay filas de compras en el período para exportar a CSV.', 'warning'); return; }
+    if (fmt === 'csv' && filas.length === 0) { toast('No hay filas para exportar a CSV.', 'warning'); return; }
     setOcupado(fmt);
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_FORMATO, formato); } catch { /* no crítico */ }
     const meta = metaDe();
@@ -282,7 +298,7 @@ export function ExportarComprasModal({ onClose }: Props) {
     }
   };
 
-  const textoWsp = useMemo(() => textoWhatsappCompras(resumenMostrado, { desde, hasta, mostrarUsd, mostrarBs, tasaBcv }), [resumenMostrado, desde, hasta, mostrarUsd, mostrarBs, tasaBcv]);
+  const textoWsp = useMemo(() => textoWhatsappCompras(resumenMostrado, { desde, hasta, ambito, mostrarUsd, mostrarBs, tasaBcv }), [resumenMostrado, desde, hasta, ambito, mostrarUsd, mostrarBs, tasaBcv]);
 
   const surf2 = { background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' } as const;
   const tituloSec = { fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' } as const;
@@ -385,7 +401,11 @@ export function ExportarComprasModal({ onClose }: Props) {
             ))}
           </div>
           <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-            {ambito === 'ordenes' ? 'Una fila por compra (órdenes, compras directas y servicios).' : 'Una fila por ítem de orden (para categorías de inventario e ítem más comprado).'}
+            {ambito === 'creditos'
+              ? 'Exclusivamente órdenes de compra (OC) y órdenes de servicio (OS) con cuenta a crédito abierta.'
+              : ambito === 'ordenes'
+                ? 'Una fila por compra (órdenes, compras directas y servicios).'
+                : 'Una fila por ítem de orden (para categorías de inventario e ítem más comprado).'}
           </div>
         </div>
 
@@ -678,6 +698,8 @@ function celdaTexto(f: FilaReporteCompras, cKey: string): string {
     case 'monto_usd': return fmtUsd(f.monto_usd);
     case 'monto_bs': return fmtBs(f.monto_bs);
     case 'pagado_usd': return fmtUsd(f.pagado_usd);
+    case 'saldo_pendiente_usd': return fmtUsd(f.saldo_pendiente_usd ?? 0);
+    case 'saldo_pendiente_bs': return fmtBs(f.saldo_pendiente_bs ?? 0);
     case 'cantidad': return f.cantidad != null ? fmtNum(f.cantidad) : '—';
     case 'pct_total': return f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : '—';
     case 'tipo_compra': return ETIQUETA_TIPO_COMPRA[f.tipo_compra];

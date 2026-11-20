@@ -101,6 +101,8 @@ import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIO
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { CATEGORIAS_SERVICIO, esRecargaAgua } from './servicios.repository';
 import { DetalleServicioEditor, limpiarDetalleServicio } from './DetalleServicioEditor';
+import { AlertaCreditosPorVencerBanner, BadgePlazoCredito, EditarPlazoCreditoModal, PlazoCreditoFields } from './PlazoCreditoUI';
+import { hoyCreditoVE, leerPlazoCreditoOrden, sumarDiasCredito, type PlazoCreditoConfig } from './creditoPlazo';
 import { obtenerInfoModalidadPago } from './modalidadPago';
 import {
   RETENCION_INFO, TIPOS_RETENCION, calcularRetencionesCompras, errorRetencionesCompras, netoAPagarCompras,
@@ -259,6 +261,7 @@ function eventLabel(ev: string): string {
       confirmada_confirmada_cuenta_abierta: 'OC confirmada · crédito (cuenta abierta)',
       abono: 'Abono registrado (crédito)',
       anticipo: 'Pago anticipado registrado (adelanto)',
+      plazo_credito: 'Condición / vencimiento de crédito configurado',
       anticipo_quitado: 'Pago anticipado quitado',
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
@@ -901,6 +904,16 @@ export function PedidosPage() {
           )}
         </div>
       </div>
+
+      {/* Alertas de cuentas a crédito próximas a vencer (2 días / 1 día / hoy / vencidas) */}
+      {(canVerCompras || canManageProcurement) && (
+        <AlertaCreditosPorVencerBanner
+          ordenes={ordenes}
+          proveedoresMap={new Map([...proveedorMap.entries()].map(([id, p]) => [id, p.razon_social]))}
+          modulo="compras"
+          onSelectOrden={(ord) => setModal({ kind: 'detail', ordenId: ord.id })}
+        />
+      )}
 
       {/* Compras fijas que tocan hoy o están vencidas (12/11/2026). */}
       {canManageProcurement && (fijasQueTocan.length > 0 || fijasSugeridas.length > 0) && (
@@ -3225,6 +3238,11 @@ const KanbanCard = memo(function KanbanCard({
           </>);
         })()}
       </div>
+      {(orden.estado === 'cuenta_abierta' || orden.condiciones_pago === 'credito') && !creditoPagado && (
+        <div className="meta" style={{ marginTop: '.2rem' }}>
+          <BadgePlazoCredito orden={orden} />
+        </div>
+      )}
       <div className="meta" style={{ fontSize: '.72rem', marginTop: '.15rem' }} title="Solicitante y fecha de creación">
         <span>👤 <Quien nombre={orden.solicitante} correo={orden.solicitante_email} vacio="—" /></span>
         <span className="muted">· {dateTime(orden.created_at)}</span>
@@ -3463,6 +3481,7 @@ function OrdenDetailModal({
   // Editar precios / agregar productos a una OC ya «Confirmada pagar» (o esperando método),
   // sin devolverla a aprobación. El total se recalcula y se sincroniza a Tesorería.
   const [editarPreciosOpen, setEditarPreciosOpen] = useState(false);
+  const [editarPlazoCreditoOpen, setEditarPlazoCreditoOpen] = useState(false);
   const [whatsappPagarOpen, setWhatsappPagarOpen] = useState(false);
   const puedeEditarPreciosPago =
     (canManageProcurement || (o.tipo === 'servicio' && isAdmin)) && puedeEditarPreciosOrden(o);
@@ -3933,10 +3952,25 @@ function OrdenDetailModal({
       {o.oc_codigo && (
         <div className="detail-row">
           <div className="k">Condición de pago</div>
-          <div className="v">
+          <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.45rem', flexWrap: 'wrap' }}>
             <span className="badge" style={{ background: 'var(--primary-2)', color: '#fff', fontWeight: 600 }}>
               {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
             </span>
+            {(o.estado === 'cuenta_abierta' || o.condiciones_pago === 'credito') && (
+              <>
+                <BadgePlazoCredito orden={o} />
+                {(canManageProcurement || isAdmin) && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setEditarPlazoCreditoOpen(true)}
+                    title="Indicar o editar en cuántos días vence el crédito o si primero se recibe y luego se paga"
+                  >
+                    ✏️ Plazo / vencimiento crédito
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -4309,6 +4343,14 @@ function OrdenDetailModal({
         actor={actorEmail || 'sistema'}
         onClose={() => setEditarPreciosOpen(false)}
         onSaved={async () => { setEditarPreciosOpen(false); await onAcceptedOffer(); }}
+      />
+    )}
+    {editarPlazoCreditoOpen && (
+      <EditarPlazoCreditoModal
+        orden={o}
+        actorEmail={actorEmail || 'sistema'}
+        onClose={() => setEditarPlazoCreditoOpen(false)}
+        onSaved={async () => { setEditarPlazoCreditoOpen(false); await onAcceptedOffer(); }}
       />
     )}
     {reelegirOpen && (
@@ -5791,6 +5833,15 @@ function EditarOrdenModal({
   // Condición de pago: en OC de producto solo mientras espera firma; en Servicios cuando ya es CS o edita precios.
   const condicionEditable = orden.estado === 'oc_creada' || (esServicio && (Boolean(orden.oc_codigo) || editarPrecios));
   const [condicion, setCondicion] = useState(orden.condiciones_pago ?? '');
+  const [creditoPlazoEdit, setCreditoPlazoEdit] = useState<PlazoCreditoConfig | null>(
+    () =>
+      leerPlazoCreditoOrden(orden) ?? {
+        modo: 'dias',
+        dias: 15,
+        fecha_vencimiento: sumarDiasCredito(hoyCreditoVE(), 15),
+        primero_recibe: false,
+      },
+  );
   // Pago anticipado (adelanto parcial) de la OC de servicio: editable aquí mientras la orden
   // tenga total y no esté pagada/cerrada. No toca caja; se resta del total y el resto queda a
   // crédito (misma lógica que el bloque «Pago anticipado» del detalle). En blanco/0 lo quita.
@@ -5977,6 +6028,11 @@ function EditarOrdenModal({
       if (imagenFile) imagenPatch = await subirImagenOrden(imagenFile);
       else if (quitarImagen && imagenPathActual) imagenPatch = null;
 
+      const esOrdenACredito =
+        condicion === 'credito' ||
+        orden.estado === 'cuenta_abierta' ||
+        (esServicio && anticipoOn && (Number(anticipoMonto) || 0) > 0);
+
       const savedOrden = await actualizarOrdenEditable(orden, {
         items: itemsFinal,
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
@@ -5986,6 +6042,7 @@ function EditarOrdenModal({
         motivo: motivo.trim() || null,
         finalidad: finalidad.trim() || null,
         ...(condicionEditable ? { condiciones_pago: condicion || null } : {}),
+        ...(esOrdenACredito ? { credito_plazo: creditoPlazoEdit } : {}),
         ...(mostrarProveedor ? { proveedor_id: proveedorId || null } : {}),
         ...(esServicio ? { detalle_servicio: limpiarDetalleServicio(detalleServicio) } : {}),
         solicitante: solicitante.trim() || null,
@@ -6131,6 +6188,13 @@ function EditarOrdenModal({
           </div>
         )}
       </div>
+      {(condicion === 'credito' || orden.estado === 'cuenta_abierta' || (esServicio && anticipoOn && (Number(anticipoMonto) || 0) > 0)) && (
+        <PlazoCreditoFields
+          value={creditoPlazoEdit}
+          onChange={setCreditoPlazoEdit}
+          fechaBaseIso={orden.oc_aprobada_en || orden.oc_creada_en || orden.created_at}
+        />
+      )}
 
       <div className="form-row" style={{ marginTop: '.65rem' }}>
         <label>{esServicio ? 'Servicios solicitados' : 'Productos solicitados'}</label>

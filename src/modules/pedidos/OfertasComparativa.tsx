@@ -23,6 +23,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from './modalidadPago';
+import { fmtFechaCredito } from './creditoPlazo';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
@@ -53,6 +54,14 @@ function resumenFicha(ficha: OfertaProveedor['ficha']): string {
     if (lbl(log.embalaje)) ls.push(`Embal. ${lbl(log.embalaje)}`);
     if (lbl(log.seguros)) ls.push(`Seg. ${lbl(log.seguros)}`);
     if (ls.length) partes.push(ls.join(', '));
+  }
+  if (ficha.credito) {
+    const cr = ficha.credito;
+    const sub: string[] = [];
+    if (cr.primero_recibe || cr.modo === 'recibe_primero') sub.push('Primero recibe y luego paga');
+    if (cr.dias && cr.dias > 0) sub.push(`${cr.dias} día(s)`);
+    if (cr.fecha_vencimiento) sub.push(`vence ${fmtFechaCredito(cr.fecha_vencimiento)}`);
+    if (sub.length) partes.push(`💳 Crédito: ${sub.join(' · ')}`);
   }
   return partes.join(' · ');
 }

@@ -12,6 +12,7 @@ import { cantidadEnUso, precioEnUso, rotuloConversion } from '@/modules/inventar
 import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { MENSAJE_PAGO_REGISTRADO_SIN_DATOS, NOMBRE_PAGO_REGISTRADO_SIN_DATOS } from './pagoOcAvisos';
 import { baseNetaDesdeTotal, impuestosDeOrden, ivaCambio, recomponerConIva, recomponerImpuestos, type IvaEditado } from './impuestosOrden';
+import { inyectarPlazoCreditoEnFicha, leerPlazoCreditoOferta, normalizarPlazoCredito, type PlazoCreditoConfig } from './creditoPlazo';
 import { egresarDivisa, revertirEgresoDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { guardarDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
@@ -28,6 +29,7 @@ import {
 } from './despieceRes';
 import type {
   AbonoCredito,
+  FichaOferta,
   AdjuntoOferta,
   CuentaCaja,
   DetalleServicioItem,
@@ -486,6 +488,8 @@ export async function actualizarOrdenEditable(
     proveedor_id?: string | null;
     /** Condición de pago (contado, contra entrega, anticipado, crédito). */
     condiciones_pago?: string | null;
+    /** Días de vencimiento del crédito o si primero se recibe y luego se paga. */
+    credito_plazo?: PlazoCreditoConfig | null;
   },
   actorEmail: string,
 ): Promise<Orden> {
@@ -535,6 +539,7 @@ export async function actualizarOrdenEditable(
       ...(ivaCambia && conIvaEditado ? { iva_anterior: impPrevOrden.ivaAplicado ? impPrevOrden.ivaMonto : 0, iva_nuevo: conIvaEditado.ivaMonto } : {}),
       ...(condCambia ? { condicion_anterior: o.condiciones_pago ?? null, condicion_nueva: condNueva } : {}),
       ...(provCambia ? { proveedor_anterior: o.proveedor_id ?? null, proveedor_nuevo: provNuevo } : {}),
+      ...(patch.credito_plazo !== undefined ? { credito_plazo: normalizarPlazoCredito(patch.credito_plazo) } : {}),
     }),
   };
   if (condCambia) {
@@ -644,6 +649,49 @@ export async function actualizarOrdenEditable(
       .eq('orden_id', o.id).eq('estado', 'aceptada');
     if (eCond) throw eCond;
   }
+  if (patch.credito_plazo !== undefined) {
+    await sincronizarPlazoCreditoOfertaAceptada(o.id, patch.credito_plazo);
+  }
+  return data as Orden;
+}
+
+/** Sincroniza `ficha.credito` en la oferta aceptada de una orden. */
+async function sincronizarPlazoCreditoOfertaAceptada(
+  ordenId: string,
+  plazo: PlazoCreditoConfig | null,
+): Promise<void> {
+  const { data: ofRow } = await supabase
+    .from('ofertas_proveedor')
+    .select('id, ficha')
+    .eq('orden_id', ordenId)
+    .eq('estado', 'aceptada')
+    .maybeSingle();
+  if (!ofRow) return;
+  const nuevaFicha = inyectarPlazoCreditoEnFicha((ofRow as { ficha?: FichaOferta | null }).ficha, plazo);
+  await supabase.from('ofertas_proveedor').update({ ficha: nuevaFicha }).eq('id', (ofRow as { id: string }).id);
+}
+
+/**
+ * Registra o actualiza los días de vencimiento / recepción previa de una cuenta a crédito
+ * (OC u OS) tanto desde Compras como desde Tesorería, quedando en la traza y visible en ambos módulos.
+ */
+export async function guardarPlazoCreditoOrden(
+  o: Orden,
+  plazo: PlazoCreditoConfig | null,
+  actorEmail: string,
+): Promise<Orden> {
+  const norm = normalizarPlazoCredito(plazo);
+  const historial = appendHistorial(o, 'plazo_credito', actorEmail, {
+    credito_plazo: norm,
+  });
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({ historial })
+    .eq('id', o.id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  await sincronizarPlazoCreditoOfertaAceptada(o.id, norm).catch(() => undefined);
   return data as Orden;
 }
 
@@ -888,7 +936,7 @@ export async function aprobarOrdenConOferta(
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   const { data: ofRow } = await supabase
     .from('ofertas_proveedor')
-    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, iva_incluido, igtf_pct, igtf_monto, igtf_aplicado')
+    .select('condiciones_pago, anticipo_monto, anticipo_moneda, precio_divisa, descuento_obtenido, iva_pct, iva_monto, iva_aplicado, iva_incluido, igtf_pct, igtf_monto, igtf_aplicado, ficha')
     .eq('orden_id', o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -926,6 +974,7 @@ export async function aprobarOrdenConOferta(
   // Se aplica DESPUÉS de crear la OC (cuando ya tiene total). Enruta a crédito para que el saldo
   // restante quede como «cuenta abierta» en Tesorería (prepago total, sin monto, sigue como hoy).
   const condOferta = (ofRow?.condiciones_pago as string | null) ?? null;
+  const creditoPlazoOf = leerPlazoCreditoOferta((ofRow?.ficha as FichaOferta | null) ?? null);
   const anticipoMontoOf = Math.max(0, Number((ofRow?.anticipo_monto as number | null) ?? 0) || 0);
   const anticipoMonedaOf: 'USD' | 'Bs' = (ofRow?.anticipo_moneda as string | null) === 'Bs' ? 'Bs' : 'USD';
   const aplicaAnticipoParcial = o.tipo === 'servicio' && condOferta === 'anticipado' && anticipoMontoOf > 0;
@@ -961,6 +1010,7 @@ export async function aprobarOrdenConOferta(
       descuento_obtenido: descuentoObtenido,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
+      ...(creditoPlazoOf ? { credito_plazo: creditoPlazoOf } : {}),
     }),
   };
   const { data, error } = await supabase
@@ -1119,6 +1169,15 @@ export async function repartirOpEntreProveedores(
   if (!validos.length) throw new Error('Asigna al menos un ítem con precio a un proveedor.');
   const nowIso = new Date().toISOString();
   const hijos: Orden[] = [];
+  const { data: ofertasMadre } = await supabase
+    .from('ofertas_proveedor')
+    .select('proveedor_id, ficha')
+    .eq('orden_id', op.id);
+  const plazoPorProv = new Map<string, PlazoCreditoConfig>();
+  for (const r of (ofertasMadre ?? []) as Array<{ proveedor_id: string; ficha?: FichaOferta | null }>) {
+    const p = leerPlazoCreditoOferta(r.ficha);
+    if (p) plazoPorProv.set(r.proveedor_id, p);
+  }
 
   // Las hijas se numeran DESPUÉS de las que ya existan para esta OP (reparto repetido o
   // parcial), para no chocar con el UNIQUE (codigo): si ya hay SP-...-1 y -2, las nuevas
@@ -1187,7 +1246,17 @@ export async function repartirOpEntreProveedores(
       oc_creada_en: nowIso,
       historial: [
         ...(op.historial ?? []),
-        { at: nowIso, evento: 'oc_creada_reparto', actor: actorEmail, proveedorId: g.proveedorId, oc_codigo: ocCodigo, total: gTotal, con_descuento: gUsaDescuento, descuento_obtenido: gDescuento } as EventoHistorial,
+        {
+          at: nowIso,
+          evento: 'oc_creada_reparto',
+          actor: actorEmail,
+          proveedorId: g.proveedorId,
+          oc_codigo: ocCodigo,
+          total: gTotal,
+          con_descuento: gUsaDescuento,
+          descuento_obtenido: gDescuento,
+          ...(plazoPorProv.get(g.proveedorId) ? { credito_plazo: plazoPorProv.get(g.proveedorId) } : {}),
+        } as EventoHistorial,
       ],
     };
     const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();

@@ -27,7 +27,7 @@ const EMOJI_AMBITO: Record<AmbitoTesoreria, string> = {
 const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
   movimientos: 'Movimientos de caja',
   por_pagar: 'Pendientes por pagar',
-  creditos_cartera: 'Cuentas a crédito (cartera)',
+  creditos_cartera: 'Cuentas a crédito · Compras (OC y OS)',
 };
 
 /** Marcador de cada renglón según el tipo de flujo: a dónde va o de dónde viene la plata. */

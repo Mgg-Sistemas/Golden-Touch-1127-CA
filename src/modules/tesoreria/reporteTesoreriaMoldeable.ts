@@ -19,7 +19,9 @@
    ============================================================ */
 
 import type { MovimientoCaja } from '@/shared/lib/types';
-import type { DatosPendientesPorPagar, ClaveSegmento } from './pendientesPorPagar';
+import { lineasDePago, type DatosPendientesPorPagar, type ClaveSegmento } from './pendientesPorPagar';
+import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
 import type { CuentaPorPagar } from './cuentasPorPagar.repository';
 import type { CuentaPorCobrar } from './cuentasPorCobrar.repository';
 
@@ -513,6 +515,87 @@ export function normalizarCreditosCartera(
       estado: 'A crédito',
       metodo_pago: null,
       datos_pago_resumen: null,
+      tasa_bcv_aplicada: R,
+      monto_usd: conv.usd,
+      monto_bs: conv.bs,
+      saldo_caja_momento: null,
+    });
+  }
+
+  return filas;
+}
+
+/**
+ * Normaliza EXCLUSIVAMENTE las cuentas a crédito provenientes de Compras (OC y OS
+ * con `estado === 'cuenta_abierta'`). El monto reportado es el saldo pendiente
+ * (`total − abonado_total`) e incluye en el estado/concepto el total y lo abonado.
+ */
+export function normalizarCreditosComprasOcOs(
+  ordenesCredito: OrdenPorPagar[],
+  datosProv: Record<string, Record<string, DatosPago>>,
+  ctx: ContextoTasas,
+  base: BaseTasaTesoreria = 'bcv_dia',
+): FilaReporteTesoreria[] {
+  const filas: FilaReporteTesoreria[] = [];
+
+  for (const r of ordenesCredito) {
+    const o = r.orden;
+    if (o.estado !== 'cuenta_abierta') continue;
+    if ((o as { eliminado_en?: unknown }).eliminado_en) continue;
+
+    const total = round2(Number(o.total) || 0);
+    const abonado = round2(Math.max(0, Number(o.abonado_total) || 0));
+    const saldo = Math.max(0, round2(total - abonado));
+    if (total > 0 && saldo <= 0.005) continue;
+
+    const esServicio = o.tipo === 'servicio';
+    const sigla = esServicio ? 'OS' : 'OC';
+    const origenDoc = esServicio ? 'Orden de Servicio (OS)' : 'Orden de Compra (OC)';
+    const moneda = (o.total_moneda || 'USD').toUpperCase() === 'BS' ? 'Bs' : 'USD';
+    const fecha = diaDe(o.oc_aprobada_en || o.oc_creada_en || o.created_at);
+    const R = tasaDeFecha(ctx, fecha, base);
+    const conv = convertirMonto(saldo, moneda, R);
+
+    const codBase = (o.oc_codigo || o.codigo || '—').trim();
+    const codSol = o.oc_codigo && o.codigo && o.oc_codigo !== o.codigo ? ` (${o.codigo.trim()})` : '';
+    const codigo = `[${sigla}] ${codBase}${codSol}`;
+
+    const pagos = lineasDePago(o.metodo_pago, o.proveedor_id, datosProv);
+    const textoPago = pagos.map((l) => l.texto).filter(Boolean).join(' · ') || null;
+
+    const itemsNombres = (Array.isArray(o.items) ? o.items : [])
+      .filter((i) => i.comprar !== false)
+      .map((i) => (i.nombre || '').trim())
+      .filter(Boolean);
+    const resumenItems = itemsNombres.length
+      ? (itemsNombres.length > 3 ? `${itemsNombres.slice(0, 3).join(', ')} (+${itemsNombres.length - 3})` : itemsNombres.join(', '))
+      : ((o.notas || o.motivo || o.finalidad || '').trim() || origenDoc);
+
+    const fmtM = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const sim = moneda === 'Bs' ? 'Bs' : '$';
+    const estadoTxt = abonado > 0
+      ? `Crédito (${sigla}) · Total: ${sim} ${fmtM(total)} · Abonado: ${sim} ${fmtM(abonado)}`
+      : `Crédito (${sigla}) · Total: ${sim} ${fmtM(total)} · Sin abonos`;
+
+    filas.push({
+      id: `cred-ord-${o.id}`,
+      ambito: 'creditos_cartera',
+      fecha,
+      hora: null,
+      codigo,
+      caja_origen: null,
+      caja_destino: null,
+      moneda_original: moneda,
+      monto_original: saldo,
+      tipo_movimiento: 'egreso',
+      categoria: origenDoc,
+      subcategoria: (o.unidad_solicitante || '').trim() || null,
+      contraparte: r.proveedorNombre || '—',
+      concepto: resumenItems,
+      origen_documento: origenDoc,
+      estado: estadoTxt,
+      metodo_pago: textoPago,
+      datos_pago_resumen: textoPago,
       tasa_bcv_aplicada: R,
       monto_usd: conv.usd,
       monto_bs: conv.bs,

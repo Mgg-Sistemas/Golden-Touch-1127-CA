@@ -9,6 +9,8 @@ import { money } from '@/shared/lib/format';
 import { PREFIJOS_RIF, partirRif } from '@/shared/lib/rif';
 import type { CostoLogistico, FichaOferta, ItemOrden, Orden, OfertaProveedor, OrigenProveedor, Proveedor } from '@/shared/lib/types';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, getPdfOfertaSignedUrl, CONDICIONES_PAGO, ligarRenglonesAInventario } from './ofertas.repository';
+import { PlazoCreditoFields } from './PlazoCreditoUI';
+import { hoyCreditoVE, inyectarPlazoCreditoEnFicha, leerPlazoCreditoOferta, sumarDiasCredito, type PlazoCreditoConfig } from './creditoPlazo';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { agruparVariantes, hayVariantes, representanteGrupo, totalesRepresentativos } from './variantesOferta';
 import { esRecargaAgua } from './servicios.repository';
@@ -337,7 +339,19 @@ export function AgregarOfertaModal({
 
   // Ficha del producto ofertado + costos logísticos (todo opcional).
   const [ficha, setFicha] = useState<FichaOferta>(ofertaEditar?.ficha ?? {});
-  function setFichaField(k: keyof Omit<FichaOferta, 'logistica'>, v: string) {
+  const [creditoPlazo, setCreditoPlazo] = useState<PlazoCreditoConfig | null>(
+    () =>
+      leerPlazoCreditoOferta(ofertaEditar?.ficha) ?? {
+        modo: 'dias',
+        dias: 15,
+        fecha_vencimiento: sumarDiasCredito(hoyCreditoVE(), 15),
+        primero_recibe: false,
+      },
+  );
+  const esOfertaACredito =
+    condiciones.trim() === 'credito' ||
+    (esServicioOrden && condiciones.trim() === 'anticipado' && Number(anticipoMonto) > 0);
+  function setFichaField(k: keyof Omit<FichaOferta, 'logistica' | 'credito'>, v: string) {
     setFicha((f) => ({ ...f, [k]: v }));
   }
   function setLogistica(k: 'flete' | 'transporte' | 'embalaje' | 'seguros', v: CostoLogistico) {
@@ -356,7 +370,7 @@ export function AgregarOfertaModal({
       if (log[k]) logClean[k] = log[k];
     });
     if (Object.keys(logClean).length) base.logistica = logClean;
-    return Object.keys(base).length ? base : null;
+    return inyectarPlazoCreditoEnFicha(base, esOfertaACredito ? creditoPlazo : null);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -555,6 +569,13 @@ export function AgregarOfertaModal({
     }
     if (!condiciones.trim()) {
       toast('Elige la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
+      return;
+    }
+    if (
+      esOfertaACredito &&
+      (!creditoPlazo || (creditoPlazo.modo === 'dias' && !(creditoPlazo.dias && creditoPlazo.dias > 0) && !creditoPlazo.fecha_vencimiento))
+    ) {
+      toast('En cuentas a crédito indica en cuántos días vence el crédito o marca si primero se recibe y luego se paga.', 'error');
       return;
     }
     // «Se guarda en inventario como»: cada renglón tiene que saber con qué producto entra
@@ -1226,6 +1247,10 @@ export function AgregarOfertaModal({
             Se aplica al <strong>aceptar la oferta</strong>: el anticipo <strong>no descuenta caja</strong>, se resta del total y el <strong>resto queda a crédito</strong> (aparece en Tesorería y en el saldo pendiente). Si lo dejas en blanco, es <strong>prepago total</strong>.
           </small>
         </div>
+      )}
+
+      {esOfertaACredito && (
+        <PlazoCreditoFields value={creditoPlazo} onChange={setCreditoPlazo} />
       )}
 
       {/* IVA / IGTF de la factura del proveedor: por % o por monto manual. Se SUMAN al total

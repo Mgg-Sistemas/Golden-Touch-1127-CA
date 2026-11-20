@@ -89,6 +89,12 @@ import {
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
 import { EditarPreciosOcModal } from '@/modules/pedidos/EditarPreciosOcModal';
+import {
+  AlertaCreditosPorVencerBanner,
+  BadgePlazoCredito,
+  EditarPlazoCreditoModal,
+} from '@/modules/pedidos/PlazoCreditoUI';
+import { evaluarCreditoOrden } from '@/modules/pedidos/creditoPlazo';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { impuestosEnBs, IMPUESTO_LABEL, IMPUESTOS_PAGO, impuestoEnBs } from '@/modules/pedidos/impuestosMoneda';
 import type { CamposRetencionesCompras } from '@/modules/pedidos/retencionesCompras';
@@ -241,6 +247,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
   const [cajaSel, setCajaSel] = useState<Caja | null>(null);
   const [porPagarCount, setPorPagarCount] = useState(0);
   const [creditosCount, setCreditosCount] = useState(0);
+  const [creditosOrdenes, setCreditosOrdenes] = useState<OrdenPorPagar[]>([]);
   const [nominaCount, setNominaCount] = useState(0);
   // Cuentas por pagar / cobrar abiertas (para el libro mayor por moneda).
   const [cxpRows, setCxpRows] = useState<CuentaPorPagar[]>([]);
@@ -298,6 +305,11 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
     ]);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibroTodo(mov); setPorPagarCount(pend.porPagar); setCreditosCount(credOc + cxp.length); setCxpRows(cxp); setCxcRows(cxc); setTransfers(tr); setNominaCount(nc);
+    if (credOc > 0) {
+      listOrdenesEnCredito().then(setCreditosOrdenes).catch(() => setCreditosOrdenes([]));
+    } else {
+      setCreditosOrdenes([]);
+    }
   }, [movil]);
 
   // Movimientos que se ven en el registro: los filtros se resuelven aquí, sobre lo ya
@@ -449,6 +461,13 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
 
       {!movil && vista === 'tesoreria' && (
       <>
+          {/* Banner de alertas de cuentas a crédito por pagar (2 días, 1 día, hoy, vencidas) */}
+          <AlertaCreditosPorVencerBanner
+            ordenes={creditosOrdenes.map((x) => x.orden)}
+            modulo="tesoreria"
+            onSelectOrden={() => setModal('creditos')}
+          />
+
           {/* Disponibilidad financiera */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <DispCard titulo="Disponible en USD" valor={monto(disp?.usd ?? 0, 'USD')} />
@@ -4793,6 +4812,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [loading, setLoading] = useState(true);
   // 09/11/2026: WhatsApp por lote de las cuentas a crédito de Compras (¿se pagarán o no?).
   const [wspCreditos, setWspCreditos] = useState(false);
+  const [editarPlazoSel, setEditarPlazoSel] = useState<Orden | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Inputs no controlados (montos/nota): este nonce remonta los campos al
@@ -4907,6 +4927,12 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       {!loading && !ordenes.length && <p className="muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
       {!loading && ordenes.length > 0 && (
         <>
+          <AlertaCreditosPorVencerBanner
+            ordenes={ordenes.map((x) => x.orden)}
+            modulo="tesoreria"
+            onSelectOrden={(ord) => setSelId(ord.id)}
+          />
+
           <div className="form-row" style={{ marginBottom: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
               <label style={{ margin: 0 }}>Cuenta a crédito ({ordenes.length})</label>
@@ -4930,7 +4956,14 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                   title="Un solo WhatsApp con las cuentas a crédito de Compras: OC, proveedor, saldo y si se pagará o no (todas o una a una)">💬 WhatsApp por lote</button><BotonReporteMoldeable ambito="creditos_cartera" label="📄 Reporte" className="btn btn-sm btn-ghost" /></span>
             </div>
             <SearchSelect value={selId} onChange={setSelId} placeholder="🔍 Buscar cuenta…"
-              options={ordenes.map((x) => ({ value: x.orden.id, label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}` }))} />
+              options={ordenes.map((x) => {
+                const ev = evaluarCreditoOrden(x.orden);
+                const tag = ev.etiquetaCorta && ev.etiquetaCorta !== '—' ? ` [${ev.etiquetaCorta}]` : '';
+                return {
+                  value: x.orden.id,
+                  label: `${x.orden.oc_codigo ?? x.orden.codigo} · ${x.proveedorNombre} · saldo ${monto(round2(Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)), 'USD')}${tag}`
+                };
+              })} />
           </div>
 
           {o && (
@@ -4948,6 +4981,22 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                   <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
                   <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{monto(saldo, 'USD')}</div>
                 </div>
+              </div>
+
+              {/* Plazo y vencimiento de la cuenta a crédito */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.75rem', padding: '.45rem .65rem', background: 'rgba(255,255,255,0.03)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <span className="muted" style={{ fontSize: '.75rem', fontWeight: 600 }}>CONDICIÓN CRÉDITO:</span>
+                  <BadgePlazoCredito orden={o} />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setEditarPlazoSel(o)}
+                  title="Configurar o modificar los días de vencimiento o modalidad de recepción"
+                >
+                  ✏ Editar plazo / vencimiento
+                </button>
               </div>
               {/* Datos del proveedor de la OC (se traen del directorio por proveedor_id). */}
               {sel?.proveedor && (
@@ -5126,6 +5175,19 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
         </>
       )}
       </>)}
+
+      {editarPlazoSel && (
+        <EditarPlazoCreditoModal
+          orden={editarPlazoSel}
+          actorEmail={actorName || actor || 'tesoreria'}
+          onClose={() => setEditarPlazoSel(null)}
+          onSaved={async () => {
+            setEditarPlazoSel(null);
+            await cargar();
+            if (onChanged) void onChanged();
+          }}
+        />
+      )}
     </Modal>
   );
 }

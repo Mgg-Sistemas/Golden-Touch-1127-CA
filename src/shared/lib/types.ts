@@ -1856,6 +1856,13 @@ export interface FichaOferta {
     embalaje?: CostoLogistico | null;
     seguros?: CostoLogistico | null;
   } | null;
+  /** Condición detallada cuando la oferta es a crédito: días de vencimiento o si primero se recibe y luego se paga. */
+  credito?: {
+    modo: 'dias' | 'recibe_primero';
+    dias?: number | null;
+    fecha_vencimiento?: string | null;
+    primero_recibe?: boolean;
+  } | null;
 }
 
 /** Archivo adjunto a una oferta (PDF o imagen) en el bucket `ofertas-pdf`. */

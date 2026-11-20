@@ -81,6 +81,8 @@ function numeroDeColumna(f: FilaReporteCompras, clave: string): number | null {
     case 'monto_usd': return f.monto_usd;
     case 'monto_bs': return f.monto_bs;
     case 'pagado_usd': return f.pagado_usd;
+    case 'saldo_pendiente_usd': return f.saldo_pendiente_usd ?? 0;
+    case 'saldo_pendiente_bs': return f.saldo_pendiente_bs ?? 0;
     case 'pct_total': return f.pct_del_total ?? null;
     default: return null;
   }
@@ -91,7 +93,7 @@ export function textoCelda(f: FilaReporteCompras, col: CampoColumnaCompras): str
   const val = rawDeColumna(f, col.clave);
   if (val == null || val === '') return '-';
   switch (col.formato) {
-    case 'moneda': return col.clave === 'monto_bs' ? fmtBs(Number(val)) : fmtUsd(Number(val));
+    case 'moneda': return (col.clave === 'monto_bs' || col.clave === 'saldo_pendiente_bs') ? fmtBs(Number(val)) : fmtUsd(Number(val));
     case 'numero': return fmtNum(Number(val), 2);
     case 'porcentaje': return fmtPct(Number(val));
     default:
@@ -107,8 +109,8 @@ function columnasVisibles(columnasClaves: string[], meta: MetadatosExportacionCo
     .filter((c): c is CampoColumnaCompras => {
       if (!c) return false;
       if (c.ambito && c.ambito !== 'ambos' && c.ambito !== meta.ambito) return false;
-      if (!meta.mostrarUsd && (c.clave === 'monto_usd' || c.clave === 'pagado_usd')) return false;
-      if (!meta.mostrarBs && c.clave === 'monto_bs') return false;
+      if (!meta.mostrarUsd && (c.clave === 'monto_usd' || c.clave === 'pagado_usd' || c.clave === 'saldo_pendiente_usd')) return false;
+      if (!meta.mostrarBs && (c.clave === 'monto_bs' || c.clave === 'saldo_pendiente_bs')) return false;
       return true;
     });
 }
@@ -147,8 +149,10 @@ export async function construirComprasExcel(
   const columnas = columnasVisibles(columnasClaves, meta);
   const NAR = argb(NARANJA);
 
-  // 1. Hoja Resumen
-  if (incluyeResumen(meta)) {
+  const soloCreditos = meta.ambito === 'creditos';
+
+  // 1. Hoja Resumen (no aplica cuando el ámbito es exclusivamente Cuentas a Crédito OC/OS)
+  if (!soloCreditos && incluyeResumen(meta)) {
     const ws = wb.addWorksheet('Resumen', { views: [{ showGridLines: true }] });
     ws.columns = [{ width: 5 }, { width: 30 }, { width: 22 }, { width: 22 }, { width: 16 }];
 
@@ -248,8 +252,8 @@ export async function construirComprasExcel(
     }
   }
 
-  // 1.B Hoja dedicada de Cuentas a Crédito (OC y OS) cuando existen cuentas activas
-  if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+  // 1.B Hoja dedicada de Cuentas a Crédito (OC y OS)
+  if (soloCreditos || (resumen.cuentasCredito && resumen.cuentasCredito.length > 0)) {
     const wsCred = wb.addWorksheet('Cuentas a Crédito (OC-OS)', {
       pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
       views: [{ state: 'frozen', ySplit: 5 }],
@@ -331,8 +335,8 @@ export async function construirComprasExcel(
     });
   }
 
-  // 2. Hoja de datos (listado)
-  if (incluyeDetalle(meta) && columnas.length) {
+  // 2. Hoja de datos (listado general de compras, excluida si el reporte es solo Cuentas a Crédito)
+  if (!soloCreditos && incluyeDetalle(meta) && columnas.length) {
     const orient = meta.orientacion === 'portrait' ? 'portrait' : meta.orientacion === 'landscape' ? 'landscape' : columnas.length > 7 ? 'landscape' : 'portrait';
     const ws = wb.addWorksheet('Compras', {
       pageSetup: { orientation: orient, fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
@@ -597,10 +601,12 @@ export async function construirComprasPdf(
   doc.roundedRect(bx, y, boxW, barH, 3, 3, 'F');
   doc.rect(bx, y + barH - 3, boxW, 3, 'F');
 
+  const soloCreditosPdf = meta.ambito === 'creditos';
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.3); // +15%
   doc.setTextColor(255, 255, 255);
-  doc.text('REPORTE DE COMPRAS', bx + boxW / 2, y + 10.5, { align: 'center' });
+  doc.text(soloCreditosPdf ? 'CUENTAS A CRÉDITO (OC Y OS)' : 'REPORTE DE COMPRAS', bx + boxW / 2, y + 10.5, { align: 'center' });
 
   // Filas internas alineadas
   doc.setFont('helvetica', 'bold');
@@ -613,10 +619,10 @@ export async function construirComprasPdf(
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('PERÍODO:', bx + 8, y + 34.0);
+  doc.text(soloCreditosPdf ? 'ALCANCE:' : 'PERÍODO:', bx + 8, y + 34.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  let perTxt = pdfSafe(`${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)}`);
+  let perTxt = pdfSafe(soloCreditosPdf ? 'Solo OC y OS a crédito' : `${fmtFecha(meta.desde)} al ${fmtFecha(meta.hasta)}`);
   if (doc.getTextWidth(perTxt) > boxW - 62) {
     while (perTxt.length > 3 && doc.getTextWidth(perTxt + '…') > boxW - 62) {
       perTxt = perTxt.slice(0, -1);
@@ -630,7 +636,13 @@ export async function construirComprasPdf(
   doc.text('REGISTROS:', bx + 8, y + 44.0);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...TINTA_GT);
-  doc.text(`${resumen.totalCompras} compras (${filas.length} en listado)`, bx + 55, y + 44.0);
+  doc.text(
+    soloCreditosPdf
+      ? `${resumen.creditoCount} cuentas (${resumen.creditoOcCount} OC · ${resumen.creditoOsCount} OS)`
+      : `${resumen.totalCompras} compras (${filas.length} en listado)`,
+    bx + 55,
+    y + 44.0,
+  );
 
   y = Math.max(y + cajaLogo + 8, y + boxH + 10);
 
@@ -655,7 +667,11 @@ export async function construirComprasPdf(
   doc.setFontSize(8.0); // +15%
   doc.setTextColor(...TINTA_GT);
   const descFiltros = meta.subtituloFiltros ? ` · Filtros: ${meta.subtituloFiltros}` : '';
-  const ambitoLabel = meta.ambito === 'ordenes' ? 'ÓRDENES DE COMPRA' : 'ÍTEMS';
+  const ambitoLabel = meta.ambito === 'creditos'
+    ? 'CUENTAS A CRÉDITO (OC Y OS)'
+    : meta.ambito === 'ordenes'
+      ? 'ÓRDENES DE COMPRA'
+      : 'ÍTEMS';
   const formatoLabel = meta.formato === 'hibrido' ? 'CONSOLIDADO' : meta.formato.toUpperCase();
   const textoAlcance = pdfSafe(
     `Ámbito: ${ambitoLabel} · Agrupación: ${meta.agrupacion.toUpperCase()} · Formato: ${formatoLabel} · Tasa BCV: Bs ${fmtNum(meta.tasaBcv)}/$${descFiltros}`,
@@ -670,32 +686,59 @@ export async function construirComprasPdf(
   const cardW = (UW - cardGap * (numKpis - 1)) / numKpis;
   const cardH = esLandscape ? 44 : 45;
 
-  const kpis = [
-    {
-      titulo: 'TOTAL DE COMPRAS',
-      valor: `${fmtNum(resumen.totalCompras, 0)}`,
-      sub: `${fmtUsd(resumen.totalUsd)} · ${fmtBs(resumen.totalBs)}`,
-      colorTab: NARANJA_GT,
-    },
-    {
-      titulo: 'COMPRAS FINALIZADAS',
-      valor: `${fmtNum(resumen.finalizadasCount, 0)}`,
-      sub: `${fmtUsd(resumen.finalizadasUsd)} · ${fmtBs(resumen.finalizadasBs)}`,
-      colorTab: VERDE_GT,
-    },
-    {
-      titulo: 'COMPRAS PENDIENTES',
-      valor: `${fmtNum(resumen.pendientesCount, 0)}`,
-      sub: `${fmtUsd(resumen.pendientesUsd)} · ${fmtBs(resumen.pendientesBs)}`,
-      colorTab: AMBAR_GT,
-    },
-    {
-      titulo: 'TOTAL PAGADO / ABONADO',
-      valor: fmtUsd(resumen.pagadoUsd),
-      sub: `${fmtBs(resumen.pagadoBs)}${resumen.deptoQueMasGasto ? ` · Mayor: ${resumen.deptoQueMasGasto}` : ''}`,
-      colorTab: AZUL_GT,
-    },
-  ];
+  const kpis = soloCreditosPdf
+    ? [
+        {
+          titulo: 'CUENTAS A CRÉDITO',
+          valor: `${fmtNum(resumen.creditoCount, 0)}`,
+          sub: `${resumen.creditoOcCount} OC · ${resumen.creditoOsCount} OS`,
+          colorTab: NARANJA_GT,
+        },
+        {
+          titulo: 'TOTAL CRÉDITO',
+          valor: fmtUsd(resumen.creditoTotalUsd),
+          sub: fmtBs(resumen.creditoTotalBs),
+          colorTab: AMBAR_GT,
+        },
+        {
+          titulo: 'TOTAL ABONADO',
+          valor: fmtUsd(resumen.creditoAbonadoUsd),
+          sub: fmtBs(resumen.creditoAbonadoBs),
+          colorTab: VERDE_GT,
+        },
+        {
+          titulo: 'SALDO PENDIENTE',
+          valor: fmtUsd(resumen.creditoSaldoUsd),
+          sub: fmtBs(resumen.creditoSaldoBs),
+          colorTab: [185, 28, 28] as [number, number, number],
+        },
+      ]
+    : [
+        {
+          titulo: 'TOTAL DE COMPRAS',
+          valor: `${fmtNum(resumen.totalCompras, 0)}`,
+          sub: `${fmtUsd(resumen.totalUsd)} · ${fmtBs(resumen.totalBs)}`,
+          colorTab: NARANJA_GT,
+        },
+        {
+          titulo: 'COMPRAS FINALIZADAS',
+          valor: `${fmtNum(resumen.finalizadasCount, 0)}`,
+          sub: `${fmtUsd(resumen.finalizadasUsd)} · ${fmtBs(resumen.finalizadasBs)}`,
+          colorTab: VERDE_GT,
+        },
+        {
+          titulo: 'COMPRAS PENDIENTES',
+          valor: `${fmtNum(resumen.pendientesCount, 0)}`,
+          sub: `${fmtUsd(resumen.pendientesUsd)} · ${fmtBs(resumen.pendientesBs)}`,
+          colorTab: AMBAR_GT,
+        },
+        {
+          titulo: 'TOTAL PAGADO / ABONADO',
+          valor: fmtUsd(resumen.pagadoUsd),
+          sub: `${fmtBs(resumen.pagadoBs)}${resumen.deptoQueMasGasto ? ` · Mayor: ${resumen.deptoQueMasGasto}` : ''}`,
+          colorTab: AZUL_GT,
+        },
+      ];
 
   kpis.forEach((kpi, idx) => {
     const kx = MARGIN + idx * (cardW + cardGap);
@@ -738,8 +781,8 @@ export async function construirComprasPdf(
 
   let seccionNum = 1;
 
-  // 4. ANALÍTICA (Resumen e Híbrido / Consolidado)
-  if (incluyeResumen(meta)) {
+  // 4. ANALÍTICA (Resumen e Híbrido / Consolidado — se omite cuando el ámbito es exclusivamente Cuentas a Crédito)
+  if (!soloCreditosPdf && incluyeResumen(meta)) {
     const resBloque = bloqueResumenPdf(
       doc,
       autoTable,
@@ -758,8 +801,18 @@ export async function construirComprasPdf(
     seccionNum = resBloque.siguienteSeccion;
   }
 
-  // 4.B CUENTAS A CRÉDITO DESDE COMPRAS (OC Y OS) — presente en Resumen, Detallado y Consolidado
-  if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
+  // 4.B CUENTAS A CRÉDITO DESDE COMPRAS (OC Y OS)
+  if (soloCreditosPdf && (!resumen.cuentasCredito || resumen.cuentasCredito.length === 0)) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...VERDE_GT);
+    doc.text(
+      '✓ No se registran órdenes de compra (OC) ni órdenes de servicio (OS) con cuenta a crédito abierta.',
+      MARGIN + 4,
+      y + 10,
+    );
+    y += 24;
+  } else if (resumen.cuentasCredito && resumen.cuentasCredito.length > 0) {
     if (y + 65 > PAGE_H - MARGIN) {
       doc.addPage();
       y = MARGIN;
@@ -898,7 +951,7 @@ export async function construirComprasPdf(
   }
 
   // 5. LISTADO DE COMPRAS PENDIENTES CON ANALISTA, CÓDIGO Y MONTOS
-  if (incluyeDetalle(meta)) {
+  if (!soloCreditosPdf && incluyeDetalle(meta)) {
     if (y + 60 > PAGE_H - MARGIN) {
       doc.addPage();
       y = MARGIN;

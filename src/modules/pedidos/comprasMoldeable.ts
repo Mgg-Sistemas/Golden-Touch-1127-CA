@@ -27,7 +27,7 @@ import { nombrePersonaCompras } from './personasCompras';
 /* ───────────── Tipos de configuración ───────────── */
 
 /** Grano del dato que se está reportando. */
-export type AmbitoCompras = 'ordenes' | 'items';
+export type AmbitoCompras = 'ordenes' | 'items' | 'creditos';
 
 /** De qué fuente salió la compra. */
 export type TipoCompra = 'orden' | 'directa' | 'servicio';
@@ -418,15 +418,10 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
     const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
     const pagadoNativo = s.pagada_at ? monto : (Number(s.abonado_total) || 0);
     const pagado = montoUsdBs(pagadoNativo, moneda, ctx.tasaBcv);
-    const esCreditoSrv = !s.empresa_clave && s.estado === 'por_pagar' && (Boolean(s.con_abonos) || (Number(s.abonado_total) || 0) > 0);
     filas.push({
       id: `sd-${s.id}`,
       ambito: 'ordenes',
       tipo_compra: 'servicio',
-      subtipo_orden: 'OS',
-      es_credito: esCreditoSrv,
-      saldo_pendiente_usd: esCreditoSrv ? Math.max(0, round2(usd - pagado.usd)) : 0,
-      saldo_pendiente_bs: esCreditoSrv ? Math.max(0, round2(bs - pagado.bs)) : 0,
       fecha: diaDe(s.created_at),
       codigo: (s.codigo || '—').trim() || '—',
       departamento: normalizarDepartamento(s.unidad_solicitante),
@@ -466,7 +461,7 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
   return filas;
 }
 
-/* ───────────── Cuentas a Crédito desde Compras (OC y OS) ───────────── */
+/* ───────────── Cuentas a Crédito desde Compras (SOLO OC y OS con cuenta abierta) ───────────── */
 
 export type OrigenCreditoCompras = 'OC' | 'OS';
 
@@ -490,14 +485,12 @@ export interface CuentaCreditoCompras {
 }
 
 /**
- * Extrae las cuentas a crédito abiertas originadas en Compras:
- * - OC (Órdenes de Compra: `ordenes` con `tipo !== 'servicio'` y `estado === 'cuenta_abierta'`)
- * - OS (Órdenes/Controles de Servicio: `ordenes` con `tipo === 'servicio'` y `estado === 'cuenta_abierta'`,
- *       más `servicios_directos` de Compras con `estado === 'por_pagar'` y abonos/crédito).
+ * Extrae EXCLUSIVAMENTE las cuentas a crédito abiertas de OC y OS en Compras:
+ * - OC: `ordenes` con `tipo !== 'servicio'` y `estado === 'cuenta_abierta'`
+ * - OS: `ordenes` con `tipo === 'servicio'` y `estado === 'cuenta_abierta'`
  */
 export function extraerCuentasCreditoCompras(
   ordenes: Orden[],
-  servicios: ServicioDirecto[],
   ctx: ContextoCompras,
 ): CuentaCreditoCompras[] {
   const lista: CuentaCreditoCompras[] = [];
@@ -543,46 +536,40 @@ export function extraerCuentasCreditoCompras(
     });
   }
 
-  for (const s of servicios) {
-    if (s.empresa_clave) continue;
-    if (s.estado !== 'por_pagar') continue;
-    if ((s as { eliminado_en?: unknown }).eliminado_en) continue;
-    if (!s.con_abonos && !((Number(s.abonado_total) || 0) > 0)) continue;
-
-    const moneda = (s.moneda || 'USD').toUpperCase();
-    const monto = Number(s.gasto) || 0;
-    const abonadoNativo = Math.max(0, Number(s.abonado_total) || 0);
-    const saldoNativo = Math.max(0, round2(monto - abonadoNativo));
-    if (monto > 0 && saldoNativo <= 0.005) continue;
-
-    const tot = montoUsdBs(monto, moneda, ctx.tasaBcv);
-    const ab = montoUsdBs(abonadoNativo, moneda, ctx.tasaBcv);
-    const saldo = montoUsdBs(saldoNativo, moneda, ctx.tasaBcv);
-
-    const descItems = (Array.isArray(s.items) ? s.items : []).map((i) => (i.descripcion || '').trim()).filter(Boolean);
-    const concepto = (descItems.length ? descItems.slice(0, 3).join(', ') : '') || (s.descripcion || s.nota || '').trim() || 'Servicio directo a crédito';
-
-    lista.push({
-      id: `cred-sd-${s.id}`,
-      origen: 'OS',
-      origenLabel: 'Servicio Directo (OS)',
-      codigo: (s.codigo || '—').trim() || '—',
-      codigoSolicitud: null,
-      fecha: diaDe(s.created_at),
-      departamento: normalizarDepartamento(s.unidad_solicitante),
-      proveedor: (s.proveedor_nombre || '').trim() || proveedorDe(s.proveedor_id, ctx),
-      analista: nombrePersonaCompras((s as any).actor_name || (s as any).actor || (s as any).creado_por),
-      concepto,
-      totalUsd: tot.usd,
-      totalBs: tot.bs,
-      abonadoUsd: ab.usd,
-      abonadoBs: ab.bs,
-      saldoUsd: saldo.usd,
-      saldoBs: saldo.bs,
-    });
-  }
-
   return lista.sort((a, b) => (b.saldoUsd - a.saldoUsd) || (b.fecha || '').localeCompare(a.fecha || ''));
+}
+
+/** Convierte las cuentas a crédito (OC y OS) en filas para el ámbito exclusivo 'creditos'. */
+export function normalizarCuentasCreditoFilas(cuentas: CuentaCreditoCompras[]): FilaReporteCompras[] {
+  return cuentas.map((c) => ({
+    id: c.id,
+    ambito: 'creditos',
+    tipo_compra: c.origen === 'OS' ? 'servicio' : 'orden',
+    subtipo_orden: c.origen,
+    codigo_solicitud: c.codigoSolicitud,
+    es_credito: true,
+    saldo_pendiente_usd: c.saldoUsd,
+    saldo_pendiente_bs: c.saldoBs,
+    fecha: c.fecha,
+    codigo: c.codigoSolicitud ? `${c.codigo} (${c.codigoSolicitud})` : c.codigo,
+    departamento: c.departamento,
+    proveedor: c.proveedor,
+    estado: 'cuenta_abierta',
+    estado_rotulo: `${c.origen} · Cuenta a crédito`,
+    clase_estado: 'pendiente',
+    categoria: '',
+    categoria_gasto: null,
+    nombre_item: c.concepto,
+    cantidad: null,
+    moneda_original: 'USD',
+    monto_original: c.totalUsd,
+    monto_usd: c.totalUsd,
+    monto_bs: c.totalBs,
+    pagado_usd: c.abonadoUsd,
+    pagado_bs: c.abonadoBs,
+    analista: c.analista,
+    notas: c.concepto,
+  }));
 }
 
 /** Filtra las cuentas a crédito según los filtros activos del reporte. */
@@ -860,7 +847,8 @@ export interface CampoColumnaCompras {
 
 export const CAMPOS_REPORTE_COMPRAS: CampoColumnaCompras[] = [
   { clave: 'fecha', etiqueta: 'Fecha', anchoPdf: 14, anchoExcel: 13, alineacion: 'center', formato: 'texto', descripcion: 'Fecha de la compra', ambito: 'ambos' },
-  { clave: 'codigo', etiqueta: 'Código', anchoPdf: 16, anchoExcel: 16, alineacion: 'left', formato: 'texto', descripcion: 'Correlativo (OC/CD/SD)', ambito: 'ambos' },
+  { clave: 'subtipo_orden', etiqueta: 'Origen (OC/OS)', anchoPdf: 14, anchoExcel: 14, alineacion: 'center', formato: 'texto', descripcion: 'OC u OS', ambito: 'creditos' },
+  { clave: 'codigo', etiqueta: 'Código', anchoPdf: 16, anchoExcel: 16, alineacion: 'left', formato: 'texto', descripcion: 'Correlativo (OC/CS/CD/SD)', ambito: 'ambos' },
   { clave: 'departamento', etiqueta: 'Departamento', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Unidad solicitante', ambito: 'ambos' },
   { clave: 'proveedor', etiqueta: 'Proveedor', anchoPdf: 26, anchoExcel: 26, alineacion: 'left', formato: 'texto', descripcion: 'Razón social del proveedor', ambito: 'ambos' },
   { clave: 'analista', etiqueta: 'Analista', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Analista de compras a cargo', ambito: 'ambos' },
@@ -869,9 +857,11 @@ export const CAMPOS_REPORTE_COMPRAS: CampoColumnaCompras[] = [
   { clave: 'categoria', etiqueta: 'Categoría', anchoPdf: 22, anchoExcel: 22, alineacion: 'left', formato: 'texto', descripcion: 'Categoría de inventario', ambito: 'items' },
   { clave: 'nombre_item', etiqueta: 'Ítem', anchoPdf: 28, anchoExcel: 30, alineacion: 'left', formato: 'texto', descripcion: 'Nombre del ítem', ambito: 'items' },
   { clave: 'cantidad', etiqueta: 'Cantidad', anchoPdf: 13, anchoExcel: 13, alineacion: 'right', formato: 'numero', descripcion: 'Cantidad comprada', ambito: 'items' },
-  { clave: 'monto_usd', etiqueta: 'Monto ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto en dólares', ambito: 'ambos' },
-  { clave: 'monto_bs', etiqueta: 'Monto (Bs)', anchoPdf: 18, anchoExcel: 18, alineacion: 'right', formato: 'moneda', descripcion: 'Monto en bolívares', ambito: 'ambos' },
-  { clave: 'pagado_usd', etiqueta: 'Pagado ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto pagado en dólares', ambito: 'ordenes' },
+  { clave: 'monto_usd', etiqueta: 'Monto ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto total en dólares', ambito: 'ambos' },
+  { clave: 'monto_bs', etiqueta: 'Monto (Bs)', anchoPdf: 18, anchoExcel: 18, alineacion: 'right', formato: 'moneda', descripcion: 'Monto total en bolívares', ambito: 'ambos' },
+  { clave: 'pagado_usd', etiqueta: 'Abonado / Pagado ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Monto abonado o pagado en dólares', ambito: 'ambos' },
+  { clave: 'saldo_pendiente_usd', etiqueta: 'Saldo Pend. ($)', anchoPdf: 16, anchoExcel: 16, alineacion: 'right', formato: 'moneda', descripcion: 'Saldo pendiente a crédito en dólares', ambito: 'creditos' },
+  { clave: 'saldo_pendiente_bs', etiqueta: 'Saldo Pend. (Bs)', anchoPdf: 18, anchoExcel: 18, alineacion: 'right', formato: 'moneda', descripcion: 'Saldo pendiente a crédito en bolívares', ambito: 'creditos' },
   { clave: 'pct_total', etiqueta: '% del Total', anchoPdf: 13, anchoExcel: 12, alineacion: 'right', formato: 'porcentaje', descripcion: 'Peso sobre el total', ambito: 'ambos' },
 ];
 
@@ -891,6 +881,7 @@ export const CAMPOS_POR_DEFECTO_POR_MODO: Record<ModoAgrupacionCompras, string[]
 export const CAMPOS_DETALLE_POR_AMBITO: Record<AmbitoCompras, string[]> = {
   ordenes: ['fecha', 'codigo', 'departamento', 'proveedor', 'estado_rotulo', 'tipo_compra', 'monto_usd', 'monto_bs', 'pagado_usd'],
   items: ['fecha', 'codigo', 'departamento', 'categoria', 'nombre_item', 'cantidad', 'monto_usd', 'monto_bs'],
+  creditos: ['fecha', 'subtipo_orden', 'codigo', 'departamento', 'proveedor', 'monto_usd', 'pagado_usd', 'saldo_pendiente_usd', 'saldo_pendiente_bs'],
 };
 
 /* ───────────── Agrupación y procesamiento ───────────── */
@@ -953,7 +944,8 @@ export function procesarFilasCompras(
     clave: string; etiqueta: string;
     departamento: string; proveedor: string; categoria: string; nombre_item: string;
     estado: string; estado_rotulo: string; tipo_compra: TipoCompra; fecha: string;
-    usd: number; bs: number; pagadoUsd: number; pagadoBs: number; cantidad: number; items: number; tieneCantidad: boolean;
+    usd: number; bs: number; pagadoUsd: number; pagadoBs: number; saldoUsd: number; saldoBs: number;
+    cantidad: number; items: number; tieneCantidad: boolean;
   }
   const mapa = new Map<string, Acc>();
   for (const f of filasDetalle) {
@@ -964,11 +956,12 @@ export function procesarFilasCompras(
         clave, etiqueta,
         departamento: f.departamento, proveedor: f.proveedor, categoria: f.categoria, nombre_item: f.nombre_item,
         estado: f.estado, estado_rotulo: f.estado_rotulo, tipo_compra: f.tipo_compra, fecha: f.fecha,
-        usd: 0, bs: 0, pagadoUsd: 0, pagadoBs: 0, cantidad: 0, items: 0, tieneCantidad: false,
+        usd: 0, bs: 0, pagadoUsd: 0, pagadoBs: 0, saldoUsd: 0, saldoBs: 0, cantidad: 0, items: 0, tieneCantidad: false,
       };
       mapa.set(clave, g);
     }
     g.usd += f.monto_usd; g.bs += f.monto_bs; g.pagadoUsd += f.pagado_usd; g.pagadoBs += f.pagado_bs;
+    g.saldoUsd += f.saldo_pendiente_usd ?? 0; g.saldoBs += f.saldo_pendiente_bs ?? 0;
     if (f.cantidad != null) { g.cantidad += f.cantidad; g.tieneCantidad = true; }
     g.items += 1;
   }
@@ -996,6 +989,8 @@ export function procesarFilasCompras(
     monto_bs: round2(g.bs),
     pagado_usd: round2(g.pagadoUsd),
     pagado_bs: round2(g.pagadoBs),
+    saldo_pendiente_usd: round2(g.saldoUsd),
+    saldo_pendiente_bs: round2(g.saldoBs),
     analista: null,
     total_items: g.items,
     pct_del_total: pctDe(g.usd),

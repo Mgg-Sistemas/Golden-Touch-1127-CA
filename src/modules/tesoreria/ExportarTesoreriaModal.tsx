@@ -23,8 +23,8 @@ import { listLibroMayor } from './tesoreria.repository';
 import { cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
 import { supabase } from '@/shared/lib/supabase';
 import type { PagoMetodo } from '@/shared/lib/types';
-import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
-import { listCuentasPorCobrar, type CuentaPorCobrar } from './cuentasPorCobrar.repository';
+import { listOrdenesEnCredito, type OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { listDatosPagoDeProveedores, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
@@ -34,7 +34,7 @@ import {
   diaDe,
   normalizarMovimientosTesoreria,
   normalizarPendientesPorPagar,
-  normalizarCreditosCartera,
+  normalizarCreditosComprasOcOs,
   filtrarFilasTesoreria,
   procesarFilasReporteTesoreria,
   obtenerMetricasFichaTesoreria,
@@ -158,8 +158,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
   const [pagoPorOrden, setPagoPorOrden] = useState<Map<string, string>>(new Map());
   const [datosPP, setDatosPP] = useState<DatosPendientesPorPagar | null>(null);
-  const [cxp, setCxp] = useState<CuentaPorPagar[]>([]);
-  const [cxc, setCxc] = useState<CuentaPorCobrar[]>([]);
+  const [ordenesCredito, setOrdenesCredito] = useState<OrdenPorPagar[]>([]);
+  const [datosPagoCredito, setDatosPagoCredito] = useState<Record<string, Record<string, DatosPago>>>({});
   const [ctx, setCtx] = useState<ContextoTasas>({ tasaBcvHoy: 0, tasaFecha: null });
 
   // Carga por ámbito + tasas
@@ -196,8 +196,14 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
           const datos = await cargarPendientesPorPagar(ordenIds, movil);
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
-          const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
-          if (!cancelado) { setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha }); }
+          const listaCred = await listOrdenesEnCredito();
+          const dProv = await listDatosPagoDeProveedores(listaCred.map((r) => r.orden.proveedor_id))
+            .catch(() => ({} as Record<string, Record<string, DatosPago>>));
+          if (!cancelado) {
+            setOrdenesCredito(listaCred);
+            setDatosPagoCredito(dProv);
+            setCtx({ tasaBcvHoy, tasaFecha });
+          }
         }
       } catch (e) {
         if (!cancelado) toast(mensajeError(e, 'No se pudieron cargar los datos de Tesorería'), 'error');
@@ -213,8 +219,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
     if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa, pagoPorOrden);
     if (ambito === 'por_pagar') return datosPP ? normalizarPendientesPorPagar(datosPP) : [];
-    return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
-  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
+    return normalizarCreditosComprasOcOs(ordenesCredito, datosPagoCredito, ctx, baseTasa);
+  }, [ambito, movs, pagoPorOrden, datosPP, ordenesCredito, datosPagoCredito, ctx, baseTasa]);
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
@@ -411,7 +417,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenIds, 
           </div>
           {ambito !== 'movimientos' && (
             <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-              {ambito === 'por_pagar' ? (ordenIds?.length ? 'Órdenes marcadas que siguen pendientes por pagar.' : movil ? 'Órdenes de compra y servicios pendientes por pagar.' : 'Compromisos vigentes por pagar (no dependen del rango de fechas).') : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
+              {ambito === 'por_pagar' ? (ordenIds?.length ? 'Órdenes marcadas que siguen pendientes por pagar.' : movil ? 'Órdenes de compra y servicios pendientes por pagar.' : 'Compromisos vigentes por pagar (no dependen del rango de fechas).') : 'Exclusivamente órdenes de compra (OC) y órdenes de servicio (OS) con cuenta a crédito abierta desde Compras.'}
             </div>
           )}
         </div>

@@ -13,11 +13,12 @@
    - Ambos  : $ y su equivalente en Bs.
    ============================================================ */
 import { identidadEmpresa } from '@/shared/lib/empresa';
-import type { ResumenReporteCompras } from './comprasMoldeable';
+import type { AmbitoCompras, ResumenReporteCompras } from './comprasMoldeable';
 
 export interface OpcionesWhatsappCompras {
   desde: string;
   hasta: string;
+  ambito?: AmbitoCompras;
   /** Respetan los interruptores maestros de moneda del reporte. */
   mostrarUsd?: boolean;
   mostrarBs?: boolean;
@@ -53,6 +54,40 @@ export function textoWhatsappCompras(resumen: ResumenReporteCompras, opts: Opcio
   };
 
   const L: string[] = [];
+
+  // Cuando el ámbito es «Cuentas a Crédito», el reporte es EXCLUSIVAMENTE de las OC y OS con cuenta a crédito
+  if (opts.ambito === 'creditos') {
+    L.push(`💳 *Reporte de Cuentas a Crédito · Compras (OC y OS)*`);
+    L.push(`_${emp.nombre}_`);
+    if (opts.tasaBcv && opts.tasaBcv > 0) {
+      L.push(`💱 _Tasa BCV: Bs ${num(opts.tasaBcv)} / $_`);
+    }
+    L.push('');
+    if (!resumen.cuentasCredito || resumen.cuentasCredito.length === 0) {
+      L.push(`✅ No hay OC ni OS con cuenta a crédito abierta.`);
+      return L.join('\n');
+    }
+    const partesTipo: string[] = [];
+    if (resumen.creditoOcCount > 0) partesTipo.push(`${resumen.creditoOcCount} OC`);
+    if (resumen.creditoOsCount > 0) partesTipo.push(`${resumen.creditoOsCount} OS`);
+    const sufijoTipo = partesTipo.length ? ` · ${partesTipo.join(' + ')}` : '';
+    L.push(`📊 *Cuentas abiertas (${resumen.creditoCount}${sufijoTipo})*`);
+    L.push(`💵 *Total crédito:* ${dinero(resumen.creditoTotalUsd, resumen.creditoTotalBs)}`);
+    L.push(`✅ *Total abonado:* ${dinero(resumen.creditoAbonadoUsd, resumen.creditoAbonadoBs)}`);
+    L.push(`⚠️ *Saldo pendiente por pagar:* ${dinero(resumen.creditoSaldoUsd, resumen.creditoSaldoBs)}`);
+    L.push('');
+    for (const c of resumen.cuentasCredito) {
+      const cod = c.codigoSolicitud ? `${c.codigo} (${c.codigoSolicitud})` : c.codigo;
+      const prov = c.proveedor && c.proveedor !== '—' ? ` · ${c.proveedor}` : '';
+      const depto = c.departamento && c.departamento !== 'Sin departamento asignado' ? ` [${c.departamento}]` : '';
+      const abTxt = c.abonadoUsd > 0 || c.abonadoBs > 0
+        ? ` · Abonado: ${dinero(c.abonadoUsd, c.abonadoBs)}`
+        : ' · Sin abonos';
+      L.push(`• *[${c.origen}] ${cod}*${prov}${depto} — Total: ${dinero(c.totalUsd, c.totalBs)}${abTxt} · *Saldo: ${dinero(c.saldoUsd, c.saldoBs)}*`);
+    }
+    return L.join('\n');
+  }
+
   L.push(`🧾 *Reporte de Compras*`);
   L.push(`_${emp.nombre} · ${fechaCorta(opts.desde)} al ${fechaCorta(opts.hasta)}_`);
   if (opts.tasaBcv && opts.tasaBcv > 0) {

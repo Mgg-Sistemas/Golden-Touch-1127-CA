@@ -110,8 +110,8 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     ...normalizarServicios(servicios, ctx),
   ];
   const filasItems = normalizarItemsOrdenes(ordenes, ctx);
-  // Cuentas a crédito abiertas que provienen de Compras (OC y OS), independientemente de la fecha de apertura
-  const cuentasCredito = extraerCuentasCreditoCompras(ordenesAll, serviciosAll, ctx);
+  // Cuentas a crédito abiertas exclusivamente de OC y OS en Compras (`estado === 'cuenta_abierta'`)
+  const cuentasCredito = extraerCuentasCreditoCompras(ordenesAll, ctx);
 
   // Cotizaciones por departamento: ofertas de las órdenes del rango que cuentan
   // (no excluidas). Cada oferta se atribuye al departamento de su orden.

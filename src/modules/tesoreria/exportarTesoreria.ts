@@ -75,7 +75,7 @@ const hoyStr = () => new Date().toISOString().slice(0, 10);
 const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
   movimientos: 'Reporte de movimientos de Tesorería',
   por_pagar: 'Pendientes por pagar',
-  creditos_cartera: 'Cuentas a crédito (cartera)',
+  creditos_cartera: 'Cuentas a crédito · Compras (OC y OS)',
 };
 
 export interface MetadatosExportacionTesoreria {
