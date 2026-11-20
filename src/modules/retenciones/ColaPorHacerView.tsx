@@ -35,7 +35,8 @@ export interface ColaPorHacerViewProps {
   onRegistrarOrden: (item: RetencionItem) => void;
   onVerDetalle?: (item: RetencionItem, soporte: ReturnType<typeof soporteDeItem>) => void;
   onNoAplica?: (obj: ObjetivoNoAplica) => void;
-  onVistaAgrupada?: () => void;
+  /** Abre el libro con el contexto de esta fila (factura, RIF y fecha). */
+  onVerEnLibro?: (item: ItemColaPorHacer) => void;
 }
 
 export function ColaPorHacerView({
@@ -48,7 +49,7 @@ export function ColaPorHacerView({
   onRegistrarOrden,
   onVerDetalle,
   onNoAplica,
-  onVistaAgrupada,
+  onVerEnLibro,
 }: ColaPorHacerViewProps) {
   const [q, setQ] = useState('');
   const [fImp, setFImp] = useState('');
@@ -366,8 +367,13 @@ export function ColaPorHacerView({
                   </>
                 )}
 
-                {onVistaAgrupada && (
-                  <button type="button" className="btn btn-sm btn-ghost" onClick={onVistaAgrupada}>
+                {onVerEnLibro && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => onVerEnLibro(it)}
+                    title={`Abrir el libro filtrado por ${it.codigo}${it.proveedorRif ? ` · ${it.proveedorRif}` : ''}`}
+                  >
                     Ver en libro
                   </button>
                 )}

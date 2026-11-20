@@ -20,7 +20,7 @@ import { urlSoporteCola, type SoporteCola } from './soporteCola';
 import { estadoRetencionDeOrden, badgeEstadoRetencion, textoPago } from './estadoRetencion';
 import { montosPagadosDeOrdenes, type MontoPagado } from './pagoOrden.repository';
 import type { Orden } from '@/shared/lib/types';
-import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
+import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type FocoLibro, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
 import { getConfigRetencion, listRetenciones, tipoAGt, tipoDeGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
 import { soloImpuestosActivos, filtrarActivos, type ImpuestosActivos, type FichaRetencionVista } from './impuestosVista';
@@ -29,9 +29,10 @@ import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAp
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
+import { semillaFacturaDesdeBuzon, semillaFacturaDesdeOrdenArchivo, semillaRetencionDesdeOrden } from '@/modules/libroFiscal/semillasRetencion';
 import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { ColaPorHacerView } from './ColaPorHacerView';
-import { construirColaPorHacer } from './colaPorHacer';
+import { construirColaPorHacer, type ItemColaPorHacer } from './colaPorHacer';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
 import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
@@ -127,6 +128,9 @@ export function RetencionesPage() {
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
   const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
+  // «Ver en libro» de la cola: foco contextual para que el libro abra filtrado
+  // por esa factura (y, si está pendiente, por el listado de facturas por registrar).
+  const [focoLibro, setFocoLibro] = useState<FocoLibro | null>(null);
   // D: la factura del Buzón que se está registrando (para marcarla 'retenida' al terminar y
   // registrar bajo SU empresa). Reusa el MISMO registro; no se duplica ningún formulario.
   const [buzonEnRegistro, setBuzonEnRegistro] = useState<FacturaBuzon | null>(null);
@@ -138,10 +142,21 @@ export function RetencionesPage() {
   // ÚNICA fuente (la RPC retencion_empresa_practica, por empresa cuando la base lo trae).
   // La base enforcea el régimen a la fecha de cada factura; el tablero resuelve a hoy.
   const [practica, setPractica] = useState<Set<ImpuestoPendiente> | null>(null);
+  // La pestaña Períodos necesita también IGTF y ESTADAL (el tablero solo mira iva/islr/municipal).
+  // Misma llamada a la RPC: se derivan los dos conjuntos sin duplicar consultas.
+  const [practicaClaves, setPracticaClaves] = useState<Set<string> | null>(null);
   const cargarPractica = useCallback(() => {
-    impuestosQuePractica(IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)), hoyVE(), empresaId ?? 'empresa-golden-touch')
-      .then((s) => setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null))
-      .catch(() => setPractica(null));
+    const claves: string[] = [
+      ...IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)),
+      'IGTF',
+      'ESTADAL',
+    ];
+    impuestosQuePractica(claves, hoyVE(), empresaId ?? 'empresa-golden-touch')
+      .then((s) => {
+        setPracticaClaves(s);
+        setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
+      })
+      .catch(() => { setPracticaClaves(null); setPractica(null); });
   }, [empresaId]);
   useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
@@ -251,16 +266,7 @@ export function RetencionesPage() {
   async function abrirDesdeFactura(f: FacturaDeOrigen) {
     const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
     if (item) {
-      const o = item.orden;
-      setRegistrarFactura({
-        direccion: 'practicada', docKind: f.origen.tipo, docId: f.origen.id,
-        adjuntoId: f.adjuntoId, adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
-        contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
-        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-        facturaTotal: o.total,
-        baseImponible: Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)),
-        iva: o.iva_monto ?? 0,
-      });
+      setRegistrarFactura(semillaFacturaDesdeOrdenArchivo(f, item));
       return;
     }
     const semilla = await cargarSemillaDeFacturaOrigen(f);
@@ -291,19 +297,21 @@ export function RetencionesPage() {
       }
     }
     setBuzonEnRegistro(fac);
-    setRegistrarFactura({
-      direccion: 'practicada',
-      contraparteId,
-      tipoDocumento: fac.tipoDocumento,
-      contraparteNombre: fac.proveedorNombre,
-      contraparteRif: fac.proveedorRif,
-      moneda: fac.moneda,
-      facturaNro: fac.facturaNumero || null,
-      facturaControl: fac.facturaControl,
-      facturaFecha: fac.facturaFecha,
-      facturaTotal: fac.montoTotal,
-      baseImponible: fac.montoTotal,
+    setRegistrarFactura(semillaFacturaDesdeBuzon(fac, contraparteId));
+  }
+
+  // «Ver en libro» deja de ser un enlace genérico: lleva la factura de la fila.
+  function abrirEnLibro(item: ItemColaPorHacer) {
+    const desde = item.fecha && /^\d{4}-\d{2}/.test(item.fecha) ? `${item.fecha.slice(0, 7)}-01` : '';
+    const origenId = item.rawFacturaOrigen?.origen?.id ?? item.rawOrdenItem?.orden?.id ?? null;
+    const etiqueta = [item.codigo, item.proveedorRif].filter(Boolean).join(' · ') || item.proveedorNombre;
+    setFocoLibro({
+      texto: item.codigo || item.proveedorRif || item.proveedorNombre,
+      desde,
+      origenIds: origenId ? [origenId] : [],
+      titulo: etiqueta,
     });
+    setVista('agrupada');
   }
 
   const proveedorIdsPendientes = useMemo(
@@ -409,12 +417,14 @@ export function RetencionesPage() {
 
       {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
       {(vista === 'agrupada' || vista === 'libro') && (
-        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} empresaId={empresaId} empresaFicha={empresaFicha} />
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} empresaId={empresaId} empresaFicha={empresaFicha} foco={focoLibro} />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
       {/* Períodos solo con V3R en la base: generar el año, declarar y reabrir. */}
-      {vista === 'periodos' && conV3 && <PeriodosRetencion puedeEditar={canWrite} />}
+      {vista === 'periodos' && conV3 && (
+        <PeriodosRetencion puedeEditar={canWrite} impuestosActivos={impuestosActivos} practicaClaves={practicaClaves} />
+      )}
 
       {/* ── Reportes ── */}
       {vista === 'reportes' && <ReportesView actor={actor} empresaId={empresaId} empresaFicha={empresaFicha} />}
@@ -438,23 +448,11 @@ export function RetencionesPage() {
             const pends = item.orden
               ? impuestosPendientesDeOrden(item.orden, registradas, practica, configFiscal, impuestosActivos)
               : ['iva' as const];
-            setRegistrar({
-              direccion: 'practicada',
-              tipoInicial: pends[0] ?? 'iva',
-              docKind: 'oc',
-              docId: item.orden.id,
-              codigo: item.orden.oc_codigo ?? item.orden.codigo,
-              contraparteId: item.orden.proveedor_id,
-              contraparteNombre: item.proveedorNombre,
-              moneda: item.orden.total_moneda === 'Bs' ? 'Bs' : 'USD',
-              total: item.orden.total,
-              baseImponible: Math.max(0, item.orden.total - (item.orden.iva_monto ?? 0) - (item.orden.igtf_monto ?? 0)),
-              iva: item.orden.iva_monto ?? 0,
-            });
+            setRegistrar(semillaRetencionDesdeOrden(item, pends));
           }}
           onVerDetalle={(item, soporte) => setSel({ ...item, soporteCola: soporte })}
           onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
-          onVistaAgrupada={() => setVista('agrupada')}
+          onVerEnLibro={abrirEnLibro}
         />
       )}
 

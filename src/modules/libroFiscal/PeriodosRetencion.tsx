@@ -18,6 +18,8 @@ import {
 } from './periodosRetencion.repository';
 import { fechaCorta, labelClave } from './parametrosR1';
 import { rotuloAutor, rotuloMotivo } from './rotulos';
+import type { ImpuestosActivos } from '@/modules/retenciones/impuestosVista';
+import { periodosAplicables } from './periodosVista';
 
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 type Conteo = { tipoGt: string; periodo: string; quincena: 1 | 2 | null; declarada: boolean };
@@ -49,8 +51,15 @@ const ROTULO: Record<EstadoPeriodo, { texto: string; color: string }> = {
   otro_sistema: { texto: 'Lo declara el otro sistema', color: 'var(--text-muted)' },
 };
 
-export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
-  const [anio, setAnio] = useState(() => Number(hoyVE().slice(0, 4)) || new Date().getFullYear());
+export function PeriodosRetencion({ puedeEditar, impuestosActivos = null, practicaClaves = null }: {
+  puedeEditar: boolean;
+  /** Parámetros › Impuestos. null = no se pudo leer → se muestran todos. */
+  impuestosActivos?: ImpuestosActivos | null;
+  /** Régimen vigente de la empresa (claves GT). Solo filtra el año en curso. */
+  practicaClaves?: ReadonlySet<string> | null;
+}) {
+  const anioActual = Number(hoyVE().slice(0, 4)) || new Date().getFullYear();
+  const [anio, setAnio] = useState(anioActual);
   const [tipo, setTipo] = useState('');
   const [estado, setEstado] = useState<EstadoPeriodo | ''>('');
   const [periodos, setPeriodos] = useState<PeriodoFiscal[] | null>(null);
@@ -80,13 +89,19 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
     } catch (e) { setError(mensaje(e, 'No se pudieron leer los períodos.')); }
   }, [anio]);
   useEffect(() => { setPeriodos(null); void cargar(); }, [cargar]);
-  useRealtime(['retencion_periodos', 'retenciones'], () => { void cargar(); });
+  useRealtime(['retencion_periodos', 'retenciones', 'retencion_impuestos', 'retencion_agente_condiciones'], () => { void cargar(); });
 
   const nombre = (c: string) => impuestos.find((i) => i.clave === c)?.nombre ?? labelClave(c);
-  const visibles = useMemo(() => (periodos ?? [])
+  // Los impuestos deshabilitados en Parámetros (y los que el régimen no practica
+  // este año) dejan de mostrarse, pero sus filas siguen en la base para auditoría.
+  const aplicables = useMemo(
+    () => periodosAplicables(periodos ?? [], impuestosActivos, practicaClaves, anio, anioActual),
+    [periodos, impuestosActivos, practicaClaves, anio, anioActual],
+  );
+  const visibles = useMemo(() => aplicables
     .filter((p) => !tipo || p.tipo === tipo)
-    .filter((p) => !estado || estadoPeriodo(p) === estado), [periodos, tipo, estado]);
-  const tiposConPeriodos = useMemo(() => [...new Set((periodos ?? []).map((p) => p.tipo))], [periodos]);
+    .filter((p) => !estado || estadoPeriodo(p) === estado), [aplicables, tipo, estado]);
+  const tiposConPeriodos = useMemo(() => [...new Set(aplicables.map((p) => p.tipo))], [aplicables]);
 
   async function generar() {
     setTrabajando(true);
@@ -127,7 +142,13 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
       {error && <div className="card" style={{ borderColor: 'var(--danger)' }}>{error} <button type="button" className="btn btn-sm btn-ghost" onClick={() => void cargar()}>Reintentar</button></div>}
       {!periodos && !error && <p className="muted">Leyendo los períodos…</p>}
       {periodos && periodos.length === 0 && <p className="muted">No hay períodos de {anio}.{puedeEditar ? ' Usa «Generar períodos».' : ''}</p>}
-      {periodos && periodos.length > 0 && visibles.length === 0 && <p className="muted">Ningún período con ese filtro.</p>}
+      {periodos && periodos.length > 0 && aplicables.length === 0 && (
+        <p className="muted">
+          Los períodos de {anio} son de impuestos desactivados en Parámetros o que el régimen actual no practica.
+          Siguen en la base; cambia el año para consultar los históricos.
+        </p>
+      )}
+      {periodos && aplicables.length > 0 && visibles.length === 0 && <p className="muted">Ningún período con ese filtro.</p>}
 
 
       {/* Un bloque plegado por impuesto, con su resumen: así no son 60 filas de golpe. */}

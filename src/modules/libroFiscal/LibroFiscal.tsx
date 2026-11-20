@@ -92,6 +92,7 @@ import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
+import { vistaCorrelativoCero } from './correlativoVista';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { rotuloImpuesto, rotuloSerie, rotuloSujeto } from './rotulos';
@@ -141,8 +142,22 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null, empresaFicha = null }: {
+/** Contexto que llega desde la cola «Por hacer» al pulsar «Ver en libro». */
+export interface FocoLibro {
+  /** Número de factura/OC (o RIF) con el que se precarga el buscador del libro. */
+  texto: string;
+  /** Fecha de la factura: se usa como `desde` para no perder períodos anteriores. */
+  desde?: string;
+  /** Si la factura está pendiente, abre el listado de facturas por registrar solo para ese origen. */
+  origenIds?: string[];
+  /** Etiqueta legible para el mensaje cuando aún no hay retenciones registradas. */
+  titulo?: string;
+}
+
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null, empresaFicha = null, foco = null }: {
   canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
+  /** Foco opcional desde la cola de Retenciones. null = apertura normal del libro. */
+  foco?: FocoLibro | null;
   /** Multi-empresa: el libro se filtra a esta empresa. null = single-empresa (todo, como hoy). */
   empresaId?: string | null;
   /** Multi-empresa: la ficha de la empresa NO-GT (régimen y %); null = GT/single (config global). */
@@ -157,9 +172,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [direccion, setDireccion] = useState<'' | DireccionRetencion>('practicada');
   const [tipo, setTipo] = useState<'' | TipoImpuesto>('');
   const [estado, setEstado] = useState<'' | EstadoRetencion | 'anulada'>('');
-  const [desde, setDesde] = useState(primeroDelMes());
+  const [desde, setDesde] = useState(foco?.desde || primeroDelMes());
   const [hasta, setHasta] = useState(hoyIso());
-  const [texto, setTexto] = useState('');
+  const [texto, setTexto] = useState(foco?.texto ?? '');
 
   const [filas, setFilas] = useState<RetencionPracticada[]>([]);
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
@@ -185,9 +200,25 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   useEffect(() => { r10Disponible().then((v) => setConR10(Boolean(v))).catch(() => setConR10(false)); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
   const [verFacturasCompras, setVerFacturasCompras] = useState(false);
+  const [focoOrigenIds, setFocoOrigenIds] = useState<string[]>([]);
+  const [focoActual, setFocoActual] = useState<FocoLibro | null>(foco);
   const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
   const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
+
+  // Un «Ver en libro» desde la cola debe sentirse contextual: se precarga la
+  // búsqueda, se amplía el rango y, si la factura aún está pendiente, se abre
+  // directamente el listado de facturas por registrar filtrado a ese origen.
+  useEffect(() => {
+    if (!foco) return;
+    setFocoActual(foco);
+    setTexto(foco.texto);
+    if (foco.desde) setDesde(foco.desde);
+    if (foco.origenIds?.length) {
+      setFocoOrigenIds(foco.origenIds);
+      setVerFacturasCompras(true);
+    }
+  }, [foco]);
 
   const proveedoresConIslr = useMemo(() => {
     const mapa = new Map<string, string>();
@@ -318,7 +349,10 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda, tipoDocumento: r.tipoDocumento,
   }))), [visibles]);
 
-  const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setFiltroOrigen(''); setTexto(''); };
+  const quitarFiltros = () => {
+    setDireccion(''); setTipo(''); setEstado(''); setFiltroOrigen(''); setTexto('');
+    setFocoActual(null); setFocoOrigenIds([]); setVerFacturasCompras(false);
+  };
 
   // «Sin retención»: lo registrado en 0 con su motivo, agrupado por factura.
   const sinRetencion = useMemo(() => {
@@ -796,8 +830,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         )}
         {canWrite && (
           <button className="btn btn-ghost" onClick={() => setRegistrar({})}
-            title="Cargar una retención suelta individual o practicada por un cliente">
-            + Retención individual
+            title="Cargar una retención suelta, sin factura ni orden de compra">
+            + Retención suelta
           </button>
         )}
       </div>
@@ -807,7 +841,11 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       {!loading && errorCarga && <EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} />}
       {!loading && !errorCarga && !visibles.length && vista !== 'sin' && (
         <div className="lfv8-vacio">
-          <p>{filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.'}</p>
+          <p>
+            {focoActual
+              ? `No hay retenciones registradas para ${focoActual.titulo || focoActual.texto}. ${focoActual.origenIds?.length ? 'Se abrió el listado de facturas pendientes para registrarla.' : 'Regístrala con «+ Registrar factura con retenciones».'}`
+              : (filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.')}
+          </p>
           <button className="btn" onClick={quitarFiltros}>Quitar filtros</button>
         </div>
       )}
@@ -952,8 +990,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                           facturaFecha: f.fecha ?? null,
                                         });
                                       }}
-                                      title={`Cargar retención de ${t.corto} para la Factura ${f.num}`}>
-                                      + Retener
+                                      title={`Practicar ${t.corto} y los demás impuestos pendientes de la Factura ${f.num}`}>
+                                      + Retener pendientes
                                     </button>
                                   </span>
                                 )}
@@ -1354,6 +1392,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       {verFacturasCompras && (
         <Modal title="Facturas de Compras sin registrar en Retenciones" size="xl" onClose={() => setVerFacturasCompras(false)}>
           <FacturasPorRegistrar
+            origenIds={focoOrigenIds.length ? focoOrigenIds : undefined}
+            titulo={focoActual ? `Facturas pendientes de ${focoActual.titulo || focoActual.texto}` : undefined}
             puedeRegistrar={canWrite}
             onRegistrar={(f) => {
               setVerFacturasCompras(false);
@@ -1498,6 +1538,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   // Consulta reactiva del correlativo estimado según el impuesto y el período
   const [correlativoEstimado, setCorrelativoEstimado] = useState<CorrelativoEstimado | null>(null);
+  const textoCero = useMemo(() => vistaCorrelativoCero(correlativoEstimado), [correlativoEstimado]);
   useEffect(() => {
     if (direccion !== 'practicada' || tipo === 'igtf') {
       setCorrelativoEstimado(null);
@@ -2087,15 +2128,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                 color: 'var(--brand, #ff8a00)',
                 letterSpacing: '.02em',
               }}
-              title={esCero ? 'Las retenciones en 0 % no consumen número de comprobante' : (correlativoEstimado?.explicacion || 'Correlativo asignado según el impuesto')}
+              title={esCero ? textoCero.titulo : (correlativoEstimado?.explicacion || 'Correlativo asignado según el impuesto')}
             >
-              <span>{esCero ? 'Sin comprobante (0 %)' : (correlativoEstimado?.comprobante || 'Asignando…')}</span>
+              <span>{esCero ? textoCero.valor : (correlativoEstimado?.comprobante || 'Asignando…')}</span>
               <small className="muted" style={{ fontWeight: 400, fontSize: '.75rem' }}>
                 {!esCero && correlativoEstimado ? `#${correlativoEstimado.numero}` : ''}
               </small>
             </div>
             <small className="hint muted">
-              {esCero ? 'En 0 % no se consume número de la serie.' : (correlativoEstimado?.explicacion || `Correlativo asignado para ${rotuloImpuesto(tipo)}.`)}
+              {esCero ? textoCero.hint : (correlativoEstimado?.explicacion || `Correlativo asignado para ${rotuloImpuesto(tipo)}.`)}
             </small>
           </div>
         ) : null}

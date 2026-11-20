@@ -570,7 +570,7 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
                                 onClick={() => onRegistrar(fac)}
                                 title="Registrar la retención de esta factura en el Libro Fiscal de su empresa"
                               >
-                                ✍ Retener
+                                ✍ Retener desde buzón
                               </button>
                             )}
                             <button
