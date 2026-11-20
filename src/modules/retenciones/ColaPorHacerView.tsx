@@ -18,9 +18,9 @@ import { money } from '@/shared/lib/format';
 import { norm } from '@/shared/lib/texto';
 import type { ItemColaPorHacer, ImpuestoPendiente } from './colaPorHacer';
 import { IMPUESTOS_PENDIENTES } from './colaPorHacer';
-import { obtenerUrlAdjunto } from './adjuntosBuzon';
-import { urlFacturaDeOrigen, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
-import { urlRetencion, type RetencionItem } from './retenciones.repository';
+import type { FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import type { RetencionItem } from './retenciones.repository';
+import { soporteDeItem, urlSoporteCola } from './soporteCola';
 import type { FacturaBuzon } from './facturasBuzon.repository';
 import type { ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
 import { tipoAGt } from './colaPorHacer';
@@ -33,7 +33,7 @@ export interface ColaPorHacerViewProps {
   onRegistrarBuzon: (fac: FacturaBuzon) => void;
   onRegistrarArchivo: (f: FacturaDeOrigen) => void;
   onRegistrarOrden: (item: RetencionItem) => void;
-  onVerDetalle?: (item: RetencionItem) => void;
+  onVerDetalle?: (item: RetencionItem, soporte: ReturnType<typeof soporteDeItem>) => void;
   onNoAplica?: (obj: ObjetivoNoAplica) => void;
   onVistaAgrupada?: () => void;
 }
@@ -101,22 +101,8 @@ export function ColaPorHacerView({
 
   async function abrirArchivo(it: ItemColaPorHacer) {
     try {
-      if (it.origen === 'buzon' && it.archivoPath) {
-        const url = await obtenerUrlAdjunto(it.archivoPath);
-        previewArchivo(url, it.archivoNombre);
-        return;
-      }
-      if (it.origen === 'compras_archivo' && it.rawFacturaOrigen) {
-        const url = await urlFacturaDeOrigen(it.rawFacturaOrigen);
-        previewArchivo(url, it.archivoNombre);
-        return;
-      }
-      if (it.origen === 'compras_orden' && it.archivoPath) {
-        const url = await urlRetencion(it.archivoPath);
-        previewArchivo(url, it.archivoNombre);
-        return;
-      }
-      toast('No se encontró el archivo adjunto', 'error');
+      const url = await urlSoporteCola(soporteDeItem(it));
+      previewArchivo(url, it.archivoNombre);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo abrir el archivo', 'error');
     }
@@ -372,7 +358,7 @@ export function ColaPorHacerView({
                       <button
                         type="button"
                         className={`btn btn-sm ${pends.length === 0 ? 'btn-primary' : 'btn-ghost'}`}
-                        onClick={() => onVerDetalle(it.rawOrdenItem!)}
+                        onClick={() => onVerDetalle(it.rawOrdenItem!, soporteDeItem(it))}
                       >
                         {pends.length === 0 ? '✓ Finalizar retención' : 'Ver detalle'}
                       </button>

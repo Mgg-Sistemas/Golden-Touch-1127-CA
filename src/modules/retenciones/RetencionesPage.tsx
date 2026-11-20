@@ -16,6 +16,7 @@ import {
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
+import { urlSoporteCola, type SoporteCola } from './soporteCola';
 import { estadoRetencionDeOrden, badgeEstadoRetencion, textoPago } from './estadoRetencion';
 import { montosPagadosDeOrdenes, type MontoPagado } from './pagoOrden.repository';
 import type { Orden } from '@/shared/lib/types';
@@ -120,7 +121,9 @@ export function RetencionesPage() {
   // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
   const esGt = empresaFicha == null;
   const [loading, setLoading] = useState(true);
-  const [sel, setSel] = useState<RetencionItem | null>(null);
+  // El detalle puede venir de la cola «Por hacer»: ahí el soporte no es siempre
+  // factura_recepcion_path (puede ser del Buzón o un archivo subido por Compras).
+  const [sel, setSel] = useState<(RetencionItem & { soporteCola?: SoporteCola }) | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
   const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
@@ -449,7 +452,7 @@ export function RetencionesPage() {
               iva: item.orden.iva_monto ?? 0,
             });
           }}
-          onVerDetalle={setSel}
+          onVerDetalle={(item, soporte) => setSel({ ...item, soporteCola: soporte })}
           onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
           onVistaAgrupada={() => setVista('agrupada')}
         />
@@ -535,7 +538,7 @@ export function RetencionesPage() {
 
       {sel && (
         <RetencionModal
-          item={sel} canWrite={canWrite} actor={actor} impuestosActivos={impuestosActivos}
+          item={sel} soporte={sel.soporteCola} canWrite={canWrite} actor={actor} impuestosActivos={impuestosActivos}
           tieneResueltosEnLibro={Boolean(registradas.get(sel.orden.id)?.size) || impuestosPendientesDeOrden(sel.orden, registradas, practica, configFiscal, impuestosActivos).length === 0}
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
@@ -586,8 +589,8 @@ export function RetencionesPage() {
   );
 }
 
-function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, impuestosActivos, onClose, onSaved }: {
-  item: RetencionItem; canWrite: boolean; actor: string; tieneResueltosEnLibro?: boolean; impuestosActivos?: ImpuestosActivos | null; onClose: () => void; onSaved: () => void;
+function RetencionModal({ item, soporte, canWrite, actor, tieneResueltosEnLibro, impuestosActivos, onClose, onSaved }: {
+  item: RetencionItem; soporte?: SoporteCola; canWrite: boolean; actor: string; tieneResueltosEnLibro?: boolean; impuestosActivos?: ImpuestosActivos | null; onClose: () => void; onSaved: () => void;
 }) {
   const o = item.orden;
   const yaFinalizada = !!o.retencion_finalizada;
@@ -608,6 +611,15 @@ function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, impuesto
   async function descargar(path: string) {
     try { previewArchivo(await urlRetencion(path), path.split('/').pop() || 'comprobante'); }
     catch { toast('No se pudo abrir el comprobante', 'error'); }
+  }
+
+  async function abrirSoporte() {
+    if (!soporte) return;
+    try {
+      previewArchivo(await urlSoporteCola(soporte), soporte.archivoNombre);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir el soporte', 'error');
+    }
   }
 
   async function handleFinalizar(e: FormEvent) {
@@ -650,9 +662,11 @@ function RetencionModal({ item, canWrite, actor, tieneResueltosEnLibro, impuesto
         {/* Factura del proveedor cargada al finalizar la OC */}
         <div style={{ marginTop: '.55rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <span className="muted" style={{ fontSize: '.86rem' }}>Factura del proveedor:</span>
-          {o.factura_recepcion_path
-            ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => descargar(o.factura_recepcion_path!)}>🧾 Ver factura{o.factura_recepcion_nombre ? ` · ${o.factura_recepcion_nombre}` : ''}</button>
-            : <span className="muted" style={{ fontSize: '.84rem' }}>— sin factura cargada —</span>}
+          {soporte
+            ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => void abrirSoporte()}>📎 Ver soporte · {soporte.archivoNombre}</button>
+            : o.factura_recepcion_path
+              ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => descargar(o.factura_recepcion_path!)}>🧾 Ver factura{o.factura_recepcion_nombre ? ` · ${o.factura_recepcion_nombre}` : ''}</button>
+              : <span className="muted" style={{ fontSize: '.84rem' }}>— sin factura cargada —</span>}
         </div>
 
         <div className="table-wrap" style={{ marginTop: '.5rem' }}>
