@@ -11,6 +11,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type DocumentoEmpresa, type Empresa, type TipoDocumento } from './admin.repository';
+import { mensajeErrorSubidaAdmin } from './adminErrores';
 
 const TIPOS = Object.keys(TIPO_DOCUMENTO_LABEL) as TipoDocumento[];
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -49,7 +50,7 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
       toast(`«${file.name}» guardado.`, 'success');
       await cargar();
     } catch (e) {
-      toast(`No se pudo subir: ${e instanceof Error ? e.message : 'error'}`, 'error');
+      toast(mensajeErrorSubidaAdmin(e, file.name), 'error');
     } finally {
       setSubiendo(false);
       if (fileRef.current) fileRef.current.value = '';

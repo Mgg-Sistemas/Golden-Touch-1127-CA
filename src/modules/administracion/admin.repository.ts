@@ -9,13 +9,14 @@
    camelCase en el dominio; mapeo snake_case en el límite del repo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { FAOV_TIERS, factoresValidos, type TierFaov } from './administracionParafiscal';
-import { esErrorTablaAusente } from './adminErrores';
+import { conTopeSubida, esErrorTablaAusente, mensajeErrorSubidaAdmin } from './adminErrores';
 import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
@@ -1061,6 +1062,28 @@ function rutaDoc(empresaClave: string, nombre: string): string {
   return `${empresaClave}/${stamp}-${safe}`;
 }
 
+/**
+ * Sube un archivo ya validado con tope de tiempo. Tanto el error que devuelve
+ * Supabase como el `Failed to fetch` que lanza el navegador al cortarse la red
+ * pasan por el traductor: antes el texto crudo llegaba al toast.
+ */
+async function subirArchivoDoc(path: string, archivo: File, upsert = false): Promise<void> {
+  let fallo: unknown = null;
+  try {
+    const { error } = await conTopeSubida(
+      supabase.storage.from(BUCKET_DOCS).upload(path, archivo, {
+        upsert,
+        contentType: archivo.type || 'application/pdf',
+      }),
+      archivo.name,
+    );
+    fallo = error;
+  } catch (e) {
+    fallo = e;
+  }
+  if (fallo) throw new Error(mensajeErrorSubidaAdmin(fallo, archivo.name));
+}
+
 /** Resuelve el nombre o email real del usuario autenticado para la bitácora de auditoría */
 async function obtenerActorActual(actorPropuesto?: string): Promise<string> {
   if (actorPropuesto && actorPropuesto.trim() && actorPropuesto.trim().toLowerCase() !== 'usuario') {
@@ -1660,9 +1683,10 @@ export function crearRepoSupabase(): AdminRepo {
     async subirDocumento(empresaClave, tipo, file, meta, actor) {
       if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
         throw new Error('El documento debe ser un PDF o una imagen.');
-      const path = rutaDoc(empresaClave, file.name);
-      const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(path, file, { upsert: false, contentType: file.type || 'application/pdf' });
-      if (upErr) throw upErr;
+      // Una foto de celular pesa 3–8 MB: con señal débil se cortaba la subida.
+      const archivo = await comprimirImagen(file);
+      const path = rutaDoc(empresaClave, archivo.name);
+      await subirArchivoDoc(path, archivo);
 
       const nowIso = new Date().toISOString();
       const actorFinal = await obtenerActorActual(actor);
@@ -1679,10 +1703,10 @@ export function crearRepoSupabase(): AdminRepo {
       const filaCompleta: Record<string, unknown> = {
         empresa_clave: empresaClave,
         tipo,
-        nombre: meta?.nombre || file.name,
+        nombre: meta?.nombre || archivo.name,
         path,
-        content_type: file.type || 'application/pdf',
-        tamano: file.size,
+        content_type: archivo.type || 'application/pdf',
+        tamano: archivo.size,
         carpeta: meta?.carpeta || 'otros',
         centro_acopio_id: meta?.centroAcopioId || null,
         responsable: meta?.responsable || null,
@@ -1804,11 +1828,11 @@ export function crearRepoSupabase(): AdminRepo {
       if (file) {
         if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
           throw new Error('El documento debe ser un PDF o una imagen.');
-        nuevoPath = rutaDoc(doc.empresaClave, file.name);
-        nuevoTamano = file.size;
-        const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(nuevoPath, file, { upsert: true, contentType: file.type || 'application/pdf' });
-        if (upErr) throw upErr;
-        detalleHist = `Renovado con nuevo archivo "${file.name}" (${(file.size / 1024).toFixed(0)} KB). ${nota || ''}`.trim();
+        const archivo = await comprimirImagen(file);
+        nuevoPath = rutaDoc(doc.empresaClave, archivo.name);
+        nuevoTamano = archivo.size;
+        await subirArchivoDoc(nuevoPath, archivo, true);
+        detalleHist = `Renovado con nuevo archivo "${archivo.name}" (${(archivo.size / 1024).toFixed(0)} KB). ${nota || ''}`.trim();
       }
 
       const nowIso = new Date().toISOString();

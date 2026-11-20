@@ -13,6 +13,7 @@ import { useQuien } from '@/shared/lib/directorioUsuarios';
 import type { DocumentoEmpresa, AdminRepo } from './admin.repository';
 import type { Moneda } from './administracionCalculo';
 import { diasRestantes, resolverActorVisible } from './admin.repository';
+import { extraerMensajeError, mensajeErrorSubidaAdmin } from './adminErrores';
 
 function tamanoFmt(b: number | null): string {
   if (!b) return '—';
@@ -104,7 +105,9 @@ export function RenovarDocumentoModal({
       onRenovado(docActualizado);
       onClose();
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error al renovar documento.', 'error');
+      toast(nuevoArchivo
+        ? mensajeErrorSubidaAdmin(err, nuevoArchivo.name)
+        : extraerMensajeError(err, 'Error al renovar documento.'), 'error');
     } finally {
       setGuardando(false);
     }

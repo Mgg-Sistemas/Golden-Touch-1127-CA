@@ -28,6 +28,7 @@ import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { RenovarDocumentoModal } from './RenovarDocumentoModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { mensajeErrorSubidaAdmin } from './adminErrores';
 import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
 import { gestionDelDocumento } from './administracionHonorarios';
 import type { Gestion, Profesional } from './admin.repository';
@@ -466,7 +467,7 @@ export function DocumentosTab({
         );
         exitosos += 1;
       } catch (e) {
-        toast(`Error al subir «${item.file.name}»: ${e instanceof Error ? e.message : 'falló'}`, 'error');
+        toast(mensajeErrorSubidaAdmin(e, item.file.name), 'error');
       }
     }
 
