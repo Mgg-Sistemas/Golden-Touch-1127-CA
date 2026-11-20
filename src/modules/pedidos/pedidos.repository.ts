@@ -365,15 +365,28 @@ export async function registrarAnticipoServicio(
 }
 
 /**
- * Regla de enrutamiento inicial de Solicitudes de Pedido (19/11/2026):
- *   · Servicios (SS): nacen en 'pendiente' (flujo de Servicios).
+ * Regla de enrutamiento inicial de Solicitudes de Pedido (19/11/2026; ajuste 20/11/2026):
+ *   · Servicios (SS) y SP con CUALQUIER renglón `es_servicio` (p. ej. un cambio de
+ *     aceite): nacen en 'pendiente' y siguen el flujo normal de Servicios/Compras.
+ *     Nunca pasan por Almacén: un servicio no tiene existencias que revisar.
  *   · Compras Fijas (`compra_fija_id` presente): son las ÚNICAS solicitudes de
  *     pedido de productos que pasan directo a Compras ('aprobada' → cotización).
  *   · Cualquier otra Solicitud de Pedido de productos: pasa SIEMPRE primero por
  *     Almacén ('revision_almacen'), sin importar la categoría o finalidad de sus ítems.
+ *
+ * El guard de `es_servicio` es el espejo del que ya tenía la base en
+ * `supabase/2026-10-29-compras-revision-almacen.sql` (`ordenes_a_revision_almacen`).
+ * Al insertar la SP directamente en 'revision_almacen' ese trigger BEFORE no corría,
+ * por eso la regla tiene que cumplirse también aquí.
  */
-export function enrutarSolicitudInicial(
-  input: Pick<CrearOrdenInput, 'tipo' | 'compra_fija_id' | 'solicitante_email'>,
+type EntradaEnrutamiento<T extends Pick<ItemOrden, 'es_servicio'>> =
+  Pick<CrearOrdenInput, 'tipo' | 'compra_fija_id' | 'solicitante_email'> & {
+    /** Opcional para no romper llamadas que solo consultan el tipo (y sus pruebas). */
+    items?: ReadonlyArray<T>;
+  };
+
+export function enrutarSolicitudInicial<T extends Pick<ItemOrden, 'es_servicio'>>(
+  input: EntradaEnrutamiento<T>,
   nowIso = new Date().toISOString(),
 ): {
   estado: EstadoOrden;
@@ -383,8 +396,9 @@ export function enrutarSolicitudInicial(
 } {
   const actor = input.solicitante_email;
   const base: EventoHistorial[] = [{ at: nowIso, evento: 'creada', actor }];
+  const llevaServicio = input.items?.some((it) => it.es_servicio === true) ?? false;
 
-  if (input.tipo === 'servicio') {
+  if (input.tipo === 'servicio' || llevaServicio) {
     return { estado: 'pendiente', historial: base };
   }
 

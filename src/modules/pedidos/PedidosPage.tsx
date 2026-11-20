@@ -5172,6 +5172,14 @@ function CrearOrdenModal({
           'success',
           { link: '#/app/pedidos?tab=oc', destino: 'admin' },
         );
+      } else if (saved.tipo === 'servicio' || saved.items?.some((it) => it.es_servicio)) {
+        // Los servicios no tienen existencias que revisar: siguen el flujo normal
+        // (Compras aprueba y carga ofertas), igual que una Solicitud de Servicio.
+        notify(
+          `Solicitud ${saved.codigo} con servicio enviada a Compras para aprobación`,
+          'success',
+          { link: '#/app/pedidos', destino: 'admin' },
+        );
       } else {
         notify(
           `Nueva solicitud de pedido ${saved.codigo} enviada a revisión de Almacén`,
