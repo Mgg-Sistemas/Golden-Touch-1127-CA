@@ -56,6 +56,19 @@ describe('creditoVencimiento - condiciones y alertas', () => {
     expect(normalizarCreditoDetalle({ dias: 0, primero_recibe: false })).toBeNull();
   });
 
+  it('respeta fecha_vencimiento directa y calcula dias automáticamente si no vienen', () => {
+    const res = normalizarCreditoDetalle(
+      { fecha_vencimiento: '2026-11-29' },
+      '2026-11-19T12:00:00Z',
+    );
+    expect(res).toMatchObject({
+      modalidad: 'dias',
+      fecha_inicio: HOY,
+      fecha_vencimiento: '2026-11-29',
+      dias: 10,
+    });
+  });
+
   it('sella inicio y vencimiento al confirmar la OC a crédito', () => {
     const detalle = fichaConCredito({ modalidad: 'dias', dias: 30 });
     const sellado = sellarVencimientoAlConfirmar(detalle, '2026-11-19T16:30:00Z');

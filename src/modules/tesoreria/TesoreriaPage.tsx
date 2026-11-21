@@ -89,8 +89,8 @@ import {
   getOrdenById, urlAdjuntoOc, getImagenOrdenSignedUrl,
 } from '@/modules/pedidos/pedidos.repository';
 import { EditarPreciosOcModal } from '@/modules/pedidos/EditarPreciosOcModal';
-import { BannerAlertasCredito } from '@/modules/pedidos/CamposCreditoForm';
-import { listarAlertasCreditoPorVencer } from '@/modules/pedidos/creditoVencimiento';
+import { BannerAlertasCredito, BadgesCondicionCredito, ModalEditarCredito } from '@/modules/pedidos/CamposCreditoForm';
+import { listarAlertasCreditoPorVencer, resolverInfoCredito } from '@/modules/pedidos/creditoVencimiento';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { impuestosEnBs, IMPUESTO_LABEL, IMPUESTOS_PAGO, impuestoEnBs } from '@/modules/pedidos/impuestosMoneda';
 import type { CamposRetencionesCompras } from '@/modules/pedidos/retencionesCompras';
@@ -4811,6 +4811,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [loading, setLoading] = useState(true);
   // 09/11/2026: WhatsApp por lote de las cuentas a crédito de Compras (¿se pagarán o no?).
   const [wspCreditos, setWspCreditos] = useState(false);
+  const [editandoCreditoOrden, setEditandoCreditoOrden] = useState<OrdenPorPagar['orden'] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Inputs no controlados (montos/nota): este nonce remonta los campos al
@@ -5015,6 +5016,33 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
               )}
               {o.recibida_en && <div className="badge warning" style={{ marginBottom: '.6rem' }}>📦 Mercancía ya recibida · crédito pendiente</div>}
 
+              {/* Condición de crédito / Fecha vigente */}
+              {(() => {
+                const info = resolverInfoCredito(o);
+                return (
+                  <div className="card" style={{ padding: '.65rem .85rem', marginBottom: '.75rem', borderColor: info.enAlertaVencimiento ? 'var(--danger, #e5484d)' : 'var(--primary-3, #f5b133)', background: 'rgba(245, 177, 51, 0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: '.88rem' }}>📅 Fecha vigente / vencimiento:</strong>
+                        <BadgesCondicionCredito fuente={o} />
+                        {info.fechaVencimientoFmt && (
+                          <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>{info.fechaVencimientoFmt}</span>
+                        )}
+                        <span className="muted" style={{ fontSize: '.78rem' }}>({info.resumenLargo})</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setEditandoCreditoOrden(o)}
+                        title="Modificar la fecha vigente o condiciones de crédito"
+                      >
+                        ✎ Editar fecha vigente
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Conversión del saldo a Bs con tasa personalizable (por defecto BCV). */}
               <div className="card" style={{ marginBottom: '.75rem', borderColor: 'var(--brand, #ff8a00)' }}>
                 <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -5144,6 +5172,19 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
         </>
       )}
       </>)}
+
+      {editandoCreditoOrden && (
+        <ModalEditarCredito
+          orden={editandoCreditoOrden}
+          actorEmail={actor}
+          onClose={() => setEditandoCreditoOrden(null)}
+          onSaved={async () => {
+            setEditandoCreditoOrden(null);
+            await cargar();
+            await onChanged();
+          }}
+        />
+      )}
     </Modal>
   );
 }

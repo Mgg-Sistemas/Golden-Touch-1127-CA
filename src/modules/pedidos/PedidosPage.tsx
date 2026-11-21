@@ -76,6 +76,7 @@ import {
   nextCodigo,
   recibirOrdenParcial,
   enviarCreditoARecepcion,
+  actualizarCondicionCreditoOrden,
   listAbonos,
   urlAdjuntoOc,
   adjuntarFacturaRecepcion,
@@ -139,8 +140,9 @@ import { puedeAprobarOc, puedeCancelarOc, MSG_SOLO_AUTORIZADOS_CANCELA, ESTADOS_
 // propia orden (sin leer libro ni caja); «retenida/pagada» coinciden con el módulo, solo
 // «parcial» puede diferir en bordes. Es la MISMA fuente (estadoRetencion.ts).
 import { estadoRetencionSoloOrden, badgeEstadoRetencion, textoPago } from '@/modules/retenciones/estadoRetencion';
-import { BannerAlertasCredito } from './CamposCreditoForm';
-import { listarAlertasCreditoPorVencer } from './creditoVencimiento';
+import { BannerAlertasCredito, BadgesCondicionCredito, ModalEditarCredito, CamposCreditoForm, validarCamposCredito } from './CamposCreditoForm';
+import { listarAlertasCreditoPorVencer, resolverInfoCredito } from './creditoVencimiento';
+import type { CreditoDetalle } from '@/shared/lib/types';
 
 /** ¿La OC está en el flujo de retención? Solo entonces mostramos el badge, para no meter ruido. */
 function ocEnRetencion(o: Orden): boolean {
@@ -334,6 +336,7 @@ type ModalKind =
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
   | { kind: 'edit-orden'; orden: Orden }
+  | { kind: 'editar-credito'; orden: Orden }
   | { kind: 'add-offer'; orden: Orden }
   | { kind: 'edit-offer'; orden: Orden; oferta: OfertaProveedor };
 
@@ -1174,6 +1177,7 @@ export function PedidosPage() {
           onAddOffer={() => setModal({ kind: 'add-offer', orden: currentDetail })}
           onEditarOferta={(of) => setModal({ kind: 'edit-offer', orden: currentDetail, oferta: of })}
           onEditarOrden={() => setModal({ kind: 'edit-orden', orden: currentDetail })}
+          onEditarCredito={() => setModal({ kind: 'editar-credito', orden: currentDetail })}
           onAcceptedOffer={async () => {
             await refresh();
             setOffersReloadKey((k) => k + 1);
@@ -1468,7 +1472,21 @@ export function PedidosPage() {
       {modal.kind === 'abono' && (
         <AbonosModal
           orden={modal.orden}
+          onEditarCredito={() => setModal({ kind: 'editar-credito', orden: modal.orden })}
           onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {/* Modal: editar crédito y fecha vigente */}
+      {modal.kind === 'editar-credito' && (
+        <ModalEditarCredito
+          orden={modal.orden}
+          actorEmail={user?.email ?? ''}
+          onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
+          onSaved={async () => {
+            await refresh();
+            setModal({ kind: 'detail', ordenId: modal.orden.id });
+          }}
         />
       )}
 
@@ -2914,9 +2932,11 @@ function RecepcionParcialModal({
    ───────────────────────────────────────────── */
 function AbonosModal({
   orden,
+  onEditarCredito,
   onClose,
 }: {
   orden: Orden;
+  onEditarCredito?: () => void;
   onClose: () => void;
 }) {
   const [abonos, setAbonos] = useState<AbonoCredito[]>([]);
@@ -2953,6 +2973,28 @@ function AbonosModal({
         <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
           <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{montoMoneda(saldo, orden.total_moneda)}</div>
+        </div>
+      </div>
+
+      {/* Condición de crédito y fecha de vigencia con botón de editar */}
+      <div className="card" style={{ padding: '.65rem .8rem', marginBottom: '.75rem', background: 'rgba(245, 177, 51, 0.05)', borderColor: 'rgba(245, 177, 51, 0.4)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+          <div>
+            <div style={{ fontSize: '.75rem', fontWeight: 700 }} className="muted">CONDICIÓN DE CRÉDITO Y FECHA VIGENTE</div>
+            <div style={{ marginTop: '.2rem' }}>
+              <BadgesCondicionCredito fuente={orden} />
+            </div>
+          </div>
+          {onEditarCredito && (
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={onEditarCredito}
+              title="Modificar los días o la fecha vigente de vencimiento"
+            >
+              ✎ Editar fecha vigente
+            </button>
+          )}
         </div>
       </div>
 
@@ -3220,6 +3262,9 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="meta">
         <span>{orden.items.length} ítem{orden.items.length !== 1 ? 's' : ''}</span>
+        {(orden.condiciones_pago === 'credito' || orden.estado === 'cuenta_abierta') && (
+          <BadgesCondicionCredito fuente={orden} compact />
+        )}
         {creditoPagado && (
           <span className="badge success" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>
             ✓ Pagado · {orden.recibida_en ? 'finalizar' : 'a recepción'}
@@ -3356,6 +3401,7 @@ interface OrdenDetailModalProps {
   onEditarOferta: (o: OfertaProveedor) => void;
   onAcceptedOffer: () => void;
   onEditarOrden: () => void;
+  onEditarCredito?: () => void;
   offersReloadKey: number;
   usuarioRole: string | null;
 }
@@ -3384,6 +3430,7 @@ function OrdenDetailModal({
   onEditarOferta,
   onAcceptedOffer,
   onEditarOrden,
+  onEditarCredito,
   offersReloadKey,
   usuarioRole,
 }: OrdenDetailModalProps) {
@@ -3433,7 +3480,7 @@ function OrdenDetailModal({
   // El Gerente General (quien aprueba OC) también la edita mientras espera SU aprobación,
   // aunque no tenga el permiso de Compras: corrige antes de firmar en vez de devolverla.
   const puedeEditarOc = (canManageProcurement
-    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'] as string[]).includes(o.estado))
+    && (['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo', 'cuenta_abierta'] as string[]).includes(o.estado))
     || (isOcCreada && puedeAprobarOc(usuarioRole, actorEmail));
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
@@ -3622,8 +3669,19 @@ function OrdenDetailModal({
         <button className="btn btn-ghost" onClick={onEditarOrden}
           title={isOcCreada
             ? 'Editar todo lo de la OC antes de aprobarla: unidad solicitante, solicitante, motivo, finalidad, productos (agregar, quitar, cantidades y costos), descuento, IVA, condición de pago, clasificación, urgencia, nota y adjunto. La oferta aceptada se actualiza con los mismos datos y la OC sigue pendiente de aprobación.'
-            : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
-          {isOcCreada ? '✎ Editar OC (todo)' : '✎ Editar orden'}
+            : isCuentaAbierta
+              ? 'Editar la OC (productos, costos, condición de crédito y plazos).'
+              : 'Modificar ítems, cantidades, costo de los productos, motivo y finalidad. Si la OC ya estaba firmada (pendiente por método de pago), al guardar vuelve a aprobación del Gerente General.'}>
+          {isOcCreada ? '✎ Editar OC (todo)' : isCuentaAbierta ? '✎ Editar OC' : '✎ Editar orden'}
+        </button>
+      )}
+      {isCuentaAbierta && canManageProcurement && onEditarCredito && (
+        <button
+          className="btn btn-ghost"
+          onClick={onEditarCredito}
+          title="Editar condición de crédito, plazo y fecha vigente (vencimiento)"
+        >
+          📅 Editar crédito / fecha vigente
         </button>
       )}
       {canCancel && (
@@ -3948,6 +4006,11 @@ function OrdenDetailModal({
             <span className="badge" style={{ background: 'var(--primary-2)', color: '#fff', fontWeight: 600 }}>
               {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
             </span>
+            {(o.condiciones_pago === 'credito' || isCuentaAbierta) && (
+              <span style={{ marginLeft: '.5rem', display: 'inline-flex', alignItems: 'center' }}>
+                <BadgesCondicionCredito fuente={o} />
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -5687,7 +5750,7 @@ function EditarOrdenModal({
   // El costo de los productos solo se edita cuando la OC ya tiene oferta/precio elegido
   // (oc_creada o confirmada_metodo). Si se está esperando el método de pago (firmada por
   // el GG), al guardar la OC vuelve a aprobación del Gerente General (ver `guardar`).
-  const editarPrecios = ['oc_creada', 'confirmada_metodo'].includes(orden.estado) && Number(orden.total) > 0;
+  const editarPrecios = ['oc_creada', 'confirmada_metodo', 'cuenta_abierta'].includes(orden.estado) && Number(orden.total) > 0;
   const subtotalEditado = items.reduce(
     (a, it) => a + (it.comprar !== false ? (Number(it.cantidad) || 0) * (Number(it.precio) || 0) : 0),
     0,
@@ -5762,9 +5825,24 @@ function EditarOrdenModal({
   const [notas, setNotas] = useState(orden.notas ?? '');
   const [motivo, setMotivo] = useState(orden.motivo ?? '');
   const [finalidad, setFinalidad] = useState(orden.finalidad ?? '');
-  // Condición de pago: solo mientras la OC espera la aprobación del Gerente General (al
-  // aprobarla, el estado al que pasa sale de aquí).
-  const condicionEditable = orden.estado === 'oc_creada';
+  // Condición de pago: editable mientras la OC espera aprobación del GG o está en crédito.
+  const condicionEditable = ['oc_creada', 'cuenta_abierta'].includes(orden.estado);
+  const infoCreditoPrev = resolverInfoCredito(orden);
+  const [creditoDetalle, setCreditoDetalle] = useState<CreditoDetalle | null>(() => {
+    return (
+      (orden as unknown as { ficha?: { credito?: CreditoDetalle | null } })?.ficha?.credito ??
+      (orden as unknown as { oferta_detalle?: { credito?: CreditoDetalle | null } })?.oferta_detalle?.credito ??
+      (infoCreditoPrev.configurado
+        ? {
+            modalidad: infoCreditoPrev.modalidad ?? 'dias',
+            dias: infoCreditoPrev.dias,
+            primero_recibe: infoCreditoPrev.primeroRecibe,
+            fecha_inicio: infoCreditoPrev.fechaInicio,
+            fecha_vencimiento: infoCreditoPrev.fechaVencimiento,
+          }
+        : null)
+    );
+  });
   const [condicion, setCondicion] = useState(orden.condiciones_pago ?? '');
   // Pago anticipado (adelanto parcial) de la OC de servicio: editable aquí mientras la orden
   // tenga total y no esté pagada/cerrada. No toca caja; se resta del total y el resto queda a
@@ -5924,6 +6002,10 @@ function EditarOrdenModal({
     if (!items.length) { toast('La OC debe tener al menos un ítem.', 'error'); return; }
     if (!items.some((i) => i.comprar !== false)) { toast('Marca al menos un ítem a comprar.', 'error'); return; }
     if (items.some((i) => !(i.nombre ?? '').trim())) { toast('El nombre del producto no puede quedar vacío.', 'error'); return; }
+    if (condicion === 'credito') {
+      const errCr = validarCamposCredito('credito', creditoDetalle);
+      if (errCr) { toast(errCr, 'error'); return; }
+    }
     setSaving(true);
     try {
       // Nombres normalizados (trim). Se sincronizan con el inventario abajo.
@@ -5934,6 +6016,13 @@ function EditarOrdenModal({
       if (imagenFile) imagenPatch = await subirImagenOrden(imagenFile);
       else if (quitarImagen && imagenPathActual) imagenPatch = null;
 
+      const fichaBase = ((orden as unknown as { ficha?: Record<string, unknown> | null })?.ficha) ?? {};
+      const { credito: _omitCr, ...restoFicha } = (fichaBase as Record<string, unknown>);
+      void _omitCr;
+      const fichaActualizada = condicion === 'credito' && creditoDetalle
+        ? { ...fichaBase, credito: creditoDetalle }
+        : (condicion !== 'credito' ? restoFicha : fichaBase);
+
       const savedOrden = await actualizarOrdenEditable(orden, {
         items: itemsFinal,
         total: editarPrecios ? Math.round(totalEditado * 100) / 100 : undefined,
@@ -5942,6 +6031,7 @@ function EditarOrdenModal({
         motivo: motivo.trim() || null,
         finalidad: finalidad.trim() || null,
         ...(condicionEditable ? { condiciones_pago: condicion || null } : {}),
+        ficha: fichaActualizada as any,
         solicitante: solicitante.trim() || null,
         ci_solicitante: ciSolicitante.trim() || null,
         unidad_solicitante: unidadSol.trim().toUpperCase() || null,
@@ -5950,6 +6040,10 @@ function EditarOrdenModal({
         notas: notas.trim() || null,
         imagen_path: imagenPatch,
       }, actorEmail || 'sistema');
+
+      if (orden.estado === 'cuenta_abierta' && creditoDetalle) {
+        await actualizarCondicionCreditoOrden(savedOrden, creditoDetalle, actorEmail || 'sistema');
+      }
 
       // Pago anticipado (adelanto parcial): se aplica sobre la orden YA actualizada (con el
       // total nuevo). Registrar/editar cuando está activo; con 0 (o desmarcado) lo quita.
@@ -6066,6 +6160,13 @@ function EditarOrdenModal({
               {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
+        )}
+        {condicion === 'credito' && (
+          <CamposCreditoForm
+            value={creditoDetalle}
+            onChange={setCreditoDetalle}
+            fechaBaseIso={orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at}
+          />
         )}
       </div>
 

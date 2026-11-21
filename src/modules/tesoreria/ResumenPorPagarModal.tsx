@@ -15,6 +15,7 @@ import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { resolverInfoCredito } from '@/modules/pedidos/creditoVencimiento';
 import { getTasaHoy, round2 } from './tasas.repository';
 import { MOTIVOS_NO_PAGO, type MotivoLote } from './motivoPagoWhatsapp';
 import {
@@ -30,6 +31,7 @@ interface Fila {
   moneda: string;
   esCredito?: boolean;
   tipoCredito?: 'OC' | 'OS';
+  fechaVencimiento?: string | null;
 }
 
 const esBs = (m: string | null | undefined) => (m ?? '').toUpperCase() === 'BS';
@@ -51,17 +53,21 @@ export function ResumenPorPagarModal({ rows, onClose, creditos = false }: {
   /** El monto de cada fila es el SALDO (créditos de Compras). */
   creditos?: boolean;
 }) {
-  const filas = useMemo<Fila[]>(() => rows.map((r) => ({
-    id: r.orden.id,
-    codigo: r.orden.oc_codigo ?? r.orden.codigo ?? '—',
-    proveedor: r.proveedorNombre || '—',
-    monto: creditos
-      ? Math.max(0, round2((Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0)))
-      : Number(r.montoAPagar) || 0,
-    moneda: r.orden.total_moneda ?? (r.orden as OrdenPorPagar['orden'] & { moneda?: string | null }).moneda ?? 'USD',
-    esCredito: creditos,
-    tipoCredito: esOrdenServicio(r) ? 'OS' as const : 'OC' as const,
-  })), [rows, creditos]);
+  const filas = useMemo<Fila[]>(() => rows.map((r) => {
+    const infoCr = resolverInfoCredito(r.orden);
+    return {
+      id: r.orden.id,
+      codigo: r.orden.oc_codigo ?? r.orden.codigo ?? '—',
+      proveedor: r.proveedorNombre || '—',
+      monto: creditos
+        ? Math.max(0, round2((Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0)))
+        : Number(r.montoAPagar) || 0,
+      moneda: r.orden.total_moneda ?? (r.orden as OrdenPorPagar['orden'] & { moneda?: string | null }).moneda ?? 'USD',
+      esCredito: creditos,
+      tipoCredito: esOrdenServicio(r) ? 'OS' as const : 'OC' as const,
+      fechaVencimiento: infoCr.fechaVencimientoFmt,
+    };
+  }), [rows, creditos]);
 
   const [tasa, setTasa] = useState(0);
   useEffect(() => { getTasaHoy().then((t) => setTasa(Number(t.usd) || 0)).catch(() => setTasa(0)); }, []);
@@ -90,6 +96,7 @@ export function ResumenPorPagarModal({ rows, onClose, creditos = false }: {
       codigo: f.codigo, proveedor: f.proveedor, montoUsd: enUsd(f),
       motivo: motivos[f.id] ?? 'si', motivoDetalle: detalles[f.id] ?? null,
       esCredito: f.esCredito, tipoCredito: f.tipoCredito,
+      fechaVencimiento: f.fechaVencimiento,
     }));
     const err = errorResumenPorPagar(items);
     if (err) { toast(err, 'error'); return; }

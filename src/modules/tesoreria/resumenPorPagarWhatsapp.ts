@@ -27,6 +27,8 @@ export interface ItemResumenPorPagar {
   /** Cuenta a crédito de Compras (OC u OS): se expresa por su SALDO. */
   esCredito?: boolean;
   tipoCredito?: 'OC' | 'OS';
+  /** Fecha vigente / vencimiento en formato DD/MM/AAAA si la orden es a crédito. */
+  fechaVencimiento?: string | null;
 }
 
 function num(n: number): string {
@@ -98,7 +100,8 @@ export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, 
     creditos.forEach((it, i) => {
       const tag = `[${it.tipoCredito === 'OS' ? 'OS' : 'OC'}] `;
       L.push(`${i + 1}. 💳 *${tag}${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-      L.push(`    💵 *Saldo:* ${usd(it.montoUsd)} · ${estadoItemLote(it.motivo, it.motivoDetalle)}`);
+      const vencFmt = it.fechaVencimiento ? ` · Vigente hasta ${it.fechaVencimiento}` : '';
+      L.push(`    💵 *Saldo:* ${usd(it.montoUsd)}${vencFmt} · ${estadoItemLote(it.motivo, it.motivoDetalle)}`);
     });
     const subInm = inmediatas.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
     const subOc = creditos.filter((it) => it.tipoCredito !== 'OS').reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);

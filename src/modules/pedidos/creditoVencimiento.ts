@@ -230,25 +230,26 @@ export function normalizarCreditoDetalle(
   const cr = aCamposCredito(buscarCredito(raw) ?? (raw as ContenedorCredito));
   const dias = cr.dias;
   const primeroRecibe = cr.modalidad === 'primero_recibe' || Boolean(cr.primero_recibe);
-  const modalidad: CreditoModalidad | null =
-    cr.modalidad === 'primero_recibe' || (primeroRecibe && !dias)
-      ? 'primero_recibe'
-      : dias
-        ? 'dias'
-        : null;
-
   const vencExpl = cr.fecha_vencimiento && YMD_RE.test(cr.fecha_vencimiento.trim())
     ? cr.fecha_vencimiento.trim()
     : null;
+
+  const modalidad: CreditoModalidad | null =
+    cr.modalidad === 'primero_recibe' || (primeroRecibe && !dias && !vencExpl)
+      ? 'primero_recibe'
+      : (dias || vencExpl)
+        ? 'dias'
+        : null;
 
   if (!modalidad && !dias && !primeroRecibe && !vencExpl) return null;
 
   const fechaInicio = isoAYmdCaracas(cr.fecha_inicio) ?? isoAYmdCaracas(fechaBaseIso) ?? null;
   const fechaVencimiento = vencExpl ?? (dias && fechaInicio ? sumarDiasYmd(fechaInicio, dias) : null);
+  const diasFinal = dias ?? (fechaInicio && fechaVencimiento ? diferenciaDiasYmd(fechaInicio, fechaVencimiento) : null);
 
   return {
     modalidad,
-    dias,
+    dias: diasFinal && diasFinal > 0 ? diasFinal : dias,
     primero_recibe: primeroRecibe || null,
     fecha_inicio: fechaInicio,
     fecha_vencimiento: fechaVencimiento,

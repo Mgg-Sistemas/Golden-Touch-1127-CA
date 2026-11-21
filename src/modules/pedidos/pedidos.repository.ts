@@ -527,7 +527,7 @@ export async function actualizarComprarItems(
 
 /** Estados en los que la orden todavía se puede editar: TODO el trámite antes de
  *  que el Gerente General apruebe la OC (firma). A partir de `oc_aprobada` se congela. */
-const ESTADOS_EDITABLES_ORDEN: EstadoOrden[] = ['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo'];
+const ESTADOS_EDITABLES_ORDEN: EstadoOrden[] = ['pendiente', 'aprobada', 'oc_creada', 'confirmada_metodo', 'cuenta_abierta'];
 
 /**
  * Modifica una orden mientras NO la haya aprobado el Gerente General. Permite cambiar
@@ -586,8 +586,8 @@ export async function actualizarOrdenEditable(
   const ivaCambia = !!conIvaEditado && ivaCambio(impPrevOrden, conIvaEditado);
   const condNueva = patch.condiciones_pago !== undefined ? (patch.condiciones_pago?.trim() || null) : undefined;
   const condCambia = condNueva !== undefined && condNueva !== (o.condiciones_pago ?? null);
-  if (condCambia && o.estado !== 'oc_creada') {
-    throw new Error('La condición de pago solo se cambia mientras la OC espera la aprobación del Gerente General.');
+  if (condCambia && o.estado !== 'oc_creada' && o.estado !== 'cuenta_abierta') {
+    throw new Error('La condición de pago solo se cambia mientras la OC espera la aprobación del Gerente General o está en crédito.');
   }
   const cambioMaterial = itemsCambian || descCambiaMaterial || ivaCambia;
   // Solo un cambio MATERIAL sobre una OC ya FIRMADA (confirmada_metodo) la devuelve a
@@ -1372,7 +1372,7 @@ export async function actualizarCondicionCreditoOrden(
   const patch = {
     historial: appendHistorial(o, 'orden_modificada', actorEmail, {
       motivo: crNorm
-        ? `Condición de crédito: ${crNorm.primero_recibe ? 'Primero recibe y luego paga' : ''}${crNorm.dias ? `${crNorm.primero_recibe ? ' · ' : ''}Vence en ${crNorm.dias} día(s)` : ''}`
+        ? `Condición de crédito: ${crNorm.primero_recibe ? 'Primero recibe y luego paga' : ''}${crNorm.dias ? `${crNorm.primero_recibe ? ' · ' : ''}Vence en ${crNorm.dias} día(s)` : ''}${crNorm.fecha_vencimiento ? ` · Fecha vigente hasta ${crNorm.fecha_vencimiento}` : ''}`
         : 'Condición de crédito limpiada',
     }),
   };
