@@ -861,9 +861,34 @@ export function RecepcionesPendientes({
 }: RecepcionesPendientesProps) {
   const quien = useQuien();
   const [detalle, setDetalle] = useState<Orden | null>(null);
+
+  // Regla operativa: Almacén solo recepciona bienes materiales tangibles (OC y Compras Directas).
+  // Los servicios ('CS-…') no entran a almacén (se gestionan en Compras → Servicios o Control de Maquinaria).
+  const pendientesBienes = useMemo(
+    () =>
+      pendientes.filter(
+        (o) =>
+          o.tipo !== 'servicio' &&
+          !(o.codigo || '').toUpperCase().startsWith('CS-') &&
+          !(o.oc_codigo || '').toUpperCase().startsWith('CS-'),
+      ),
+    [pendientes],
+  );
+
+  const ordenesBienes = useMemo(
+    () =>
+      ordenes.filter(
+        (o) =>
+          o.tipo !== 'servicio' &&
+          !(o.codigo || '').toUpperCase().startsWith('CS-') &&
+          !(o.oc_codigo || '').toUpperCase().startsWith('CS-'),
+      ),
+    [ordenes],
+  );
+
   // Tarjetas: solo las más recientes. El resto va al Histórico (lista buscable).
   const [historicoOpen, setHistoricoOpen] = useState(false);
-  const { recientes, anteriores } = useMemo(() => partirRecepciones(ordenes), [ordenes]);
+  const { recientes, anteriores } = useMemo(() => partirRecepciones(ordenesBienes), [ordenesBienes]);
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
   const [modoReporte, setModoReporte] = useState<'pdf' | 'whatsapp' | null>(null);
@@ -876,12 +901,12 @@ export function RecepcionesPendientes({
   const [proveedoresMap, setProveedoresMap] = useState<Map<string, string>>(() => new Map());
   const provIdsKey = useMemo(() => {
     const ids = new Set<string>();
-    pendientes.forEach((o) => { if (o.proveedor_id) ids.add(o.proveedor_id); });
+    pendientesBienes.forEach((o) => { if (o.proveedor_id) ids.add(o.proveedor_id); });
     comprasPendientes.forEach((c) => { if (c.proveedor_id) ids.add(c.proveedor_id); });
     recientes.forEach((o) => { if (o.proveedor_id) ids.add(o.proveedor_id); });
     if (detalle?.proveedor_id) ids.add(detalle.proveedor_id);
     return Array.from(ids).sort().join(',');
-  }, [pendientes, comprasPendientes, recientes, detalle?.proveedor_id]);
+  }, [pendientesBienes, comprasPendientes, recientes, detalle?.proveedor_id]);
 
   useEffect(() => {
     if (!provIdsKey) return;
@@ -922,14 +947,14 @@ export function RecepcionesPendientes({
   const filasReportePendientes = useMemo(
     () =>
       normalizarPendientesRecepcion({
-        ordenesPendientes: pendientes,
+        ordenesPendientes: pendientesBienes,
         comprasPendientes,
         almacenes,
         proveedoresMap,
         resolverPersona: quien,
         tasaUsdHoy: tasaHoy,
       }),
-    [pendientes, comprasPendientes, almacenes, proveedoresMap, quien, tasaHoy],
+    [pendientesBienes, comprasPendientes, almacenes, proveedoresMap, quien, tasaHoy],
   );
 
   const filasPorUid = useMemo(
@@ -944,7 +969,7 @@ export function RecepcionesPendientes({
         <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
             <span>Recepciones por recibir</span>
-            <span className="muted mono">{num(pendientes.length)} órden{pendientes.length !== 1 ? 'es' : ''}</span>
+            <span className="muted mono">{num(pendientesBienes.length)} órden{pendientesBienes.length !== 1 ? 'es' : ''}</span>
           </div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button
@@ -967,11 +992,11 @@ export function RecepcionesPendientes({
           </div>
         </div>
 
-        {!pendientes.length ? (
+        {!pendientesBienes.length ? (
           <EmptyState message="No hay mercancía por recibir. Cuando llegue una orden, aparecerá acá para asignarle el almacén." icon="📦" />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.75rem' }}>
-            {pendientes.map((o) => {
+            {pendientesBienes.map((o) => {
               const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
               const totalUnidades = Array.isArray(o.items)
                 ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0)
@@ -1174,7 +1199,7 @@ export function RecepcionesPendientes({
         <div className="card-title">
           <span>Recepciones (finalizadas)</span>
           <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="muted mono">{num(ordenes.length)} órdenes</span>
+            <span className="muted mono">{num(ordenesBienes.length)} órdenes</span>
             {anteriores.length > 0 && (
               <button
                 type="button"
@@ -1188,7 +1213,7 @@ export function RecepcionesPendientes({
           </span>
         </div>
 
-        {!ordenes.length ? (
+        {!ordenesBienes.length ? (
           <EmptyState message="No hay órdenes finalizadas todavía." icon="✓" />
         ) : (
           <div
