@@ -16,7 +16,7 @@
 import { cargarPdfjs } from './pdfCanvas';
 
 export const UMBRAL_BYTES_PDF = 2.5 * 1024 * 1024; // 2.5 MB (archivos menores no requieren compresión)
-export const MAX_TAMANO_PDF_BYTES = 55 * 1024 * 1024; // 55 MB (para aceptar hasta 50 MB con holgura)
+export const MAX_TAMANO_PDF_BYTES = 150 * 1024 * 1024; // 150 MB (admisión en navegador para optimizar en cliente)
 
 export interface OpcionesCompresionPdf {
   /** Calidad de compresión JPEG para cada página (0.1 a 1.0). Por defecto 0.78 */

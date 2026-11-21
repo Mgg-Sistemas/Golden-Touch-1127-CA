@@ -29,7 +29,7 @@ export const TOPE_SUBIDA_MS = 120_000;
 
 /**
  * Calcula un tiempo de espera adaptativo según el tamaño del archivo en bytes.
- * Mínimo 90s, escalable para conexiones lentas y archivos de hasta 50 MB (máximo 5 minutos).
+ * Mínimo 90s, escalable para conexiones lentas y archivos pesados de +50 MB (máximo 5 minutos).
  */
 export function topeSubidaParaArchivo(bytes?: number): number {
   if (!bytes || bytes <= 0) return TOPE_SUBIDA_MS;

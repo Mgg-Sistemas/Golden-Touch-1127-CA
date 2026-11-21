@@ -43,7 +43,7 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
   useEffect(() => { void cargar(); }, [cargar]);
 
   async function subir(file: File) {
-    if (file.size > 55 * 1024 * 1024) { toast('El archivo supera el límite permitido de 50 MB.', 'error'); return; }
+    if (file.size > 150 * 1024 * 1024) { toast('El archivo supera el límite permitido de 150 MB.', 'error'); return; }
     setSubiendo(true);
     try {
       await repo.subirDocumento(empresa.clave, tipo, file);
@@ -92,7 +92,7 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
           </button>
         </div>
       )}
-      <p className="muted hint" style={{ marginTop: 0, fontSize: '.78rem' }}>PDF o imagen, hasta 50 MB. Se optimizan automáticamente en el navegador para cuidar el almacenamiento. La vista previa usa un enlace temporal seguro.</p>
+      <p className="muted hint" style={{ marginTop: 0, fontSize: '.78rem' }}>PDF o imagen, hasta 150 MB. Se optimizan automáticamente en el navegador para cuidar el almacenamiento. La vista previa usa un enlace temporal seguro.</p>
 
       {error ? (
         <div className="adm-aviso" style={{ marginTop: '.5rem' }}>

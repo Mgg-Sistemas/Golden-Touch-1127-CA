@@ -66,7 +66,7 @@ import {
 } from './admin.repository';
 
 const MAX_ARCHIVOS_POR_INTENTO = 10;
-const MAX_TAMANO_BYTES = 55 * 1024 * 1024; // 55 MB (para aceptar hasta 50 MB con holgura)
+const MAX_TAMANO_BYTES = 150 * 1024 * 1024; // 150 MB (para admitir PDFs pesados de +50 MB y optimizarlos en navegador)
 
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const fFechaHora = new Intl.DateTimeFormat('es-VE', {
@@ -393,7 +393,7 @@ export function DocumentosTab({
 
     for (const f of permitidos) {
       if (f.size > MAX_TAMANO_BYTES) {
-        toast(`«${f.name}» supera el límite permitido de 50 MB (${tamanoFmt(f.size)}) y fue omitido.`, 'error');
+        toast(`«${f.name}» supera el límite máximo de 150 MB (${tamanoFmt(f.size)}) y fue omitido.`, 'error');
         continue;
       }
 
@@ -764,7 +764,7 @@ export function DocumentosTab({
             Arrastra y suelta tus archivos aquí (PDF o Imágenes)
           </div>
           <div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>
-            Hasta {MAX_ARCHIVOS_POR_INTENTO} archivos por intento · Admite hasta 50 MB (con compresión y optimización automática para cuidar el almacenamiento) · El sistema clasifica automáticamente Rupdae, Mintras, Inces, IVSS, Carta Constitutiva, Cédulas, etc.
+            Hasta {MAX_ARCHIVOS_POR_INTENTO} archivos por intento · Admite archivos pesados de +50 MB (hasta 150 MB, optimizados automáticamente en el navegador a ~2-3 MB para cuidar el almacenamiento) · El sistema clasifica automáticamente Rupdae, Mintras, Inces, IVSS, Carta Constitutiva, Cédulas, etc.
           </div>
         </div>
       )}
@@ -1134,7 +1134,7 @@ export function DocumentosTab({
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
             <p className="muted hint" style={{ margin: 0, fontSize: '.78rem', background: 'rgba(56, 189, 248, 0.08)', padding: '.45rem .65rem', borderRadius: 6, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-              💡 <strong>Carga rápida y optimizada:</strong> Admite archivos de hasta 50 MB. Los PDFs e imágenes pesadas se comprimen y optimizan automáticamente en el navegador antes de enviarse para proteger la cuota de la base de datos y acelerar la carga.
+              💡 <strong>Carga rápida y optimizada:</strong> Admite archivos pesados de +50 MB (hasta 150 MB). Los PDFs e imágenes pesadas se comprimen y optimizan automáticamente en el navegador antes de enviarse para proteger la cuota de la base de datos y acelerar la carga.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', maxHeight: '460px', overflowY: 'auto', paddingRight: '.25rem' }}>

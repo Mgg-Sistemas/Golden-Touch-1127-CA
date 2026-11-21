@@ -224,8 +224,8 @@ export function RenovarDocumentoModal({
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) {
-                  if (f.size > 55 * 1024 * 1024) {
-                    toast(`«${f.name}» supera el límite permitido de 50 MB (${tamanoFmt(f.size)}).`, 'error');
+                  if (f.size > 150 * 1024 * 1024) {
+                    toast(`«${f.name}» supera el límite permitido de 150 MB (${tamanoFmt(f.size)}).`, 'error');
                     return;
                   }
                   setNuevoArchivo(f);
@@ -272,7 +272,7 @@ export function RenovarDocumentoModal({
                 <div style={{ fontSize: '1.4rem', marginBottom: '.3rem' }}>📁 ⬆️</div>
                 <strong style={{ fontSize: '.85rem' }}>Arrastra aquí el nuevo archivo renovado o haz clic</strong>
                 <p className="muted hint" style={{ margin: '.2rem 0 0', fontSize: '.74rem' }}>
-                  Admite PDF o imágenes de hasta 50 MB (con compresión y optimización automática para cuidar el almacenamiento). Si no seleccionas uno nuevo, se mantendrá el archivo actual y se actualizarán solo las fechas y registros.
+                  Admite PDF o imágenes pesadas de +50 MB (hasta 150 MB, con compresión y optimización automática para cuidar el almacenamiento). Si no seleccionas uno nuevo, se mantendrá el archivo actual y se actualizarán solo las fechas y registros.
                 </p>
               </div>
             )}

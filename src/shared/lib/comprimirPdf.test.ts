@@ -38,6 +38,6 @@ describe('comprimirPdf', () => {
 
   it('exporta constantes coherentes de umbral y tope máximo', () => {
     expect(UMBRAL_BYTES_PDF).toBe(2.5 * 1024 * 1024);
-    expect(MAX_TAMANO_PDF_BYTES).toBeGreaterThanOrEqual(50 * 1024 * 1024);
+    expect(MAX_TAMANO_PDF_BYTES).toBeGreaterThanOrEqual(150 * 1024 * 1024);
   });
 });
