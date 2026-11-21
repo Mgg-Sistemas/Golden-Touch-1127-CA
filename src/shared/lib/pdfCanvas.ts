@@ -22,7 +22,7 @@ let workerListo = false;
  * PDF de las salidas del teléfono «no se veía». El legacy trae esos polyfills, también
  * dentro del worker (que es otro contexto: un polyfill en la página no le llega).
  */
-async function cargarPdfjs() {
+export async function cargarPdfjs() {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   if (!workerListo) {
     // Como worker de Vite (sale como .js): el .mjs suelto podría servirse con un tipo MIME

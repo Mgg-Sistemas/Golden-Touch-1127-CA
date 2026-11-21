@@ -9,14 +9,14 @@
    camelCase en el dominio; mapeo snake_case en el límite del repo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { comprimirArchivo } from '@/shared/lib/comprimirArchivo';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { FAOV_TIERS, factoresValidos, type TierFaov } from './administracionParafiscal';
-import { conTopeSubida, esErrorTablaAusente, mensajeErrorSubidaAdmin } from './adminErrores';
+import { conTopeSubida, esErrorTablaAusente, mensajeErrorSubidaAdmin, topeSubidaParaArchivo } from './adminErrores';
 import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
@@ -700,12 +700,12 @@ export interface AdminRepo {
   borrarGastoFijo(id: string): Promise<void>;
   /** Papeles legales y permisos (RIF, actas, Rupdae, Mintras…), más recientes primero. */
   listDocumentos(empresaClave?: string): Promise<DocumentoEmpresa[]>;
-  /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. */
-  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string): Promise<DocumentoEmpresa>;
+  /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. Optimiza en cliente imágenes y PDFs pesados. */
+  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string, onProgreso?: (mensaje: string) => void): Promise<DocumentoEmpresa>;
   /** Actualiza metadatos de un documento y registra un cambio en su historial ligero de auditoría. */
   editarDocumento(id: string, cambios: Partial<DocumentoEmpresaInput>, actor?: string, detalle?: string): Promise<DocumentoEmpresa>;
   /** Renueva un documento: opcionalmente sube nuevo soporte, actualiza fechas y registra el evento en auditoría. */
-  renovarDocumento(id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string): Promise<DocumentoEmpresa>;
+  renovarDocumento(id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string, onProgreso?: (mensaje: string) => void): Promise<DocumentoEmpresa>;
   /** URL firmada (10 min) para previsualizar/descargar. */
   urlDocumento(path: string): Promise<string>;
   /** Borra el registro y luego el archivo del bucket. */
@@ -1069,6 +1069,7 @@ function rutaDoc(empresaClave: string, nombre: string): string {
  */
 async function subirArchivoDoc(path: string, archivo: File, upsert = false): Promise<void> {
   let fallo: unknown = null;
+  const timeoutMs = topeSubidaParaArchivo(archivo.size);
   try {
     const { error } = await conTopeSubida(
       supabase.storage.from(BUCKET_DOCS).upload(path, archivo, {
@@ -1076,6 +1077,7 @@ async function subirArchivoDoc(path: string, archivo: File, upsert = false): Pro
         contentType: archivo.type || 'application/pdf',
       }),
       archivo.name,
+      timeoutMs,
     );
     fallo = error;
   } catch (e) {
@@ -1680,11 +1682,16 @@ export function crearRepoSupabase(): AdminRepo {
       }
       return (data ?? []).map((r) => aDoc(r as RowDoc));
     },
-    async subirDocumento(empresaClave, tipo, file, meta, actor) {
+    async subirDocumento(empresaClave, tipo, file, meta, actor, onProgreso) {
       if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
         throw new Error('El documento debe ser un PDF o una imagen.');
-      // Una foto de celular pesa 3–8 MB: con señal débil se cortaba la subida.
-      const archivo = await comprimirImagen(file);
+      // Optimización inteligente en cliente: fotos e imágenes (JPEG/PNG) y PDFs escaneados (+25 o +50 MB).
+      // Reduce en 90-95% el peso de documentos para proteger la cuota de Supabase y asegurar subida instantánea.
+      const archivo = await comprimirArchivo(file, {
+        onProgreso: (_act, _tot, msg) => {
+          if (onProgreso && msg) onProgreso(msg);
+        },
+      });
       const path = rutaDoc(empresaClave, archivo.name);
       await subirArchivoDoc(path, archivo);
 
@@ -1816,7 +1823,7 @@ export function crearRepoSupabase(): AdminRepo {
       if (error || !data) throw error || new Error('No se pudo actualizar el documento.');
       return aDoc(data as RowDoc);
     },
-    async renovarDocumento(id, file, meta, actor, nota) {
+    async renovarDocumento(id, file, meta, actor, nota, onProgreso) {
       const { data: actualRow, error: errGet } = await supabase.from(T_DOC).select('*').eq('id', id).single();
       if (errGet || !actualRow) throw new Error('No se encontró el documento a renovar.');
       const doc = aDoc(actualRow as RowDoc);
@@ -1828,7 +1835,11 @@ export function crearRepoSupabase(): AdminRepo {
       if (file) {
         if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
           throw new Error('El documento debe ser un PDF o una imagen.');
-        const archivo = await comprimirImagen(file);
+        const archivo = await comprimirArchivo(file, {
+          onProgreso: (_act, _tot, msg) => {
+            if (onProgreso && msg) onProgreso(msg);
+          },
+        });
         nuevoPath = rutaDoc(doc.empresaClave, archivo.name);
         nuevoTamano = archivo.size;
         await subirArchivoDoc(nuevoPath, archivo, true);

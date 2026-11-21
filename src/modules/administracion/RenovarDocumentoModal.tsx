@@ -65,6 +65,7 @@ export function RenovarDocumentoModal({
   const [nuevoArchivo, setNuevoArchivo] = useState<File | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [progresoTexto, setProgresoTexto] = useState('');
 
   // Nombre del archivo actual
   const nombreArchivoActual = documento.path.split('/').pop() || documento.path;
@@ -84,6 +85,7 @@ export function RenovarDocumentoModal({
     }
 
     setGuardando(true);
+    setProgresoTexto(nuevoArchivo ? 'Optimizando y guardando…' : 'Guardando…');
     try {
       const costoNum = costoGestion ? Number(costoGestion.replace(',', '.')) : null;
       const docActualizado = await repo.renovarDocumento(
@@ -99,6 +101,8 @@ export function RenovarDocumentoModal({
           monedaCosto,
         },
         actor,
+        undefined,
+        (msg) => setProgresoTexto(msg),
       );
 
       toast('¡Documento renovado con éxito! Se registró la trazabilidad en el historial.', 'success');
@@ -130,7 +134,7 @@ export function RenovarDocumentoModal({
             onClick={(e) => void handleSubmit(e)}
             disabled={guardando || !fechaVencimiento || !titulo.trim()}
           >
-            {guardando ? 'Renovando…' : '🔄 Confirmar Renovación'}
+            {guardando ? (progresoTexto || 'Renovando…') : '🔄 Confirmar Renovación'}
           </button>
         </div>
       }
@@ -219,15 +223,37 @@ export function RenovarDocumentoModal({
               style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) setNuevoArchivo(f);
+                if (f) {
+                  if (f.size > 55 * 1024 * 1024) {
+                    toast(`«${f.name}» supera el límite permitido de 50 MB (${tamanoFmt(f.size)}).`, 'error');
+                    return;
+                  }
+                  setNuevoArchivo(f);
+                }
               }}
             />
             {nuevoArchivo ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.6rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '1.5rem' }}>📄</span>
                 <div style={{ textAlign: 'left' }}>
                   <strong style={{ color: '#ff8a00', fontSize: '.88rem' }}>{nuevoArchivo.name}</strong>
                   <div className="muted" style={{ fontSize: '.74rem' }}>{tamanoFmt(nuevoArchivo.size)}</div>
+                  {nuevoArchivo.size > 2.5 * 1024 * 1024 && (
+                    <span
+                      className="badge"
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.4)',
+                        fontSize: '.68rem',
+                        fontWeight: 700,
+                        marginTop: '.2rem',
+                        display: 'inline-block',
+                      }}
+                    >
+                      ⚡ Se optimizará automáticamente (~90% ahorro)
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -246,7 +272,7 @@ export function RenovarDocumentoModal({
                 <div style={{ fontSize: '1.4rem', marginBottom: '.3rem' }}>📁 ⬆️</div>
                 <strong style={{ fontSize: '.85rem' }}>Arrastra aquí el nuevo archivo renovado o haz clic</strong>
                 <p className="muted hint" style={{ margin: '.2rem 0 0', fontSize: '.74rem' }}>
-                  Admite PDF o imágenes escaneadas de hasta 50 MB. Si no seleccionas uno nuevo, se mantendrá el archivo actual y se actualizarán solo las fechas y registros.
+                  Admite PDF o imágenes de hasta 50 MB (con compresión y optimización automática para cuidar el almacenamiento). Si no seleccionas uno nuevo, se mantendrá el archivo actual y se actualizarán solo las fechas y registros.
                 </p>
               </div>
             )}

@@ -25,7 +25,17 @@ export function extraerMensajeError(error: unknown, fallback: string): string {
 }
 
 /** Tope para una subida: pasado este tiempo se da por perdida y se pide reintentar. */
-export const TOPE_SUBIDA_MS = 90_000;
+export const TOPE_SUBIDA_MS = 120_000;
+
+/**
+ * Calcula un tiempo de espera adaptativo según el tamaño del archivo en bytes.
+ * Mínimo 90s, escalable para conexiones lentas y archivos de hasta 50 MB (máximo 5 minutos).
+ */
+export function topeSubidaParaArchivo(bytes?: number): number {
+  if (!bytes || bytes <= 0) return TOPE_SUBIDA_MS;
+  const segs = Math.max(90, Math.ceil(bytes / (100 * 1024)) + 60);
+  return Math.min(300_000, segs * 1000);
+}
 
 /**
  * Traduce el error de subir un documento al Storage. «Failed to fetch» es un
