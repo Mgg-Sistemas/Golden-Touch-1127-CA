@@ -31,6 +31,7 @@ import { labelMetodoPago } from './pedidos.repository';
 import { lineasCotizacionesAprobacion } from './cotizacionesAprobacion';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { leerRetencionesCompras, lineasRetencion, netoAPagarCompras, pctTexto, type CamposRetencionesCompras } from './retencionesCompras';
+import { resolverInfoCredito } from './creditoVencimiento';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number | null | undefined): string {
@@ -186,6 +187,35 @@ export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 
 }
 
 /**
+ * Línea de vigencia / vencimiento de crédito en negrita para el mensaje de WhatsApp.
+ */
+export function lineaVigenciaCredito(orden: Orden): string | null {
+  const info = resolverInfoCredito(orden);
+  if (!info.esCredito && !info.fechaVencimiento && !info.dias) return null;
+  if (info.fechaVencimientoFmt) {
+    let estado = '';
+    if (info.diasRestantes !== null) {
+      if (info.diasRestantes < 0) {
+        const abs = Math.abs(info.diasRestantes);
+        estado = ` (*Vencido hace ${abs} ${abs === 1 ? 'día' : 'días'}*)`;
+      } else if (info.diasRestantes === 0) {
+        estado = ' (*Vence HOY*)';
+      } else if (info.diasRestantes <= 2) {
+        estado = ` (*Vence en ${info.diasRestantes} ${info.diasRestantes === 1 ? 'día' : 'días'}*)`;
+      } else {
+        estado = ` (faltan ${info.diasRestantes} días)`;
+      }
+    }
+    const plazo = info.dias ? ` · Plazo: *${info.dias} días*` : '';
+    return `📅 *Vigencia del crédito:* *${info.fechaVencimientoFmt}*${estado}${plazo}`;
+  }
+  if (info.dias) {
+    return `📅 *Vigencia del crédito:* *${info.dias} días*`;
+  }
+  return null;
+}
+
+/**
  * El cuerpo de una orden, en el marcado de WhatsApp.
  * Se exporta para poder fijarlo con tests: el formato es un acuerdo con quien
  * lo lee del otro lado del chat, así que un cambio accidental se tiene que
@@ -222,6 +252,8 @@ export function textoOrdenPagar(
   const nota = o.notas?.trim();
   // 📌 y no 🗒: ese es símbolo de TEXTO y necesita el selector invisible U+FE0F, que WhatsApp pierde.
   if (nota) L.push(`📌 *Nota:* ${nota}`);
+  const vigencia = lineaVigenciaCredito(o);
+  if (vigencia) L.push(vigencia);
   // Las cotizaciones y cuál escogió el analista (04/11/2026), igual que al aprobar.
   const lineasCotPagar = cotizaciones
     ? lineasCotizacionesAprobacion(o, cotizaciones.ofertas, { ...cotizaciones, personas, tasaUsd })
@@ -332,6 +364,8 @@ export function textoOrdenAprobacion(
 
   const nota = o.notas?.trim();
   if (nota) L.push(`📌 *Nota:* ${nota}`);
+  const vigencia = lineaVigenciaCredito(o);
+  if (vigencia) L.push(vigencia);
   const lineasCot = cotizaciones
     ? lineasCotizacionesAprobacion(o, cotizaciones.ofertas, { ...cotizaciones, personas })
     : [];
