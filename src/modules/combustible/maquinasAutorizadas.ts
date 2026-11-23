@@ -104,14 +104,23 @@ export const LISTA_16_MAQUINAS_AUTORIZADAS: MaquinaAutorizadaDef[] = [
   },
   {
     idKey: 'camioneta_encava_ep01',
-    nombreSolicitado: 'Camioneta encava EP01',
-    nombreOficial: 'ENCAVA EP-01',
+    nombreSolicitado: 'Camioneta encava EP-01',
+    nombreOficial: 'EP-01',
     variantes: [
+      'EP-01',
+      'EP01',
       'ENCAVA EP-01',
       'ENCAVA EP01',
+      'CAMIONETA ENCAVA EP-01',
+      'CAMIONETA ENCAVA EP01',
+      'CAMIONETA ENCAVA EP-1000-1',
+      'CAMIONETA ENCAVA EP-1000(1)',
       'CAMIONETA ENCAVA EP-1000 A96BM3R',
       'ENCAVA EP-1000-A96BM3R (3)',
       'ENCAVA EP-1000',
+      'EP-1000-1',
+      'EP-1000(1)',
+      'EP-1000',
       'A96BM3R',
     ],
   },
@@ -212,8 +221,8 @@ export function esUnaDeLas16MaquinasAutorizadas(nombre: string | null | undefine
     return true;
   }
 
-  // 14. Camioneta encava EP01
-  if (n.includes('ep01') || n.includes('ep-01') || (n.includes('encava') && (n.includes('1000') || n.includes('a96bm3r')))) {
+  // 14. Camioneta encava EP-01 (unificada EP-1000 y EP01)
+  if (n.includes('ep01') || n.includes('ep-01') || n.includes('ep 01') || n.includes('ep-1000') || n.includes('ep 1000') || (n.includes('encava') && (n.includes('1000') || n.includes('a96bm3r')))) {
     return true;
   }
 

@@ -182,3 +182,42 @@ describe('filtrado por activo y tanques permitidos (control de surtido)', () => 
     expect(ops.some((o) => o.value === 'Bidones 20 Litros (2)')).toBe(true);
   });
 });
+
+describe('unificación de EP-1000 y EP01 bajo EP-01 (23/11/2026)', () => {
+  it('unifica múltiples variantes de EP-1000 y EP01 en una única opción EP-01 en Vehículos', () => {
+    const catalogoConVariantes = [
+      'CAMIONETA ENCAVA EP-1000-1',
+      'CAMIONETA ENCAVA EP01',
+      'ENCAVA EP-1000-A96BM3R (3)',
+      'CAT GEP 550-1',
+    ];
+    const opsTel = opcionesEquipos({
+      catalogo: catalogoConVariantes,
+      fichas: [],
+      modo: 'telefono',
+      apartados: CLASES_EQUIPO_BASE,
+    });
+    const epOpsTel = opsTel.filter((o) => o.value === 'EP-01' || o.label === 'EP-01');
+    expect(epOpsTel).toHaveLength(1);
+    expect(epOpsTel[0].value).toBe('EP-01');
+    expect(epOpsTel[0].label).toBe('EP-01');
+    expect(epOpsTel[0].group).toBe('Vehículos');
+    expect(epOpsTel[0].hint).toBe('CAMIONETA ENCAVA EP-01');
+
+    // No debe existir ninguna otra opción para EP-1000 ni en Otros ni en Vehículos
+    expect(opsTel.some((o) => o.label.includes('EP-1000'))).toBe(false);
+
+    // En modo PC
+    const opsPc = opcionesEquipos({
+      catalogo: catalogoConVariantes,
+      fichas: [],
+      modo: 'pc',
+      apartados: CLASES_EQUIPO_BASE,
+    });
+    const epOpsPc = opsPc.filter((o) => o.value === 'EP-01');
+    expect(epOpsPc).toHaveLength(1);
+    expect(epOpsPc[0].label).toBe('CAMIONETA ENCAVA EP-01');
+    expect(epOpsPc[0].hint).toBe('EP-01');
+    expect(epOpsPc[0].group).toBe('Vehículos');
+  });
+});

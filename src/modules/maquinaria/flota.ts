@@ -686,7 +686,21 @@ export function coincideEquipo(
    placa hacen de alias. Lo usa el buscador de equipos de Combustible. */
 
 /** Alias del equipo, sin vacíos ni repetidos. Sin alias cargado: [modelo, placa] (los que haya). */
-export function aliasesDeEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null }): string[] {
+/**
+ * Determina si un nombre o valor corresponde a la camioneta Encava EP-01 / EP-1000.
+ * La gerencia indicó el 23/11/2026 que la EP-1000(1) y la EP01 son el mismo vehículo
+ * y deben unificarse tanto en Maquinaria como en Combustible bajo el nombre EP-01.
+ */
+export function esVarianteEp01(texto: string | null | undefined): boolean {
+  const t = norm(texto);
+  if (!t) return false;
+  return /ep[-_\s]*1000|ep[-_\s]*0?1|a96bm3r/i.test(t);
+}
+
+export function aliasesDeEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null; equipo?: string | null }): string[] {
+  if (esVarianteEp01(e.alias) || esVarianteEp01(e.equipo) || esVarianteEp01(e.modelo)) {
+    return ['EP-01', 'EP01', 'CAMIONETA ENCAVA EP-01', 'ENCAVA EP-01', 'EP-1000', 'EP-1000-1', 'A96BM3R'];
+  }
   const limpios = (e.alias ?? '').split(',').map((a) => a.trim()).filter(Boolean);
   const base = limpios.length ? limpios : [e.modelo, e.placa].map((x) => (x ?? '').trim()).filter(Boolean);
   const vistos = new Set<string>();
@@ -697,6 +711,9 @@ export function aliasesDeEquipo(e: { alias?: string | null; modelo?: string | nu
  *  PRINCIPAL del equipo (no el modelo ni la placa), para que el que surte vea el mismo nombre
  *  que la máquina tiene en Maquinaria. El modelo y la placa siguen sirviendo para buscar. */
 export function nombreCortoEquipo(e: { alias?: string | null; modelo?: string | null; placa?: string | null; equipo?: string | null }): string {
+  if (esVarianteEp01(e.alias) || esVarianteEp01(e.equipo) || esVarianteEp01(e.modelo)) {
+    return 'EP-01';
+  }
   const alias = (e.alias ?? '').split(',').map((a) => a.trim()).filter(Boolean)[0];
   return alias || (e.equipo ?? '').trim();
 }

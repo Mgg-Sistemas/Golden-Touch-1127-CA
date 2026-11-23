@@ -53,6 +53,17 @@ export const GRUPO_BIDONES = 'Bidones';
 const ICONO_OTROS = '⛽';
 const ICONO_BIDON = '🪣';
 
+/**
+ * Determina si un nombre o valor corresponde a la camioneta Encava EP-01 / EP-1000.
+ * La gerencia indicó el 23/11/2026 que la EP-1000(1) y la EP01 son el mismo vehículo
+ * y deben unificarse tanto en Maquinaria como en Combustible bajo el nombre EP-01.
+ */
+export function esVarianteEp01(texto: string | null | undefined): boolean {
+  const t = norm(texto);
+  if (!t) return false;
+  return /ep[-_\s]*1000|ep[-_\s]*0?1|a96bm3r/i.test(t);
+}
+
 /** Sin repetidos (sin acentos ni mayúsculas) ni vacíos, en el orden en que vienen. */
 function unicos(valores: (string | null | undefined)[]): string[] {
   const vistos = new Set<string>();
@@ -116,6 +127,31 @@ export function opcionesEquipos(args: {
 }): SearchOption[] {
   const apartados = args.apartados ?? listarApartados();
   const porNombre = new Map<string, FichaEquipoOpcion>();
+
+  // 23/11/2026: Ficha canónica para unificar EP-1000(1) y EP01 a EP-01
+  const fichaEp01Raw = args.fichas.find((f) => esVarianteEp01(f.equipo) || esVarianteEp01(f.alias) || esVarianteEp01(f.combustible_equipo));
+  const fichaEpCanon: FichaEquipoOpcion = {
+    equipo: 'CAMIONETA ENCAVA EP-01',
+    combustible_equipo: 'EP-01',
+    alias: 'EP-01',
+    marca: fichaEp01Raw?.marca ?? 'ENCAVA',
+    modelo: 'EP-01',
+    placa: fichaEp01Raw?.placa ?? 'A96BM3R',
+    tipo: 'CAMIONETA',
+    clase: 'vehiculo',
+  };
+  const variantesEp01 = [
+    'ep 01', 'ep01', 'ep-01', 'encava ep 01', 'encava ep01', 'encava ep-01',
+    'camioneta encava ep 01', 'camioneta encava ep01', 'camioneta encava ep-01',
+    'camioneta encava ep 1000 1', 'camioneta encava ep-1000-1', 'camioneta encava ep-1000(1)', 'camioneta encava ep 1000(1)',
+    'encava ep 1000 a96bm3r 3', 'encava ep-1000-a96bm3r (3)', 'encava ep 1000 a96bm3r', 'encava ep-1000 a96bm3r',
+    'encava ep 1000', 'encava ep-1000', 'camioneta encava ep 1000', 'camioneta encava ep-1000',
+    'ep 1000 1', 'ep-1000-1', 'ep-1000(1)', 'ep 1000(1)', 'ep 1000', 'ep-1000', 'a96bm3r',
+  ];
+  for (const v of variantesEp01) {
+    porNombre.set(norm(v), fichaEpCanon);
+  }
+
   // Primero el vínculo explícito; el nombre del equipo solo si nadie lo reclamó.
   for (const f of args.fichas) {
     const k = norm(f.combustible_equipo);
@@ -134,6 +170,7 @@ export function opcionesEquipos(args: {
   };
 
   const vistosValores = new Set<string>();
+  let ep01Emitido = false;
 
   for (const item of args.catalogo) {
     const valor = typeof item === 'string' ? item.trim() : (item.valor ?? '').trim();
@@ -142,6 +179,15 @@ export function opcionesEquipos(args: {
     if (vistosValores.has(kValor)) continue;
 
     const esSeleccionActual = !!args.incluirValor && norm(args.incluirValor) === kValor;
+    const esEp = esVarianteEp01(valor);
+
+    if (esEp) {
+      if (ep01Emitido && !esSeleccionActual) {
+        // Ya emitimos la opción unificada de EP-01; no duplicar con variantes viejas
+        continue;
+      }
+      ep01Emitido = true;
+    }
 
     // 1. Filtro de activo ("puede surtir")
     if (!esSeleccionActual && typeof item === 'object' && item.activo === false) {
@@ -180,13 +226,18 @@ export function opcionesEquipos(args: {
     const corto = nombreCortoEquipo(ficha);
     const keywords = unicos([...aliases, ficha.marca, ficha.modelo, ficha.placa, ficha.serial, ficha.tipo, ficha.equipo, valor]);
     const esTelefono = args.modo === 'telefono';
-    const label = esTelefono ? corto : valor;
+    const valorFinal = esEp ? (esSeleccionActual ? valor : 'EP-01') : valor;
+    const label = esEp
+      ? (esTelefono ? 'EP-01' : 'CAMIONETA ENCAVA EP-01')
+      : (esTelefono ? corto : valor);
     // Si el corto es el mismo nombre oficial, el hint no repite nada.
-    const hint = esTelefono
-      ? (norm(corto) === norm(valor) ? undefined : valor)
-      : (aliases.length ? aliases.join(', ') : undefined);
+    const hint = esEp
+      ? (esTelefono ? 'CAMIONETA ENCAVA EP-01' : 'EP-01')
+      : (esTelefono
+          ? (norm(corto) === norm(valor) ? undefined : valor)
+          : (aliases.length ? aliases.join(', ') : undefined));
     opciones.push({
-      value: valor, label, hint, keywords,
+      value: valorFinal, label, hint, keywords,
       group: apartado?.label ?? GRUPO_OTROS, groupIcon: apartado?.icon ?? ICONO_OTROS,
       _orden: apartado ? ordenGrupo(apartado.label) : ordenGrupo(GRUPO_OTROS),
     });

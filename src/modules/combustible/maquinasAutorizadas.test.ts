@@ -76,6 +76,10 @@ describe('16 Máquinas autorizadas para surtir combustible', () => {
     'ENCAVA EP-01',
     'CAMIONETA ENCAVA EP-1000 A96BM3R',
     'Camioneta encava EP01',
+    'EP-01',
+    'EP01',
+    'CAMIONETA ENCAVA EP-1000-1',
+    'ENCAVA EP-1000-A96BM3R (3)',
 
     // 15. Toyota chasis largo blanca
     'MACHITO BLANCO TOYOTA',

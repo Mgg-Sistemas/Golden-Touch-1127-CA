@@ -10,6 +10,7 @@ import { ultimoHorometroEquipo, consumoPorEquipo, asegurarCatalogo } from '@/mod
 import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
+import { esVarianteEp01 } from './flota';
 
 /** Categoría del vínculo con el propietario (mapa de propietarios, D22). */
 export type CategoriaPropietario = 'propio' | 'alquilado' | 'asociado' | 'contratista';
@@ -112,13 +113,48 @@ export async function listEquipos(): Promise<MaquinariaEquipo[]> {
   const { data, error } = await supabase.from(TABLE).select('*')
     .order('equipo', { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((r) => parseEquipo(r as Record<string, unknown>));
+  const parsed = (data ?? []).map((r) => parseEquipo(r as Record<string, unknown>));
+
+  // 23/11/2026: Si existen múltiples registros históricos de EP-1000 / EP01,
+  // se unifican en una sola ficha canónica 'EP-01'
+  let ep01Emitido = false;
+  const resultado: MaquinariaEquipo[] = [];
+  for (const eq of parsed) {
+    if (esVarianteEp01(eq.equipo) || esVarianteEp01(eq.alias) || esVarianteEp01(eq.modelo)) {
+      if (!ep01Emitido) {
+        ep01Emitido = true;
+        resultado.push({
+          ...eq,
+          equipo: 'CAMIONETA ENCAVA EP-01',
+          alias: 'EP-01',
+          modelo: 'EP-01',
+          combustible_equipo: 'EP-01',
+          clase: 'vehiculo',
+        });
+      }
+    } else {
+      resultado.push(eq);
+    }
+  }
+  return resultado;
 }
 
 export async function getEquipo(id: string): Promise<MaquinariaEquipo | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return data ? parseEquipo(data as Record<string, unknown>) : null;
+  if (!data) return null;
+  const eq = parseEquipo(data as Record<string, unknown>);
+  if (esVarianteEp01(eq.equipo) || esVarianteEp01(eq.alias) || esVarianteEp01(eq.modelo)) {
+    return {
+      ...eq,
+      equipo: 'CAMIONETA ENCAVA EP-01',
+      alias: 'EP-01',
+      modelo: 'EP-01',
+      combustible_equipo: 'EP-01',
+      clase: 'vehiculo',
+    };
+  }
+  return eq;
 }
 
 function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {

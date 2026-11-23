@@ -344,6 +344,15 @@ describe('lecturas de horómetro / km', () => {
 });
 
 describe('alias: cómo lo conocen los operadores', () => {
+  it('unifica la camioneta Encava EP-1000 y EP01 bajo EP-01', () => {
+    expect(nombreCortoEquipo({ equipo: 'CAMIONETA ENCAVA EP-1000-1' })).toBe('EP-01');
+    expect(nombreCortoEquipo({ equipo: 'CAMIONETA ENCAVA EP01' })).toBe('EP-01');
+    expect(nombreCortoEquipo({ alias: 'EP-1000(1)' })).toBe('EP-01');
+    expect(aliasesDeEquipo({ equipo: 'CAMIONETA ENCAVA EP-1000-1' })).toContain('EP-01');
+    expect(aliasesDeEquipo({ equipo: 'CAMIONETA ENCAVA EP01' })).toContain('EP-01');
+    expect(aliasesDeEquipo({ alias: 'EP01' })).toContain('EP-01');
+  });
+
   it('varios alias separados por coma, sin vacíos ni repetidos', () => {
     expect(aliasesDeEquipo({ alias: 'L220G, la amarilla, , l220g' })).toEqual(['L220G', 'la amarilla']);
   });
