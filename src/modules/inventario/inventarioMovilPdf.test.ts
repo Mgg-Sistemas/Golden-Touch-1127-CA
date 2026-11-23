@@ -44,6 +44,13 @@ describe('Inventario · PDF de la vista de teléfono (formato Orden de Salida/Tr
     expect(d.opciones.titulo).toBeUndefined();
   });
 
+  it('salida con unidad solicitante: extrae la unidad del motivo o la toma de opciones', () => {
+    const sConUnidad = salida({ motivo: 'Reparación tubería · Unidad: OPERACIONES' });
+    const d = docSalidaMovil(sConUnidad, null, 'Depósito Mina', quien);
+    expect(d.sol.unidad_solicitante).toBe('OPERACIONES');
+    expect(d.opciones.unidadSolicitante).toBe('OPERACIONES');
+  });
+
   it('salida del Inventario General: «General» se imprime como Inventario General', () => {
     const d = docSalidaMovil(salida({ almacen: null, codigo: 'SIG-0003', retorna: false }), null, 'General', quien);
     expect(d.sol.almacen_origen).toBe('Inventario General');
