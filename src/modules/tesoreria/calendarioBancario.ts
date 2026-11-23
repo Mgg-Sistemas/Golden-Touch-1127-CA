@@ -193,6 +193,51 @@ export function infoDiaBancario(fechaISO: string): InfoDiaBancario {
   };
 }
 
+export interface FeriadoBancario {
+  fecha: string; // YYYY-MM-DD
+  motivo: string;
+  tipo: 'bancario' | 'nacional';
+  diaNombre: string;
+  fechaEfectivaBcv: string;
+  diaEfectivoNombre: string;
+}
+
+/** Nombre del día de la semana en español a partir de YYYY-MM-DD. */
+export function diaSemanaNombre(fechaISO: string): string {
+  const parts = fechaISO.slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return '';
+  const [y, m, d] = parts;
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  return dias[dt.getUTCDay()] ?? '';
+}
+
+/** Devuelve la lista ordenada de feriados bancarios y nacionales SUDEBAN (opcionalmente filtrados por año). */
+export function listarFeriadosSudeban(anio?: number): FeriadoBancario[] {
+  const anioStr = anio ? String(anio) : null;
+  const mapa = new Map<string, string>();
+  for (const [f, m] of Object.entries(FERIADOS_BANCARIOS_VE)) {
+    if (!anioStr || f.startsWith(anioStr)) mapa.set(f, m);
+  }
+  for (const [f, m] of feriadosDinamicos.entries()) {
+    if (!anioStr || f.startsWith(anioStr)) mapa.set(f, m);
+  }
+  const lista: FeriadoBancario[] = [];
+  for (const [fecha, motivo] of mapa.entries()) {
+    const esNac = /nacional/i.test(motivo);
+    const fechaEfectiva = proximoDiaHabilBancario(fecha);
+    lista.push({
+      fecha,
+      motivo: motivo.replace(/\s*\((Feriado Nacional|Lunes Bancario|Feriado Bancario|Víspera de Navidad|Fin de Año)\)\s*/gi, '').trim() || motivo,
+      tipo: esNac ? 'nacional' : 'bancario',
+      diaNombre: diaSemanaNombre(fecha),
+      fechaEfectivaBcv: fechaEfectiva,
+      diaEfectivoNombre: diaSemanaNombre(fechaEfectiva),
+    });
+  }
+  return lista.sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
 /**
  * Intenta sincronizar el calendario bancario conectando a API externa de feriados de Venezuela.
  * Si la API no está disponible o falla, el calendario integrado de SUDEBAN asegura funcionamiento 100%.

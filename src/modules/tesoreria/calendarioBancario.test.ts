@@ -5,6 +5,8 @@ import {
   esDiaNoBancario,
   proximoDiaHabilBancario,
   infoDiaBancario,
+  listarFeriadosSudeban,
+  diaSemanaNombre,
 } from './calendarioBancario';
 
 describe('calendarioBancario (SUDEBAN / BCV Venezuela)', () => {
@@ -43,5 +45,23 @@ describe('calendarioBancario (SUDEBAN / BCV Venezuela)', () => {
     expect(esFeriadoBancario('2026-01-01')).toBe(true);
     expect(esFeriadoBancario('2026-05-01')).toBe(true);
     expect(esFeriadoBancario('2026-12-25')).toBe(true);
+  });
+
+  it('listarFeriadosSudeban devuelve la lista estructurada con tipos y fecha valor BCV', () => {
+    const todos2026 = listarFeriadosSudeban(2026);
+    expect(todos2026.length).toBeGreaterThanOrEqual(20);
+    const hoyFeriado = todos2026.find((f) => f.fecha === '2026-11-23');
+    expect(hoyFeriado).toBeDefined();
+    expect(hoyFeriado?.motivo).toContain('Chiquinquirá');
+    expect(hoyFeriado?.tipo).toBe('bancario');
+    expect(hoyFeriado?.diaNombre).toBe('Lunes');
+    expect(hoyFeriado?.fechaEfectivaBcv).toBe('2026-11-24');
+    expect(hoyFeriado?.diaEfectivoNombre).toBe('Martes');
+  });
+
+  it('diaSemanaNombre devuelve el nombre del día en español', () => {
+    expect(diaSemanaNombre('2026-11-23')).toBe('Lunes');
+    expect(diaSemanaNombre('2026-11-24')).toBe('Martes');
+    expect(diaSemanaNombre('2026-11-29')).toBe('Domingo');
   });
 });
