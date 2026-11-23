@@ -11,6 +11,8 @@ describe('buscador del menú', () => {
   it('encuentra por otros nombres del módulo', () => {
     expect(coincideMenu('compras', 'Pedidos / Compras', '/app/pedidos')).toBe(true);
     expect(coincideMenu('almacén', 'Depósito Mina', '/app/inventario/deposito-mina')).toBe(true);
+    expect(coincideMenu('almacenes', 'Inventarios / Almacenes', '/app/inventario')).toBe(true);
+    expect(coincideMenu('reutilizables', 'Depósito Reutilizables', '/app/inventario/deposito-reutilizables')).toBe(true);
     expect(coincideMenu('caja', 'Tesorería', '/app/tesoreria')).toBe(true);
     expect(coincideMenu('nómina', 'RRHH / Nómina', '/app/rrhh')).toBe(true);
   });

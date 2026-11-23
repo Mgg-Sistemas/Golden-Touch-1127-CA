@@ -374,10 +374,14 @@ export function AppShell() {
           {/* 05/11/2026: Carga pesada es un segmento DENTRO de Delivery, no otro módulo del menú. */}
           {(can('delivery') || can('carga_pesada')) && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {puedeVerAlmacen(ALMACEN_GENERAL) && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
-          {puedeVerAlmacen(ALMACEN_MINA) && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
-          {puedeVerAlmacen(ALMACEN_REUTILIZABLES) && <NavItem to="/app/inventario/deposito-reutilizables" icon="♻️" label="Depósito Reutilizables" />}
-          {puedeVerAlmacen(ALMACEN_DANADOS) && <NavItem to="/app/inventario/deposito-danados" icon="⚠️" label="Depósito Items Dañados" />}
+          {(puedeVerAlmacen(ALMACEN_GENERAL) || puedeVerAlmacen(ALMACEN_MINA) || puedeVerAlmacen(ALMACEN_REUTILIZABLES) || puedeVerAlmacen(ALMACEN_DANADOS)) && (
+            <NavInventariosGrupo
+              puedeVerGeneral={puedeVerAlmacen(ALMACEN_GENERAL)}
+              puedeVerMina={puedeVerAlmacen(ALMACEN_MINA)}
+              puedeVerReutilizables={puedeVerAlmacen(ALMACEN_REUTILIZABLES)}
+              puedeVerDanados={puedeVerAlmacen(ALMACEN_DANADOS)}
+            />
+          )}
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}
@@ -609,6 +613,7 @@ function NavItem({
   label,
   disabled,
   incluyeSubrutas,
+  className,
 }: {
   to: string;
   icon: ReactNode;
@@ -616,12 +621,13 @@ function NavItem({
   disabled?: boolean;
   /** Queda marcado también en sus subrutas (los submódulos que viven dentro del módulo). */
   incluyeSubrutas?: boolean;
+  className?: string;
 }) {
   const filtro = useContext(FiltroMenu);
   if (!coincideMenu(filtro, label, to)) return null;
   if (disabled) {
     return (
-      <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }}>
+      <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }} title={label}>
         <span className="icn">{icon}</span> <span>{label}</span>
       </a>
     );
@@ -630,11 +636,83 @@ function NavItem({
   // módulo antes del clic, así la navegación se siente instantánea.
   const precargar = () => { void prefetchRuta(to); };
   return (
-    <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')} end={!incluyeSubrutas}
+    <NavLink
+      to={to}
+      className={({ isActive }) => `${isActive ? 'active' : ''}${className ? ` ${className}` : ''}`}
+      end={!incluyeSubrutas}
+      title={label}
       // Con pestañas minimizadas, salir del módulo pide confirmación (minimizadas.ts).
       onClick={(e) => { if (!intentarSalir(to)) e.preventDefault(); }}
-      onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}>
+      onMouseEnter={precargar} onFocus={precargar} onTouchStart={precargar}
+    >
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>
+  );
+}
+
+function NavInventariosGrupo({
+  puedeVerGeneral,
+  puedeVerMina,
+  puedeVerReutilizables,
+  puedeVerDanados,
+}: {
+  puedeVerGeneral: boolean;
+  puedeVerMina: boolean;
+  puedeVerReutilizables: boolean;
+  puedeVerDanados: boolean;
+}) {
+  const location = useLocation();
+  const filtro = useContext(FiltroMenu);
+  const estaEnInventario = location.pathname.startsWith('/app/inventario');
+
+  const [usuarioAbierto, setUsuarioAbierto] = useState<boolean | null>(null);
+
+  // Si está buscando en el menú, se abre forzadamente para ver resultados.
+  // Si no está buscando, usa la elección del usuario (o abierto si está dentro de la ruta).
+  const abierto = filtro ? true : (usuarioAbierto ?? estaEnInventario);
+
+  // Si hay filtro activo, verificar si el grupo o alguno de sus almacenes visibles coincide
+  if (filtro) {
+    const algunHijoCoincide =
+      (puedeVerGeneral && coincideMenu(filtro, 'Inventario Los Pinos', '/app/inventario')) ||
+      (puedeVerMina && coincideMenu(filtro, 'Depósito Mina', '/app/inventario/deposito-mina')) ||
+      (puedeVerReutilizables && coincideMenu(filtro, 'Depósito Reutilizables', '/app/inventario/deposito-reutilizables')) ||
+      (puedeVerDanados && coincideMenu(filtro, 'Depósito Items Dañados', '/app/inventario/deposito-danados')) ||
+      coincideMenu(filtro, 'Inventarios / Almacenes', '/app/inventario');
+
+    if (!algunHijoCoincide) return null;
+  }
+
+  return (
+    <div className="nav-dropdown">
+      <button
+        type="button"
+        className={`nav-dropdown-btn${estaEnInventario ? ' has-active' : ''}`}
+        onClick={() => setUsuarioAbierto(!abierto)}
+        title="Inventarios / Almacenes"
+        aria-expanded={abierto}
+      >
+        <span className="icn">🏬</span>
+        <span className="nav-dropdown-label">Inventarios / Almacenes</span>
+        <span className={`nav-dropdown-caret${abierto ? ' open' : ''}`}>▾</span>
+      </button>
+
+      {abierto && (
+        <div className="nav-subgroup">
+          {puedeVerGeneral && (
+            <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" className="nav-subitem" />
+          )}
+          {puedeVerMina && (
+            <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" className="nav-subitem" />
+          )}
+          {puedeVerReutilizables && (
+            <NavItem to="/app/inventario/deposito-reutilizables" icon="♻️" label="Depósito Reutilizables" className="nav-subitem" />
+          )}
+          {puedeVerDanados && (
+            <NavItem to="/app/inventario/deposito-danados" icon="⚠️" label="Depósito Items Dañados" className="nav-subitem" />
+          )}
+        </div>
+      )}
+    </div>
   );
 }
