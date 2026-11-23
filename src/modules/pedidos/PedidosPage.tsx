@@ -95,7 +95,7 @@ import { ReporteComprasModal } from './ReporteComprasModal';
 import { ExportarComprasModal } from './ExportarComprasModal';
 import { CierreDiarioModal } from './CierreDiarioModal';
 import { ReportePendientesPagarModal } from './ReportePendientesPagarModal';
-import { listOfertasByOrden, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
+import { listOfertasByOrden, listOfertasCotizaciones, labelCondicionPago, getPdfOfertaSignedUrl, CONDICIONES_PAGO } from './ofertas.repository';
 import { baseNetaDesdeTotal, impuestosDeOrden, recomponerConIva, recomponerImpuestos } from './impuestosOrden';
 import { esRecargaAgua } from './servicios.repository';
 import { obtenerInfoModalidadPago } from './modalidadPago';
@@ -1666,16 +1666,18 @@ function FinalizarPedidoModal({
   const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
   const [fechaPrometida, setFechaPrometida] = useState('');
   useEffect(() => {
-    listOfertasByOrden(orden.id)
+    listOfertasCotizaciones(orden)
       .then((ofs) => {
-        // La oferta elegida es la que casó con el proveedor de la orden (aceptada).
+        // En un reparto multiproveedor las ofertas están en la madre; la de esta
+        // hija es la de su proveedor (puede haber varias «aceptada»).
         const elegida = ofs.find((o) => o.estado === 'aceptada' && o.proveedor_id === orden.proveedor_id)
           ?? ofs.find((o) => o.proveedor_id === orden.proveedor_id)
+          ?? ofs.find((o) => o.estado === 'aceptada')
           ?? ofs.find((o) => o.fecha_entrega_prometida);
         if (elegida?.fecha_entrega_prometida) setFechaPrometida(elegida.fecha_entrega_prometida.slice(0, 10));
       })
       .catch(() => { /* sin oferta: puntualidad neutra */ });
-  }, [orden.id, orden.proveedor_id]);
+  }, [orden.id, orden.op_padre_id, orden.proveedor_id]);
 
   // Días (firmado): + adelantado (recibido antes de lo prometido), − atrasado.
   const diasPorFecha = (() => {
@@ -3473,7 +3475,8 @@ function OrdenDetailModal({
   const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
-  const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
+  // `reasignada` = SP madre ya repartida: se muestran las N cotizaciones en solo lectura.
+  const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada', 'reasignada'].includes(o.estado);
   // Editar la orden: en cualquier etapa hasta indicar el método de pago. Si ya está
   // FIRMADA por el GG (confirmada_metodo), igual se puede modificar, pero al guardar
   // la OC VUELVE A APROBACIÓN del Gerente General. Tras enviarla a pagar, se congela.

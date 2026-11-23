@@ -14,6 +14,7 @@ import type {
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import type { TrazaDespiece } from './despieceRes';
+import { idOrdenCotizaciones, ofertaElegidaDe } from './ofertasPadreHija';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -26,12 +27,13 @@ interface TrazabilidadData {
 }
 
 async function cargarTrazabilidad(ordenId: string): Promise<TrazabilidadData> {
-  const [{ data: orden, error: oe }, { data: ofertas, error: ofe }, { data: evals, error: ee }] = await Promise.all([
-    supabase.from('ordenes').select('*').eq('id', ordenId).single(),
-    supabase.from('ofertas_proveedor').select('*').eq('orden_id', ordenId).order('precio_total'),
+  const { data: orden, error: oe } = await supabase.from('ordenes').select('*').eq('id', ordenId).single();
+  if (oe || !orden) throw oe ?? new Error('Orden no encontrada');
+  // Las NC cotizaciones de un reparto están en la madre, no en la hija.
+  const [{ data: ofertas, error: ofe }, { data: evals, error: ee }] = await Promise.all([
+    supabase.from('ofertas_proveedor').select('*').eq('orden_id', idOrdenCotizaciones(orden as Orden)).order('precio_total'),
     supabase.from('evaluaciones_recepcion').select('*').eq('orden_id', ordenId).maybeSingle(),
   ]);
-  if (oe || !orden) throw oe ?? new Error('Orden no encontrada');
   if (ofe) throw ofe;
   if (ee) throw ee;
 
@@ -235,7 +237,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
 
     // Comparativa por producto (Pago en Bs a BCV vs Pago en USD) de la oferta elegida,
     // o de la primera oferta si aún no se eligió. Los ítems de la oferta NO están escalados.
-    const ofComparar = ofertas.find((o) => o.estado === 'aceptada') ?? ofertas[0];
+    const ofComparar = ofertaElegidaDe(orden, ofertas) ?? ofertas[0];
     if (ofComparar && ofComparar.items.some((it) => Number(it.precio_usd) > 0)) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
@@ -313,7 +315,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   doc.text(`4. Orden de ${esServicio ? 'servicio' : 'compra'}${orden.oc_codigo ? ` · ${orden.oc_codigo}` : ''}`, MARGIN, y);
   y += 14;
   doc.setFont('helvetica', 'normal');
-  const ofertaAceptada = ofertas.find((o) => o.estado === 'aceptada');
+  const ofertaAceptada = ofertaElegidaDe(orden, ofertas);
   const ocEvento = orden.historial?.find((h) => h.evento === 'oc_emitida');
   const documentosOc = ocEvento?.documentos ?? [];
   const filasOrden: Array<[string, string]> = [

@@ -12,6 +12,7 @@ import { firmaCargadaDe } from '@/modules/usuarios/autorizados.repository';
 import { esRecargaAgua } from './servicios.repository';
 import { esCambioProveedor, leerCambioProveedor, type EventoCambioProveedor } from './cambioProveedor';
 import { obtenerInfoModalidadPago } from './modalidadPago';
+import { idOrdenCotizaciones, ofertaElegidaDe } from './ofertasPadreHija';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -49,14 +50,15 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
     proveedor = (prov ?? null) as Proveedor | null;
   }
 
-  // Todas las ofertas de la orden (la aceptada + las descartadas, incluida la
-  // del proveedor que desistió).
+  // Todas las cotizaciones de la solicitud. En una OC hija viven en la madre
+  // (`op_padre_id`) y puede haber varias «aceptada»: la de ESTA OC se elige por
+  // proveedor, no por ser la primera aceptada.
   const { data: ofertasData } = await supabase
     .from('ofertas_proveedor')
     .select('*')
-    .eq('orden_id', ordenId);
+    .eq('orden_id', idOrdenCotizaciones(orden as Orden));
   const ofertas = (ofertasData ?? []) as OfertaProveedor[];
-  const ofertaAceptada = ofertas.find((of) => of.estado === 'aceptada') ?? null;
+  const ofertaAceptada = ofertaElegidaDe(orden as Orden, ofertas);
 
   // Proveedores referenciados (oferentes + el que desistió en el historial).
   const provIds = new Set<string>();

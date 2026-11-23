@@ -23,6 +23,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from './modalidadPago';
+import { esCotizacionDeEstaOc } from './ofertasPadreHija';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
@@ -152,9 +153,11 @@ export function OfertasComparativa({
   }, [ofertasOrdenId, reloadKey, rtTick]);
 
   const scored = scoreOfertas(ofertas, stats);
-  // En una orden HIJA se muestra SOLO la oferta del proveedor que se le asignó
-  // (la que se eligió al repartir), no toda la comparativa del padre.
-  const scoredView = esHija ? scored.filter((s) => s.oferta.proveedor_id === (orden.proveedor_id ?? '')) : scored;
+  // 23/11/2026: en una orden HIJA se siguen mostrando las N cotizaciones del
+  // padre (no solo la del proveedor asignado). La de esta OC se distingue con
+  // el badge «Aceptada · esta OC»; el resto queda en solo lectura.
+  const scoredView = scored;
+  const ofertaDeEstaOc = scoredView.some((s) => esCotizacionDeEstaOc(orden, s.oferta));
 
   async function abrirPdf(path: string) {
     try {
@@ -272,23 +275,26 @@ export function OfertasComparativa({
   }
 
   // Las ofertas se cargan/eligen sobre la OP ya APROBADA (etapa Orden de Compra).
-  // En una orden HIJA es SIEMPRE solo lectura (no se decide/agrega/reparte/edita).
-  const enEtapaOc = !esHija && (orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor');
+  // Hijas y madres ya repartidas (`reasignada`) son SIEMPRE solo lectura: las
+  // ofertas son del reparto y tocarlas rompería las OC hijas ya generadas.
+  const esMadreRepartida = !esHija && orden.estado === 'reasignada';
+  const soloLectura = esHija || esMadreRepartida;
+  const enEtapaOc = !soloLectura && (orden.estado === 'aprobada' || orden.estado === 'desistida_proveedor');
   // Cotizaciones: mínimo 1 para poder elegir, máximo 6 para cargar.
   const MIN_OFERTAS = 1, MAX_OFERTAS = 6;
   const minOk = ofertas.length >= MIN_OFERTAS;
   const puedeDecidir = canDecidir && enEtapaOc && minOk;
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;
-  // Edición/eliminación de ofertas: nunca en una hija (la oferta es del padre).
-  const puedeEditarOfertas = (canCrearOferta ?? canDecidir) && !esHija;
+  // Edición/eliminación de ofertas: nunca en hijas ni en la madre repartida.
+  const puedeEditarOfertas = (canCrearOferta ?? canDecidir) && !soloLectura;
   // Reelegir oferta: disponible cuando la OC ya eligió oferta pero aún no se ha pagado en Tesorería.
-  const puedeReelegir = !esHija && canDecidir && ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
+  const puedeReelegir = !soloLectura && canDecidir && ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
 
   const headLine = (
     <div className="card-title" style={{ marginBottom: '.5rem' }}>
-      <span>Ofertas y comparativa{esHija ? ' · de la orden padre' : ''}</span>
+      <span>Ofertas y comparativa{esHija ? ' · de la orden padre' : esMadreRepartida ? ' · reparto entre proveedores' : ''}</span>
       <span style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-        <span className="muted mono">{esHija ? `${scoredView.length} oferta(s)` : `${scored.length}/${MAX_OFERTAS} oferta(s)`}</span>
+        <span className="muted mono">{soloLectura ? `${scored.length} cotización(es)` : `${scored.length}/${MAX_OFERTAS} oferta(s)`}</span>
         {puedeAgregar && (
           <button className="btn btn-sm btn-ghost" onClick={onAddOferta}>+ Agregar oferta</button>
         )}
@@ -330,23 +336,22 @@ export function OfertasComparativa({
     );
   }
 
-  // Hija sin oferta de su proveedor en el padre (caso raro): aviso claro.
-  if (esHija && !scoredView.length) {
-    return (
-      <div className="card" style={{ marginTop: '1rem' }}>
-        {headLine}
-        <EmptyState message="No se encontró la oferta del proveedor de esta orden hija." icon="◇" />
-      </div>
-    );
-  }
-
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
-      {esHija && (
+      {(esHija || esMadreRepartida) && (
         <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem' }}>
-          📄 Oferta elegida para esta orden hija (solo lectura), tomada de la <strong>orden padre</strong>. Proveedor:{' '}
-          <strong>{proveedorMap.get(orden.proveedor_id ?? '')?.razon_social ?? '—'}</strong>. Los precios se muestran en Bs (BCV) y en divisa ($).
+          {esHija ? (
+            <>📄 Reparto entre proveedores: se muestran las <strong>{scored.length} cotizaciones de la orden padre</strong>. La de esta OC es la de{' '}
+              <strong>{proveedorMap.get(orden.proveedor_id ?? '')?.razon_social ?? '—'}</strong> (badge «Aceptada · esta OC»); las demás se dejan para comparar y son solo lectura.</>
+          ) : (
+            <>🔀 Esta SP se repartió entre varios proveedores: se conservan las <strong>{scored.length} cotizaciones</strong> que se compararon. Las elegidas quedaron marcadas y ninguna se puede editar desde aquí.</>
+          )}
+          {esHija && !ofertaDeEstaOc && (
+            <div style={{ color: 'var(--danger)', marginTop: '.25rem' }}>
+              ⚠️ No se encontró la oferta del proveedor de esta orden hija en la orden padre.
+            </div>
+          )}
         </div>
       )}
       <div className="table-wrap">
@@ -369,12 +374,15 @@ export function OfertasComparativa({
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
               const aceptada = s.oferta.estado === 'aceptada';
+              const deEstaOc = esCotizacionDeEstaOc(orden, s.oferta);
               const seleccionable = s.oferta.estado === 'pendiente' && puedeDecidir;
               const rowBg = recomendada
                 ? 'var(--grad-primary-soft)'
-                : aceptada
-                  ? 'rgba(41,192,129,0.08)'
-                  : undefined;
+                : esHija && deEstaOc && aceptada
+                  ? 'rgba(41,192,129,0.16)'
+                  : aceptada
+                    ? 'rgba(41,192,129,0.08)'
+                    : undefined;
               return (
                 <Fragment key={s.oferta.id}>
                   <tr
@@ -480,7 +488,13 @@ export function OfertasComparativa({
                     </td>
                     <td>
                       {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
-                      {s.oferta.estado === 'aceptada' && <span className="badge success">Aceptada</span>}
+                      {s.oferta.estado === 'aceptada' && (
+                        <span className="badge success">
+                          {esHija
+                            ? (esCotizacionDeEstaOc(orden, s.oferta) ? 'Aceptada · esta OC' : 'Aceptada · otra OC')
+                            : 'Aceptada'}
+                        </span>
+                      )}
                       {s.oferta.estado === 'descartada' && <span className="badge danger">Descartada</span>}
                     </td>
                   </tr>

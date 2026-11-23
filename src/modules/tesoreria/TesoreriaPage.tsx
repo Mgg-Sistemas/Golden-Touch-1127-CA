@@ -109,7 +109,7 @@ import { descargarResumenCuentasPdf } from './resumenCuentasPdf';
 import { enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo } from './enviarReporte';
 import type { AbonoCredito } from '@/shared/lib/types';
 import { descargarOrdenCompraPdf } from '@/modules/pedidos/ordenCompraPdf';
-import { listOfertasByOrden, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
+import { listOfertasCotizaciones, getPdfOfertaSignedUrl } from '@/modules/pedidos/ofertas.repository';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { norm } from '@/shared/lib/texto';
 import { mensajeError } from '@/shared/lib/errores';
@@ -6473,10 +6473,10 @@ function PagarOrdenModal({ row, cajas, actor, actorName, onClose, onPaid }: {
   const [adjuntos, setAdjuntos] = useState<OfertaProveedor[]>([]);
   const [descargando, setDescargando] = useState<string | null>(null);
   useEffect(() => {
-    listOfertasByOrden(o.id)
+    listOfertasCotizaciones(o)
       .then((rows) => setAdjuntos(rows.filter((r) => r.pdf_path)))
       .catch(() => setAdjuntos([]));
-  }, [o.id]);
+  }, [o.id, o.op_padre_id]);
 
   async function descargarAdjunto(path: string, id: string) {
     setDescargando(id);

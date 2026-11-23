@@ -1,9 +1,10 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { AdjuntoOferta, FichaOferta, ItemOrden, OfertaProveedor, Producto } from '@/shared/lib/types';
+import type { AdjuntoOferta, FichaOferta, ItemOrden, OfertaProveedor, Orden, Producto } from '@/shared/lib/types';
 import { aplicarPlan, claveNombreFicha, planFichas, renglonesBase, type ConSkuOrden, type EleccionNombreInventario, type FichaMin } from './nombreInventario';
 import { createProducto, nextSku } from '@/modules/inventario/inventario.repository';
 import { asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 import { ALMACEN_MINA } from '@/modules/inventario/depositos';
+import { idOrdenCotizaciones } from './ofertasPadreHija';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -156,6 +157,16 @@ export async function listOfertasByOrden(orden_id: string): Promise<OfertaProvee
     .order('precio_total', { ascending: true });
   if (error) throw error;
   return (data ?? []) as OfertaProveedor[];
+}
+
+/**
+ * Cotizaciones que se deben mostrar para una orden. Si es una OC hija de un
+ * reparto multiproveedor, las N ofertas están en la orden padre (`op_padre_id`).
+ */
+export async function listOfertasCotizaciones(
+  o: Pick<Orden, 'id' | 'op_padre_id'>,
+): Promise<OfertaProveedor[]> {
+  return listOfertasByOrden(idOrdenCotizaciones(o));
 }
 
 export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProveedor> {

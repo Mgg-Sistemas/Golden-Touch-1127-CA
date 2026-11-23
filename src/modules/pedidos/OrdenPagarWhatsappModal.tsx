@@ -11,7 +11,8 @@
 
    En modo «aprobación» (OC pendiente por aprobar) el aviso lleva además todas
    las cotizaciones de la solicitud, numeradas en $ y Bs, la elegida y qué
-   analista la escogió (02/11/2026).
+   analista la escogió (02/11/2026). En una OC hija de un reparto
+   multiproveedor se leen las N cotizaciones de la orden PADRE (23/11/2026).
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -27,7 +28,8 @@ import {
 } from '@/modules/solicitudesAlmacen/revisionAlmacen';
 import { textoOrdenAprobacion, textoOrdenPagar } from './confirmadasPagarTxt';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
-import { listOfertasByOrden } from './ofertas.repository';
+import { listOfertasCotizaciones } from './ofertas.repository';
+import { idOrdenCotizaciones } from './ofertasPadreHija';
 
 export type ModoWhatsappOrden = 'pagar' | 'aprobacion' | 'solicitud';
 
@@ -51,13 +53,15 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
   }, []);
 
   // Las cotizaciones cargadas para la solicitud (en aviso de aprobación o pagar).
+  // En una OC hija de un reparto multiproveedor están en la orden PADRE.
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
+  const idCotizaciones = idOrdenCotizaciones(orden);
   useEffect(() => {
     if (modo === 'solicitud') return;
     let cancel = false;
-    listOfertasByOrden(orden.id).then((of) => { if (!cancel) setOfertas(of); }).catch(() => { /* sin cotizaciones */ });
+    listOfertasCotizaciones(orden).then((of) => { if (!cancel) setOfertas(of); }).catch(() => { /* sin cotizaciones */ });
     return () => { cancel = true; };
-  }, [modo, orden.id]);
+  }, [modo, idCotizaciones]);
 
   // Si es modo solicitud, verificar si Almacén ya la revisó para dar la opción de ver la revisión
   const [revision, setRevision] = useState<RevisionAlmacenRow | null>(null);
@@ -142,7 +146,7 @@ export function OrdenPagarWhatsappModal({ orden, proveedor, modo = 'pagar', pers
             : 'Detalle de la solicitud de pedido con solicitante, unidad, motivo y productos, listo para enviar o copiar por WhatsApp.')
           : modo === 'aprobacion'
           ? 'Lo que el Gerente General necesita para aprobar: proveedor, quién solicita, analista a cargo, productos, todas las cotizaciones (en $ y Bs) con la elegida, y el total. Envíalo por WhatsApp o cópialo.'
-          : 'Quién solicitó, quién autorizó, el analista a cargo, quién cobra, cuánto y por dónde se le paga. Envíalo por WhatsApp o cópialo para pegarlo donde haga falta.'}
+          : 'Quién solicitó, quién autorizó, el analista a cargo, quién cobra, cuánto y por dónde se le paga, además de todas las cotizaciones recibidas (con la de esta OC marcada). Envíalo por WhatsApp o cópialo para pegarlo donde haga falta.'}
       </p>
 
       {modo === 'solicitud' && revision && (

@@ -23,6 +23,7 @@
 import type { OfertaProveedor, Orden } from '@/shared/lib/types';
 import { calcularDesgloseModalidadesOferta } from './modalidadPago';
 import { nombrePersonaCompras } from './personasCompras';
+import { ofertaElegidaDe } from './ofertasPadreHija';
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
 function num(n: number): string {
@@ -63,7 +64,8 @@ export interface CotizacionAprobacion {
 
 /**
  * Las cotizaciones numeradas en el orden en que se cargaron (1 = la primera).
- * La elegida es la oferta «aceptada»; si ninguna lo está, la del proveedor de la OC.
+ * La elegida es la de esta OC: en un reparto multiproveedor la madre tiene
+ * varias «aceptada», así que en la hija gana la de su proveedor (`ofertaElegidaDe`).
  */
 export function cotizacionesDeOrden(
   o: Pick<Orden, 'proveedor_id' | 'total' | 'total_divisa' | 'pago_en_divisa'>,
@@ -71,11 +73,10 @@ export function cotizacionesDeOrden(
   nombreProveedor: (proveedorId: string) => string | null | undefined,
 ): CotizacionAprobacion[] {
   const ordenadas = [...ofertas].sort((a, b) => String(a.registrada_en ?? '').localeCompare(String(b.registrada_en ?? '')));
-  let idxElegida = ordenadas.findIndex((of) => of.estado === 'aceptada');
-  if (idxElegida < 0 && o.proveedor_id) idxElegida = ordenadas.findIndex((of) => of.proveedor_id === o.proveedor_id);
+  const elegidaReal = ofertaElegidaDe(o, ordenadas);
   const totalOc = Number(o.pago_en_divisa && o.total_divisa != null ? o.total_divisa : o.total) || 0;
   return ordenadas.map((of, i) => {
-    const elegida = i === idxElegida;
+    const elegida = !!elegidaReal && of.id === elegidaReal.id;
     return {
       numero: i + 1,
       proveedor: (nombreProveedor(of.proveedor_id) ?? '').trim() || 'PROVEEDOR SIN NOMBRE',
