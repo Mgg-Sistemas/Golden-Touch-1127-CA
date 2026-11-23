@@ -160,7 +160,8 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
   }
 
   // PRIORIDAD 4: Snapshot en config (si ya tiene fecha >= hoy).
-  const snap = await leerSnapshot();
+  let snap: TasaHoy | null = null;
+  try { snap = await leerSnapshot(); } catch { /* ignore */ }
   if (snap && snap.fecha && (snap.fecha === fechaEfectiva || snap.fecha >= hoy) && snap.usd != null) {
     return {
       ...snap,
