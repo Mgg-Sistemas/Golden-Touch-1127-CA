@@ -4,9 +4,10 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
 import { money, num } from '@/shared/lib/format';
-import type { Existencia, Producto, ItemSalida } from '@/shared/lib/types';
+import type { Existencia, Producto, ItemSalida, Usuario } from '@/shared/lib/types';
 import { crearSolicitudSalida, MOTIVO_SALIDA_MINIMO, MSG_MOTIVO_SALIDA } from './salidas.repository';
 import { updateProducto } from '@/modules/inventario/inventario.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listActivosPedido, addCatalogoPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
@@ -99,6 +100,46 @@ export function SalidaMaterialForm({
   const [nuevaSede, setNuevaSede] = useState('');
   const nuevaSedeRef = useRef<HTMLInputElement>(null);
   const [addingSede, setAddingSede] = useState(false);
+
+  // Quién solicitó: usuarios del sistema con prellenado de departamento + opción manual.
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [solicitante, setSolicitante] = useState(actorName || actor || '');
+  const [solicitanteModoManual, setSolicitanteModoManual] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    listUsuarios()
+      .then((us) => {
+        if (!vivo) return;
+        const activosUs = us.filter((u) => u.estado === 'activo');
+        setUsuarios(activosUs);
+        const inicial = activosUs.find((u) =>
+          u.email.toLowerCase() === actor.toLowerCase() ||
+          `${u.nombre} ${u.apellido ?? ''}`.trim().toLowerCase() === (actorName ?? '').toLowerCase()
+        );
+        if (inicial?.departamento?.trim()) {
+          setUnidadSolicitante((prev) => prev || inicial.departamento!.trim().toUpperCase());
+        }
+      })
+      .catch(() => { if (vivo) setUsuarios([]); });
+    return () => { vivo = false; };
+  }, [actor, actorName]);
+
+  function elegirSolicitante(nombreElegido: string) {
+    if (nombreElegido === '__manual__') {
+      setSolicitanteModoManual(true);
+      return;
+    }
+    setSolicitanteModoManual(false);
+    setSolicitante(nombreElegido);
+    const u = usuarios.find((usr) => {
+      const full = `${usr.nombre} ${usr.apellido ?? ''}`.trim();
+      return full.toLowerCase() === nombreElegido.toLowerCase() || usr.email.toLowerCase() === nombreElegido.toLowerCase();
+    });
+    if (u?.departamento?.trim()) {
+      setUnidadSolicitante(u.departamento.trim().toUpperCase());
+    }
+  }
 
   const cargarUnidades = useCallback(async () => {
     const [uns, sedes] = await Promise.all([
@@ -214,6 +255,8 @@ export function SalidaMaterialForm({
     // Mismo material+almacén repetido en dos renglones → uniría a sumas inválidas.
     const keys = lineas.map((l) => l.key);
     if (new Set(keys).size !== keys.length) { setError('Hay un material repetido (mismo almacén) en dos renglones. Unilo en uno solo.'); return; }
+    if (!solicitante.trim()) { setError('Indicá quién solicitó el material.'); return; }
+    if (!unidadSolicitante.trim()) { setError('Indicá la unidad solicitante.'); return; }
     if (motivo.trim().length < MOTIVO_SALIDA_MINIMO) { setError(MSG_MOTIVO_SALIDA); return; }
     const errMant = errorEntregaMantenimiento(paraMant, equipoMantId);
     if (errMant) { setError(errMant); return; }
@@ -233,7 +276,7 @@ export function SalidaMaterialForm({
         direccionDespacho: transporte.direccionDespacho || null,
         direccionDestino: consumoInterno ? null : (transporte.direccionDestino || null),
         consumoInterno,
-        solicitante: actorName || actor, actor, actorName,
+        solicitante: solicitante.trim(), actor, actorName,
       });
       // Los adjuntos se suben recién ahora: la carpeta del almacén lleva el id de la
       // solicitud, que no existe hasta este momento. Si alguno falla, la solicitud ya
@@ -265,7 +308,7 @@ export function SalidaMaterialForm({
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || hayInvalida}>
+      <button type="submit" form="salida-mat-form" className="btn btn-primary" disabled={saving || hayInvalida || !solicitante.trim() || !unidadSolicitante.trim()}>
         {saving ? 'Creando…' : 'Crear solicitud'}
       </button>
     </>
@@ -297,11 +340,45 @@ export function SalidaMaterialForm({
           </small>
         </div>
 
+        {/* Quién solicitó */}
+        <div className="form-row">
+          <label>Quién solicitó</label>
+          <select
+            className="select"
+            value={solicitanteModoManual ? '__manual__' : (usuarios.some((u) => `${u.nombre} ${u.apellido ?? ''}`.trim() === solicitante) ? solicitante : (solicitante ? '__manual__' : ''))}
+            onChange={(e) => elegirSolicitante(e.target.value)}
+          >
+            <option value="">— elegí quién solicita —</option>
+            {usuarios.map((u) => {
+              const nom = `${u.nombre} ${u.apellido ?? ''}`.trim();
+              return (
+                <option key={u.id} value={nom}>
+                  {nom}{u.departamento ? ` · ${u.departamento}` : ''}
+                </option>
+              );
+            })}
+            <option value="__manual__">✍️ Otro (escribir a mano)…</option>
+          </select>
+          {(solicitanteModoManual || (!usuarios.some((u) => `${u.nombre} ${u.apellido ?? ''}`.trim() === solicitante) && solicitante)) && (
+            <div data-enter-omitir="" style={{ marginTop: '.35rem' }}>
+              <input
+                className="input"
+                value={solicitante}
+                onChange={(e) => setSolicitante(e.target.value)}
+                placeholder="Nombre de la persona que solicitó el material"
+              />
+            </div>
+          )}
+          <small className="hint muted">
+            Al seleccionar un usuario con departamento, se toma automáticamente como unidad solicitante.
+          </small>
+        </div>
+
         <div className="form-row">
           <label>Unidad solicitante</label>
           {/* Mismo catálogo de OP (en vivo). */}
           <SearchSelect value={unidadSolicitante} onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
-            options={unidadOpciones.map((u) => ({ value: u, label: u }))}
+            options={(unidadSolicitante && !unidadOpciones.includes(unidadSolicitante) ? [unidadSolicitante, ...unidadOpciones] : unidadOpciones).map((u) => ({ value: u, label: u }))}
             placeholder="Departamento / unidad que solicita" />
           <div style={{ display: 'flex', gap: '.4rem', marginTop: '.4rem' }}>
             <input className="input" name="f-nueva-unidad" ref={nuevaUnidadRef} defaultValue={nuevaUnidad}

@@ -608,7 +608,12 @@ export function AgregarOfertaModal({
           setSubmitting(false);
           return;
         }
-        if (emailReal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReal)) {
+        if (!emailReal) {
+          toast('El correo electrónico del proveedor es obligatorio', 'error');
+          setSubmitting(false);
+          return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReal)) {
           toast('El correo del proveedor no tiene un formato válido', 'error');
           setSubmitting(false);
           return;
@@ -861,7 +866,7 @@ export function AgregarOfertaModal({
               />
             </div>
             <div className="form-row">
-              <label>Email</label>
+              <label>Email *</label>
               <input
                 className="input"
                 type="email"
@@ -870,6 +875,7 @@ export function AgregarOfertaModal({
                 defaultValue={provEmail}
                 onChange={(e) => setProvEmail(e.target.value)}
                 placeholder="correo@dominio.com"
+                required
               />
             </div>
           </div>

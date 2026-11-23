@@ -1389,7 +1389,11 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const emailClean = form.email?.trim() ?? '';
-    if (emailClean && !EMAIL_RX.test(emailClean)) {
+    if (!emailClean) {
+      toast('El correo electrónico es obligatorio', 'error');
+      return;
+    }
+    if (!EMAIL_RX.test(emailClean)) {
       toast('El correo no tiene un formato válido', 'error');
       return;
     }
@@ -1400,7 +1404,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       razon_social: form.razon_social.trim().toUpperCase(),
       contacto: null,
       telefono: form.telefono?.trim() || null,
-      email: emailClean || null,
+      email: emailClean,
       direccion: form.direccion?.trim().toUpperCase() || null,
       numero_administracion: (form.numero_administracion ?? '').replace(/\D/g, '') || null,
       actividad_economica: form.actividad_economica?.replace(/\s+/g, ' ').trim() || null,
@@ -1491,13 +1495,14 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             />
           </div>
           <div className="form-row">
-            <label>Correo</label>
+            <label>Correo *</label>
             <input
               className="input"
               type="email"
               value={form.email ?? ''}
               onChange={(e) => update('email', e.target.value)}
               placeholder="correo@dominio.com"
+              required
             />
           </div>
         </div>

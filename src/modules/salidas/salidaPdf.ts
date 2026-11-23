@@ -279,12 +279,13 @@ export async function descargarOrdenSalidaPdf(
 
   const chofer = [sol.chofer_nombre, sol.chofer_cedula ? `C.I. ${sol.chofer_cedula}` : ''].filter(Boolean).join(' · ');
   const vehiculo = [sol.vehiculo_descripcion, sol.vehiculo_placa].filter(Boolean).join(' · ');
+  const solicitanteNombre = esSolicitadoMovil ? (solicitoMovil || '—') : (sol.solicitante?.trim() || creo || '—');
   const izquierda: Array<[string, string]> = [
     ['GOLDEN TOUCH 1127 C.A.', ''],
     ['Sistema de Gestión de Inventarios', ''],
-    ...(esSolicitadoMovil
-      ? [['Registrado por', creo || '—'] as [string, string]]
-      : [['Solicitado por', sol.solicitante || creo || '—'] as [string, string]]),
+    ['Solicitado por', solicitanteNombre],
+    ...((creo && creo !== solicitanteNombre && !esSolicitadoMovil) ? [['Registrado por', creo] as [string, string]] : []),
+    ...(esSolicitadoMovil ? [['Registrado por', creo || '—'] as [string, string]] : []),
     ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
     [opciones?.rotuloAlmacen || (esTraslado ? 'Almacén origen' : 'Almacén de salida'), invLabel(sol.almacen_origen)],
     ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
@@ -297,7 +298,7 @@ export async function descargarOrdenSalidaPdf(
     ...(sol.fecha_entrega ? [['Fecha de entrega', fmt.date(sol.fecha_entrega)] as [string, string]] : []),
     ...(sol.direccion_despacho ? [['Dirección de despacho', sol.direccion_despacho] as [string, string]] : []),
     ...(sol.direccion_destino ? [['Dirección de destino', sol.direccion_destino] as [string, string]] : []),
-    [esSolicitadoMovil ? 'Solicitado por' : 'Autorizado por', esSolicitadoMovil ? (solicitoMovil || '—') : (autorizo || '— (pendiente) —')],
+    ['Autorizado por', autorizo || '— (pendiente) —'],
     ...(sol.aprobada_en ? [['Aprobada el', fmt.dateTime(sol.aprobada_en)] as [string, string]] : []),
     ...(sol.ejecutada_en ? [['Ejecutada el', fmt.dateTime(sol.ejecutada_en)] as [string, string]] : []),
   ];
@@ -407,11 +408,11 @@ export async function descargarOrdenSalidaPdf(
   doc.line(MARGIN, fy, MARGIN + colW, fy);
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-  doc.text(esSolicitadoMovil ? 'Registrado por' : 'Solicitado / Creado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
-  doc.text(esSolicitadoMovil ? 'Solicitado por' : 'Autorizado por', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
+  doc.text('Solicitado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
+  doc.text(esSolicitadoMovil ? 'Registrado por' : 'Autorizado por', MARGIN + colW + 40 + colW / 2, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.text(creo || '—', MARGIN + colW / 2, fy + 27, { align: 'center' });
-  doc.text((esSolicitadoMovil ? solicitoMovil : autorizo) || '—', MARGIN + colW + 40 + colW / 2, fy + 27, { align: 'center' });
+  doc.text(solicitanteNombre, MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
+  doc.text((esSolicitadoMovil ? creo : autorizo) || '—', MARGIN + colW + 40 + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, PAGE_H - 24, { maxWidth: PAGE_W - MARGIN * 2 });

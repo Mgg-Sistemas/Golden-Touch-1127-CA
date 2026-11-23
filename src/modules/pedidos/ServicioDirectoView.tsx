@@ -499,7 +499,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
     if (nuevoProveedor) {
       if (!provRazon.trim() || !rifPartes.numero) { setError('Razón social y RIF (con número) son obligatorios para el nuevo proveedor.'); return; }
       const emailClean = provEmail.trim();
-      if (emailClean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) { setError('El correo del proveedor no tiene un formato válido.'); return; }
+      if (!emailClean) { setError('El correo del proveedor es obligatorio.'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) { setError('El correo del proveedor no tiene un formato válido.'); return; }
     }
     setSaving(true);
     try {
@@ -607,8 +608,8 @@ function CrearServicioModal({ proveedores, equipos, editServicio, actor, actorNa
                     onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 15); e.target.value = v; setProvTelefono(v); }} maxLength={15} placeholder="Solo dígitos" />
                 </div>
                 <div className="form-row">
-                  <label>Email</label>
-                  <input className="input" type="email" name="prov-email" defaultValue={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" />
+                  <label>Email *</label>
+                  <input className="input" type="email" name="prov-email" defaultValue={provEmail} onChange={(e) => setProvEmail(e.target.value)} placeholder="correo@dominio.com" required />
                 </div>
                 <div className="form-row">
                   <label>Origen</label>
