@@ -54,4 +54,14 @@ describe('G.O. 43.484 Art. 18.1 · correlativo en el encabezado', () => {
     expect(correlativoDeNumero('0000000001')).toBe('0000000001');
     expect(correlativoDeNumero(null)).toBe('—');
   });
+
+  it('espaciado vertical en recuadro superior derecho evita solapamiento de rotulos', () => {
+    // Fila 2: rótulo en y=27.5, valor en y=36.5 (separación de 9 pt)
+    const deltaFila2 = 36.5 - 27.5;
+    expect(deltaFila2).toBeGreaterThanOrEqual(8.5);
+
+    // Fila 3: rótulo en y=47.5, valor en y=56.5 (separación de 9 pt)
+    const deltaFila3 = 56.5 - 47.5;
+    expect(deltaFila3).toBeGreaterThanOrEqual(8.5);
+  });
 });

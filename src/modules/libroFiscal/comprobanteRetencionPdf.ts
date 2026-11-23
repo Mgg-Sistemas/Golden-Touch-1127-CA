@@ -455,7 +455,7 @@ export async function generarDocComprobanteRetencionPdf(
   // Recuadro superior derecho: N° DE COMPROBANTE y su CORRELATIVO (Art. 18.1),
   // PERÍODO FISCAL, FECHA DE EMISIÓN y FECHA DE ENTREGA (Art. 18.3).
   const boxW = Math.min(260, UTIL * 0.46);
-  const boxH = 56;
+  const boxH = 60;
   const boxX = W - M - boxW;
 
   const badgeH = ejemplar ? 14 : 0;
@@ -479,54 +479,56 @@ export async function generarDocComprobanteRetencionPdf(
     doc.text(textoBadge, boxX + boxW / 2, badgeY + 10, { align: 'center' });
   }
 
-  // Dibujar recuadro con cuadrícula interna
+  // Dibujar recuadro con cuadrícula interna (3 filas de 20 pt cada una)
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.6);
   doc.rect(boxX, boxY, boxW, boxH);
-  doc.line(boxX, boxY + 19, boxX + boxW, boxY + 19);
-  doc.line(boxX, boxY + 38, boxX + boxW, boxY + 38);
+  doc.line(boxX, boxY + 20, boxX + boxW, boxY + 20);
+  doc.line(boxX, boxY + 40, boxX + boxW, boxY + 40);
   doc.line(colDivX, boxY, colDivX, boxY + boxH);
 
-  // Fila 1 - N° DE COMPROBANTE y su correlativo (últimos 8 dígitos del Art. 18.1)
+  // Fila 1 - N° DE COMPROBANTE y su número completo (Art. 18.1)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(0, 0, 0);
-  doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 12);
+  doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 13);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.text(textoPdf(r.numeroComprobante ?? '—'), colDivX + 6, boxY + 12);
+  doc.text(textoPdf(r.numeroComprobante ?? '—'), colDivX + 6, boxY + 13);
 
   // Fila 2 - PERÍODO FISCAL y CORRELATIVO N°
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.periodo || 'PERIODO FISCAL'), boxX + 6, boxY + 30);
+  doc.setFontSize(6);
+  doc.text(textoPdf(f.rotulos.periodo || 'PERIODO FISCAL'), boxX + 6, boxY + 27.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   const pDigits = (r.periodo ?? '').replace(/\D/g, '');
   const anioStr = pDigits.length >= 4 ? pDigits.slice(0, 4) : (r.facturaFecha?.slice(0, 4) ?? '');
   const mesStr = pDigits.length >= 6 ? pDigits.slice(4, 6) : (r.facturaFecha?.slice(5, 7) ?? '');
-  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 34);
+  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 36.5);
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.correlativo || 'CORRELATIVO N°'), colDivX + 6, boxY + 30);
+  doc.setFontSize(6);
+  doc.text(textoPdf(f.rotulos.correlativo || 'CORRELATIVO N°'), colDivX + 6, boxY + 27.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(correlativoDeNumero(r.numeroComprobante), colDivX + 6, boxY + 34);
+  doc.text(correlativoDeNumero(r.numeroComprobante), colDivX + 6, boxY + 36.5);
 
   // Fila 3 - FECHA DE EMISIÓN y FECHA DE ENTREGA (Art. 18.3)
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISION'), boxX + 6, boxY + 49);
+  doc.setFontSize(6);
+  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISION'), boxX + 6, boxY + 47.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(fechaPdf(r.fecha || r.facturaFecha || r.createdAt)), boxX + 6, boxY + 53);
+  doc.text(textoPdf(fechaPdf(r.fecha || r.facturaFecha || r.createdAt)), boxX + 6, boxY + 56.5);
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.fecha_entrega || 'FECHA DE ENTREGA'), colDivX + 6, boxY + 49);
+  doc.setFontSize(6);
+  doc.text(textoPdf(f.rotulos.fecha_entrega || 'FECHA DE ENTREGA'), colDivX + 6, boxY + 47.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   // Fecha Recibido / Entrega es opcional: sin dato, el espacio queda en blanco.
-  doc.text(r.fechaEntrega ? textoPdf(fechaPdf(r.fechaEntrega)) : '', colDivX + 6, boxY + 53);
+  doc.text(r.fechaEntrega ? textoPdf(fechaPdf(r.fechaEntrega)) : '', colDivX + 6, boxY + 56.5);
 
   y = Math.max(boxY + boxH, tieneLogo ? restoY + logoH : 0) + 8;
 
