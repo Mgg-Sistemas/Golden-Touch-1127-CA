@@ -36,6 +36,7 @@ import {
 import { setRolesCache } from './usuarios.repository';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
 import { conNivelAlmacen, esAlmacenGeneral, type NivelEditor, type PermisosAlmacenes } from '@/modules/auth/permisosAlmacen';
+import { ALMACEN_GENERAL, ALMACEN_MINA, ALMACEN_REUTILIZABLES, ALMACEN_DANADOS } from '@/modules/inventario/depositos';
 import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import type { Almacen } from '@/shared/lib/types';
 import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
@@ -101,7 +102,46 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       setCounts(c);
       setTelefono(tel);
       setAlmacenesRol(alms);
-      setDepositos(deps.filter((a) => !esAlmacenGeneral(a.nombre) && a.estado !== 'inactivo'));
+      const depsActivos = deps.filter((a) => a.estado !== 'inactivo');
+      const listaDeps: Almacen[] = [];
+      const genAlm = depsActivos.find((a) => esAlmacenGeneral(a.nombre)) ?? ({
+        id: 'almacen-general',
+        nombre: ALMACEN_GENERAL,
+        estado: 'activo',
+        color: '#3b82f6',
+      } as unknown as Almacen);
+      listaDeps.push(genAlm);
+
+      const minaAlm = depsActivos.find((a) => a.nombre === ALMACEN_MINA) ?? ({
+        id: 'deposito-mina',
+        nombre: ALMACEN_MINA,
+        estado: 'activo',
+        color: '#d97706',
+      } as unknown as Almacen);
+      listaDeps.push(minaAlm);
+
+      const reutAlm = depsActivos.find((a) => a.nombre === ALMACEN_REUTILIZABLES) ?? ({
+        id: 'deposito-reutilizables',
+        nombre: ALMACEN_REUTILIZABLES,
+        estado: 'activo',
+        color: '#10b981',
+      } as unknown as Almacen);
+      listaDeps.push(reutAlm);
+
+      const danAlm = depsActivos.find((a) => a.nombre === ALMACEN_DANADOS) ?? ({
+        id: 'deposito-danados',
+        nombre: ALMACEN_DANADOS,
+        estado: 'activo',
+        color: '#ef4444',
+      } as unknown as Almacen);
+      listaDeps.push(danAlm);
+
+      depsActivos.forEach((a) => {
+        if (!listaDeps.some((x) => x.nombre.toLowerCase() === a.nombre.toLowerCase())) {
+          listaDeps.push(a);
+        }
+      });
+      setDepositos(listaDeps);
       if (remote) {
         setPermisos(normalize(remote, rolesList));
       } else {

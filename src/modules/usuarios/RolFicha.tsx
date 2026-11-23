@@ -268,19 +268,25 @@ export function RolFicha({
         <div>
           <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
             Cada depósito es independiente. Sin acceso no aparece, y la base tampoco lo deja leer.
-            El General es el módulo «Inventario».
+            Configura aquí el acceso individual para Inventario Los Pinos (General), Depósito Mina, Reutilizables, Items Dañados y depósitos adicionales.
           </p>
           {!depositos.length ? (
-            <p className="muted" style={{ fontSize: '.82rem' }}>No hay depósitos creados además del Inventario Los Pinos.</p>
+            <p className="muted" style={{ fontSize: '.82rem' }}>No hay depósitos registrados.</p>
           ) : (
             <>
               <div className="rol-lista-opciones">
                 {depositos.map((d) => {
-                  const nivel: NivelEditor = almacenes?.[d.nombre] ?? 'sin';
+                  let nivel: NivelEditor = almacenes?.[d.nombre] ?? 'sin';
+                  if (d.nombre === 'General' && almacenes?.[d.nombre] === undefined) {
+                    if (!almacenes || Object.keys(almacenes).length === 0) {
+                      nivel = permisos?.inventario?.escritura ? 'escritura' : permisos?.inventario?.lectura ? 'lectura' : 'sin';
+                    }
+                  }
                   const id = `dep-${rol.key}-${d.id}`;
+                  const labelNombre = d.nombre === 'General' ? 'Inventario Los Pinos (General)' : d.nombre;
                   return (
                     <div key={d.id} className="rol-deposito">
-                      <label htmlFor={id}>{iconoDeposito(d.nombre)} {d.nombre}</label>
+                      <label htmlFor={id}>{iconoDeposito(d.nombre)} {labelNombre}</label>
                       <select
                         id={id} className="input" style={{ padding: '.3rem .5rem', fontSize: '.82rem' }}
                         disabled={readOnly} value={nivel}

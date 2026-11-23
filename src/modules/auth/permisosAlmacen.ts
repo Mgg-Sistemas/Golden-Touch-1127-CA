@@ -22,7 +22,7 @@ export function normalizarPermisosAlmacenes(v: unknown): PermisosAlmacenes {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
   for (const [nombre, nivel] of Object.entries(v as Record<string, unknown>)) {
     const n = nombre.trim();
-    if (!n || n === ALMACEN_GENERAL) continue;
+    if (!n) continue;
     if (nivel === 'lectura' || nivel === 'escritura') out[n] = nivel;
   }
   return out;
@@ -37,20 +37,41 @@ export function esAlmacenGeneral(nombre: string | null | undefined): boolean {
 export interface ContextoAlmacen {
   isAdmin: boolean;
   almacenes: PermisosAlmacenes;
-  /** Permiso del módulo Inventario (gobierna el General). */
+  /** Permiso del módulo Inventario (gobierna el General cuando no hay depósitos configurados). */
   inventario: { lectura: boolean; escritura: boolean };
 }
 
 export function puedeVerAlmacen(nombre: string | null | undefined, ctx: ContextoAlmacen): boolean {
   if (ctx.isAdmin) return true;
-  if (esAlmacenGeneral(nombre)) return ctx.inventario.lectura;
+  if (esAlmacenGeneral(nombre)) {
+    // Si el rol tiene configurado explícitamente 'General' en almacenes:
+    const nivelGen = ctx.almacenes[ALMACEN_GENERAL] ?? ctx.almacenes['General'];
+    if (nivelGen !== undefined) {
+      return nivelGen === 'lectura' || nivelGen === 'escritura';
+    }
+    // Si el rol tiene depósitos asignados (Mina, Reutilizables, etc.) y NO tiene General en su mapa,
+    // está restringido a sus depósitos y NO debe ver Los Pinos:
+    if (Object.keys(ctx.almacenes).length > 0) {
+      return false;
+    }
+    return ctx.inventario.lectura;
+  }
   const nivel = ctx.almacenes[(nombre ?? '').trim()];
   return nivel === 'lectura' || nivel === 'escritura';
 }
 
 export function puedeEscribirAlmacen(nombre: string | null | undefined, ctx: ContextoAlmacen): boolean {
   if (ctx.isAdmin) return true;
-  if (esAlmacenGeneral(nombre)) return ctx.inventario.escritura;
+  if (esAlmacenGeneral(nombre)) {
+    const nivelGen = ctx.almacenes[ALMACEN_GENERAL] ?? ctx.almacenes['General'];
+    if (nivelGen !== undefined) {
+      return nivelGen === 'escritura';
+    }
+    if (Object.keys(ctx.almacenes).length > 0) {
+      return false;
+    }
+    return ctx.inventario.escritura;
+  }
   return ctx.almacenes[(nombre ?? '').trim()] === 'escritura';
 }
 

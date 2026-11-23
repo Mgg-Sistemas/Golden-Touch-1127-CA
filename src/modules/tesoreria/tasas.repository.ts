@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { MonedaTasa, TasaCambio, TasaHoy, TasaSnapshot } from '@/shared/lib/types';
+import { infoDiaBancario, sincronizarCalendarioBancarioApi } from './calendarioBancario';
 
 const CONFIG_KEY = 'tesoreria.tasa_hoy';
 
@@ -74,6 +75,15 @@ let _mercadoCache: { at: number; val: TasasMercado } | null = null;
 /** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco y guardado). */
 export function bustTasasCache(): void { _tasaHoyCache = null; _mercadoCache = null; }
 
+export function diaSemanaNombre(fechaISO: string): string {
+  const parts = fechaISO.slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return '';
+  const [y, m, d] = parts;
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  return dias[dt.getUTCDay()] ?? '';
+}
+
 export async function getTasaHoy(): Promise<TasaHoy> {
   if (_tasaHoyCache && Date.now() - _tasaHoyCache.at < TASAS_TTL_MS) return _tasaHoyCache.val;
   const val = await _resolverTasaHoy();
@@ -83,6 +93,12 @@ export async function getTasaHoy(): Promise<TasaHoy> {
 
 async function _resolverTasaHoy(): Promise<TasaHoy> {
   const hoy = hoyVE();
+  const info = infoDiaBancario(hoy);
+  const fechaEfectiva = info.fechaEfectivaBcv;
+  const diaNombre = diaSemanaNombre(fechaEfectiva);
+
+  // Sincronizar en segundo plano si hay conexión
+  void sincronizarCalendarioBancarioApi().catch(() => {});
 
   // 1. Consultar en tasa_cambio las filas más recientes (USD y EUR).
   // Trae tanto fechas futuras (día siguiente/feriado), como hoy e histórico reciente.
@@ -145,8 +161,16 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
 
   // PRIORIDAD 4: Snapshot en config (si ya tiene fecha >= hoy).
   const snap = await leerSnapshot();
-  if (snap && snap.fecha && snap.fecha >= hoy && snap.usd != null) {
-    return snap;
+  if (snap && snap.fecha && (snap.fecha === fechaEfectiva || snap.fecha >= hoy) && snap.usd != null) {
+    return {
+      ...snap,
+      fecha: fechaEfectiva,
+      fechaValor: fechaEfectiva,
+      esBancario: info.esBancario,
+      motivoBancario: info.motivo,
+      diaNombre,
+      etiquetaBancaria: info.esBancario ? `Tasa efectiva para el ${diaNombre}` : null,
+    };
   }
 
   // PRIORIDAD 5: Si no hay tasa para hoy ni mañana en BD, intentar Edge Function `tasa-bcv`.
@@ -155,14 +179,63 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
       { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
     >('tasa-bcv', { body: {} });
     if (!error && data && 'ok' in data && data.usd != null) {
-      return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha, fuente: 'bcv' };
+      return {
+        usd: data.usd,
+        eur: data.eur ?? null,
+        fecha: fechaEfectiva,
+        fechaValor: fechaEfectiva,
+        fuente: 'bcv',
+        esBancario: info.esBancario,
+        motivoBancario: info.motivo,
+        diaNombre,
+        etiquetaBancaria: info.esBancario ? `Tasa efectiva para el ${diaNombre}` : null,
+      };
     }
   } catch {
     /* sin conexión / función no desplegada: usamos lo último conocido */
   }
 
+  // Fallback directo a API oficial
+  try {
+    const res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial', {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (res.ok) {
+      const dataApi = (await res.json()) as { promedio?: number; price?: number };
+      const valorUsd = Number(dataApi?.promedio ?? dataApi?.price);
+      if (Number.isFinite(valorUsd) && valorUsd > 0) {
+        const u = round2(valorUsd);
+        void Promise.resolve(supabase.from('config').upsert(
+          { key: CONFIG_KEY, value: { usd: u, eur: snap?.eur ?? null, fecha: fechaEfectiva }, updated_at: new Date().toISOString() },
+          { onConflict: 'key' },
+        )).catch(() => {});
+        return {
+          usd: u,
+          eur: snap?.eur ?? null,
+          fecha: fechaEfectiva,
+          fechaValor: fechaEfectiva,
+          esBancario: info.esBancario,
+          motivoBancario: info.motivo,
+          diaNombre,
+          etiquetaBancaria: info.esBancario ? `Tasa efectiva para el ${diaNombre}` : null,
+          fuente: 'bcv',
+        };
+      }
+    }
+  } catch { /* offline */ }
+
   // PRIORIDAD 6: Snapshot guardado en config (aunque sea de día anterior).
-  if (snap && snap.usd != null) return snap;
+  if (snap && snap.usd != null) {
+    return {
+      ...snap,
+      fecha: fechaEfectiva,
+      fechaValor: fechaEfectiva,
+      esBancario: info.esBancario,
+      motivoBancario: info.motivo,
+      diaNombre,
+    };
+  }
 
   // PRIORIDAD 7: Última fila por moneda en tasa_cambio.
   if (usdRows.length > 0) {
@@ -171,24 +244,68 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
     return {
       usd: Number(u.tasa),
       eur: e ? Number(e.tasa) : null,
-      fecha: u.fecha,
+      fecha: fechaEfectiva,
+      fechaValor: fechaEfectiva,
       fuente: u.fuente ?? null,
+      esBancario: info.esBancario,
+      motivoBancario: info.motivo,
+      diaNombre,
     };
   }
 
   // Último recurso: última fila por moneda del historial.
-  return ultimaConocida();
+  const ult = await ultimaConocida();
+  return {
+    ...ult,
+    fecha: fechaEfectiva,
+    fechaValor: fechaEfectiva,
+    esBancario: info.esBancario,
+    motivoBancario: info.motivo,
+    diaNombre,
+  };
 }
 
-/** Fuerza la actualización vía Edge Function (botón "Actualizar"). */
+/** Fuerza la actualización vía Edge Function o API directa (botón "Actualizar"). */
 export async function refrescarTasa(): Promise<TasaHoy> {
-  const { data, error } = await supabase.functions.invoke<
-    { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
-  >('tasa-bcv', { body: { force: true } });
-  if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar la tasa'));
-  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  const hoy = hoyVE();
+  const info = infoDiaBancario(hoy);
+  const fechaEfectiva = info.fechaEfectivaBcv;
+  const diaNombre = diaSemanaNombre(fechaEfectiva);
+
+  let respData: { usd: number; eur: number | null; fecha: string } | null = null;
+  try {
+    const { data, error } = await supabase.functions.invoke<
+      { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
+    >('tasa-bcv', { body: { force: true } });
+    if (!error && data && 'ok' in data) {
+      respData = data;
+    }
+  } catch { /* fallback a API */ }
+
+  if (!respData) {
+    const res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial', {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error('No se pudo consultar la API del BCV');
+    const dataApi = (await res.json()) as { promedio?: number; price?: number };
+    const valor = Number(dataApi?.promedio ?? dataApi?.price);
+    if (!Number.isFinite(valor) || valor <= 0) throw new Error('Respuesta inválida de la API BCV');
+    respData = { usd: round2(valor), eur: null, fecha: fechaEfectiva };
+  }
+
   bustTasasCache();
-  return getTasaHoy();
+  const resFinal: TasaHoy = {
+    usd: respData.usd,
+    eur: respData.eur ?? null,
+    fecha: fechaEfectiva,
+    fechaValor: fechaEfectiva,
+    esBancario: info.esBancario,
+    motivoBancario: info.motivo,
+    diaNombre,
+    etiquetaBancaria: info.esBancario ? `Tasa efectiva para el ${diaNombre}` : null,
+  };
+  return resFinal;
 }
 
 /** Última tasa conocida (por si no hay snapshot ni conexión). */
@@ -218,11 +335,11 @@ export async function getTasaUsdDeFecha(fecha: string): Promise<number | null> {
   const r = rows.find((x) => x.fuente === 'manual') ?? rows[0];
   if (r) return Number(r.tasa);
 
-  // Si se pide la tasa de hoy y no hay fila exacta (ej. feriado bancario o fin de semana),
-  // se devuelve la tasa resuelta para hoy (que toma el día siguiente o manual vigente).
-  if (fecha === hoyVE()) {
-    const hoy = await getTasaHoy();
-    if (hoy.usd != null) return hoy.usd;
+  const hoy = hoyVE();
+  const info = infoDiaBancario(hoy);
+  if (fecha === hoy || (info.esBancario && fecha === info.fechaEfectivaBcv)) {
+    const hoyTasa = await getTasaHoy();
+    if (hoyTasa.usd != null) return hoyTasa.usd;
   }
 
   // Fallback para fechas no hábiles pasadas (ej. sábado/domingo): tomar la tasa más cercana anterior

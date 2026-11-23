@@ -197,6 +197,11 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
               {tasaHoy?.fuente === 'manual' && (
                 <span className="badge badge-warning" style={{ fontSize: '.65rem' }}>Manual</span>
               )}
+              {tasaHoy?.esBancario && (
+                <span className="badge warning" style={{ fontSize: '.68rem' }} title={tasaHoy.motivoBancario ?? 'Feriado bancario'}>
+                  Feriado bancario
+                </span>
+              )}
             </strong>
           </div>
         </div>

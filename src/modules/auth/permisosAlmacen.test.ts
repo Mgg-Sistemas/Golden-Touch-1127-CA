@@ -21,8 +21,8 @@ describe('normalizarPermisosAlmacenes', () => {
       'Depósito Mina': 'escritura', 'Depósito Reutilizables': 'lectura', 'Depósito Items Dañados': 'full', '  ': 'lectura',
     })).toEqual({ 'Depósito Mina': 'escritura', 'Depósito Reutilizables': 'lectura' });
   });
-  it('el General no va en el mapa (lo da el módulo Inventario)', () => {
-    expect(normalizarPermisosAlmacenes({ General: 'escritura' })).toEqual({});
+  it('permite registrar General si se configura en el mapa de depósitos', () => {
+    expect(normalizarPermisosAlmacenes({ General: 'escritura' })).toEqual({ General: 'escritura' });
   });
   it('lo que no es un objeto (columna aún sin crear, null, lista) queda vacío', () => {
     expect(normalizarPermisosAlmacenes(undefined)).toEqual({});
@@ -57,6 +57,21 @@ describe('puedeVerAlmacen / puedeEscribirAlmacen', () => {
     expect(puedeEscribirAlmacen('General', lector)).toBe(false);
     const soloMina = ctx({ almacenes: { 'Depósito Mina': 'escritura' } });
     expect(puedeVerAlmacen('General', soloMina)).toBe(false);
+
+    // Almacén Mina con inventario tildado en matriz NO debe ver General
+    const minaConInventario = ctx({
+      almacenes: { 'Depósito Mina': 'escritura', 'Depósito Reutilizables': 'escritura', 'Depósito Items Dañados': 'escritura' },
+      inventario: { lectura: true, escritura: true },
+    });
+    expect(puedeVerAlmacen('General', minaConInventario)).toBe(false);
+    expect(puedeEscribirAlmacen('General', minaConInventario)).toBe(false);
+
+    // Si se le otorga General explícitamente en el mapa de almacenes, sí lo ve
+    const conGeneral = ctx({
+      almacenes: { 'Depósito Mina': 'escritura', General: 'lectura' },
+    });
+    expect(puedeVerAlmacen('General', conGeneral)).toBe(true);
+    expect(puedeEscribirAlmacen('General', conGeneral)).toBe(false);
   });
   it('el administrador ve y carga en todos', () => {
     const a = ctx({ isAdmin: true });

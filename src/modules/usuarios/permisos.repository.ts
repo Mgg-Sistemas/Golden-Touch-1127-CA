@@ -61,7 +61,10 @@ export const MODULES: { key: ModuleKey; label: string; ayuda?: string }[] = [
   // 04/11/2026: mismo flujo que Delivery, solo para las OC marcadas «Carga pesada» en el método de pago.
   { key: 'carga_pesada', label: 'Carga pesada', ayuda: 'Ve y entrega solo las OC marcadas «Carga pesada» al cargar el método de pago. Delivery no las ve.' },
   { key: 'proveedores', label: 'Proveedores' },
-  { key: 'inventario',  label: 'Inventario' },
+  {
+    key: 'inventario', label: 'Inventario Los Pinos (General)',
+    ayuda: 'Inventario General (Los Pinos). Los depósitos Mina, Reutilizables y Dañados se configuran en la pestaña Depósitos.',
+  },
   { key: 'produccion',  label: 'Producción' },
   { key: 'salidas',     label: 'Salidas / Traslados' },
   { key: 'combustible', label: 'Combustible' },

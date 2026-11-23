@@ -5,7 +5,7 @@ import { cargarEmpresasRrhh } from '@/shared/lib/empresasRrhh';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions, MODULOS_PANTALLA_PEDIDOS } from '@/modules/auth/PermissionsContext';
-import { ALMACEN_MINA } from '@/modules/inventario/depositos';
+import { ALMACEN_GENERAL, ALMACEN_MINA, ALMACEN_REUTILIZABLES, ALMACEN_DANADOS } from '@/modules/inventario/depositos';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
@@ -67,7 +67,16 @@ export function AppShell() {
   const verPedidos = MODULOS_PANTALLA_PEDIDOS.some((m) => can(m));
   const labelPedidos = !can('compras') && can('solicitud_pedido') ? 'Solicitud de Pedido' : 'Pedidos / Compras';
   // Un rol solo teléfono no ve las pantallas de PC: en su lugar, sus pantallas de teléfono.
-  const showOperacion = !soloTelefono && (can('dashboard') || verPedidos || can('delivery') || can('carga_pesada') || can('proveedores') || can('inventario') || can('produccion') || can('salidas') || can('combustible') || can('acopio') || can('recepciones') || can('tesoreria') || can('administracion') || can('ventas') || can('conciliacion') || can('documentacion') || can('maquinaria') || can('asignaciones') || can('choferes') || puedeVerAlmacen(ALMACEN_MINA));
+  const showOperacion = !soloTelefono && (
+    can('dashboard') || verPedidos || can('delivery') || can('carga_pesada') ||
+    can('proveedores') || puedeVerAlmacen(ALMACEN_GENERAL) ||
+    puedeVerAlmacen(ALMACEN_MINA) || puedeVerAlmacen(ALMACEN_REUTILIZABLES) || puedeVerAlmacen(ALMACEN_DANADOS) ||
+    can('produccion') || can('salidas') || can('combustible') || can('acopio') ||
+    can('recepciones') || can('cocina') || can('tesoreria') || can('administracion') ||
+    can('contabilidad') || can('ventas') || can('retenciones') || can('conciliacion') ||
+    can('documentacion') || can('rrhh') || can('geodesta') || can('asignaciones') ||
+    can('choferes') || can('maquinaria')
+  );
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -365,8 +374,10 @@ export function AppShell() {
           {/* 05/11/2026: Carga pesada es un segmento DENTRO de Delivery, no otro módulo del menú. */}
           {(can('delivery') || can('carga_pesada')) && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
+          {puedeVerAlmacen(ALMACEN_GENERAL) && <NavItem to="/app/inventario" icon="⬢" label="Inventario Los Pinos" />}
           {puedeVerAlmacen(ALMACEN_MINA) && <NavItem to="/app/inventario/deposito-mina" icon="⛏" label="Depósito Mina" />}
+          {puedeVerAlmacen(ALMACEN_REUTILIZABLES) && <NavItem to="/app/inventario/deposito-reutilizables" icon="♻️" label="Depósito Reutilizables" />}
+          {puedeVerAlmacen(ALMACEN_DANADOS) && <NavItem to="/app/inventario/deposito-danados" icon="⚠️" label="Depósito Items Dañados" />}
           {can('produccion') && <NavItem to="/app/produccion" icon="🔥" label="Producción" />}
           {can('salidas') && <NavItem to="/app/salidas" icon="↘" label="Salidas / Traslados" />}
           {can('combustible') && <NavItem to="/app/combustible" icon="⛽" label="Combustible" />}

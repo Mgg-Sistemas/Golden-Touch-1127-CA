@@ -21,6 +21,7 @@ import {
   CORS, json, identificarLlamador, forceDeAdmin, fetchT, leerPayload,
   esReciente, fechaHoyVE, round2, positivo,
 } from '../_shared/tasas.ts';
+import { fechaEfectivaBcv } from '../_shared/calendarioBancario.ts';
 
 /** Extrae un precio numérico (> 0 y finito) de varias formas posibles del payload. */
 function precio(monitor: unknown): number | null {
@@ -44,19 +45,31 @@ Deno.serve(async (req) => {
   const forzarAdmin = forceDeAdmin(llamador, payload);
   const pideForce = payload.force === true;
 
-  const fecha = fechaHoyVE();
+  const fechaHoy = fechaHoyVE();
+  const infoBancario = fechaEfectivaBcv(fechaHoy);
+  // Cuando sea feriado bancario o fin de semana, la tasa rige para el próximo día hábil (ej: martes)
+  const fecha = infoBancario.fecha;
 
-  // 1) Cache: la del día (sin force) o lo guardado hace < 10 min (force de no-admin).
+  // 1) Cache: la del día/fecha valor (sin force) o lo guardado hace < 10 min (force de no-admin).
   if (!forzarAdmin) {
     const { data: cfg, error: cfgErr } = await supabase
       .from('config').select('value, updated_at').eq('key', 'tesoreria.tasa_hoy').maybeSingle();
     if (cfgErr) console.error('tasa-bcv: leer config', cfgErr);
     const v = cfg?.value as { usd?: number; eur?: number; fecha?: string } | undefined;
     if (v && typeof v.usd === 'number') {
-      const delDia = v.fecha === fecha;
+      const delDia = v.fecha === fecha || v.fecha === fechaHoy;
       const reciente = esReciente(cfg?.updated_at ? { at: String(cfg.updated_at) } : null);
       if ((!pideForce && delDia) || reciente) {
-        return json({ ok: true, usd: v.usd, eur: v.eur ?? null, fecha: v.fecha ?? fecha, cached: true });
+        return json({
+          ok: true,
+          usd: v.usd,
+          eur: v.eur ?? null,
+          fecha: v.fecha ?? fecha,
+          esBancario: infoBancario.esBancario,
+          proximoDiaHabil: infoBancario.fecha,
+          motivoBancario: infoBancario.motivo,
+          cached: true,
+        });
       }
     }
   }
@@ -96,19 +109,36 @@ Deno.serve(async (req) => {
   eur = positivo(eur) != null ? round2(eur as number) : null;
 
   // 3) Guardar en historial (upsert por fecha+moneda+fuente).
-  const filas: Array<{ fecha: string; moneda: string; tasa: number; fuente: string }> = [
-    { fecha, moneda: 'USD', tasa: usd, fuente: 'bcv' },
-  ];
-  if (eur != null) filas.push({ fecha, moneda: 'EUR', tasa: eur, fuente: 'bcv' });
+  const fechasAGuardar = new Set<string>([fecha]);
+  if (infoBancario.esBancario) {
+    fechasAGuardar.add(fechaHoy);
+  }
+
+  const filas: Array<{ fecha: string; moneda: string; tasa: number; fuente: string }> = [];
+  for (const f of fechasAGuardar) {
+    filas.push({ fecha: f, moneda: 'USD', tasa: usd, fuente: 'bcv' });
+    if (eur != null) filas.push({ fecha: f, moneda: 'EUR', tasa: eur, fuente: 'bcv' });
+  }
+
   const { error: upErr } = await supabase.from('tasa_cambio').upsert(filas, { onConflict: 'fecha,moneda,fuente' });
   if (upErr) {
     console.error('tasa-bcv: guardar historial', upErr);
     return json({ error: 'No se pudo guardar el historial' }, 500);
   }
 
-  // 4) Snapshot del día en config.
+  // 4) Snapshot del día en config (con fecha efectiva y metadata bancaria).
+  const configValue = {
+    usd,
+    eur,
+    fecha,
+    esBancario: infoBancario.esBancario,
+    proximoDiaHabil: infoBancario.fecha,
+    motivoBancario: infoBancario.motivo,
+    fechaCalendario: fechaHoy,
+  };
+
   const { error: cfgUpErr } = await supabase.from('config').upsert(
-    { key: 'tesoreria.tasa_hoy', value: { usd, eur, fecha }, updated_at: new Date().toISOString() },
+    { key: 'tesoreria.tasa_hoy', value: configValue, updated_at: new Date().toISOString() },
     { onConflict: 'key' },
   );
   if (cfgUpErr) {
@@ -116,5 +146,14 @@ Deno.serve(async (req) => {
     return json({ error: 'No se pudo guardar la tasa del día' }, 500);
   }
 
-  return json({ ok: true, usd, eur, fecha, cached: false });
+  return json({
+    ok: true,
+    usd,
+    eur,
+    fecha,
+    esBancario: infoBancario.esBancario,
+    proximoDiaHabil: infoBancario.fecha,
+    motivoBancario: infoBancario.motivo,
+    cached: false,
+  });
 });

@@ -10,11 +10,11 @@ function r2(n: number | null | undefined): string {
   return Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Fecha corta DD MMM (es-VE, Caracas). */
+/** Fecha corta con día de la semana DD MMM (es-VE, Caracas). */
 function fechaCorta(iso: string | null): string {
   if (!iso) return '';
   try {
-    return new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' }).format(new Date(`${iso}T12:00:00`));
+    return new Intl.DateTimeFormat('es-VE', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'America/Caracas' }).format(new Date(`${iso}T12:00:00`));
   } catch { return iso; }
 }
 
@@ -60,7 +60,7 @@ export function TasaChip() {
         type="button"
         className="tasa-chip"
         onClick={() => setOpen(true)}
-        title={`Tasas (Bs por unidad) · BCV ${tasa.fecha ?? ''}${bin ? ` · Binance Bs ${r2(bin)}` : ''} · clic para ver el historial`}
+        title={`Tasas (Bs por unidad) · BCV ${tasa.fecha ?? ''}${tasa.esBancario ? ` · Rige al ${tasa.diaNombre ?? 'martes'} (feriado bancario)` : ''}${bin ? ` · Binance Bs ${r2(bin)}` : ''} · clic para ver el historial`}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '.5rem',
           background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)',
@@ -83,9 +83,24 @@ export function TasaChip() {
             )}
           </span>
         )}
-        <span className="muted tasa-fecha" style={{ fontSize: '.7rem' }}>
+        <span className="muted tasa-fecha" style={{ fontSize: '.7rem', display: 'inline-flex', alignItems: 'center', gap: '.25rem' }}>
           {fechaCorta(tasa.fecha)}
-          {tasa.fuente === 'manual' ? ' (manual)' : ''}
+          {tasa.fuente === 'manual' && <span style={{ opacity: 0.8 }}>(manual)</span>}
+          {tasa.esBancario && (
+            <span
+              style={{
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.15)',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                fontWeight: 600,
+                fontSize: '.68rem',
+              }}
+              title={`Feriado Bancario (${tasa.motivoBancario ?? 'Bancario'}): Tasa oficial efectiva para el próximo día hábil (${tasa.diaNombre ?? 'martes'} ${tasa.fecha})`}
+            >
+              🏛 Bancario
+            </span>
+          )}
         </span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}

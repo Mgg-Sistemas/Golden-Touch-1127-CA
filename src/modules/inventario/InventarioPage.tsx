@@ -501,10 +501,30 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
             </>
           ) : (
             <>
-              {can('inventario') && <Link className="btn btn-ghost" to="/app/inventario" title="Volver al Inventario Los Pinos">← Inventario Los Pinos</Link>}
-              {(esReutilizables || esDanados) && puedeVerAlmacen(ALMACEN_MINA) && (
-                <Link className="btn btn-ghost" to={DEPOSITOS.mina.ruta} title="Ir a Depósito Mina">⛏ Depósito Mina</Link>
+              {puedeVerAlmacen(ALMACEN_GENERAL) && (
+                <Link className="btn btn-ghost" to="/app/inventario" title="Volver al Inventario Los Pinos">← Inventario Los Pinos</Link>
               )}
+              {puedeVerAlmacen(ALMACEN_MINA) && (
+                <Link className={`btn ${esMina ? 'btn-primary' : 'btn-ghost'}`} to={DEPOSITOS.mina.ruta} title="Depósito independiente de la mina">⛏ Depósito Mina</Link>
+              )}
+              {puedeVerAlmacen(ALMACEN_REUTILIZABLES) && (
+                <Link className={`btn ${esReutilizables ? 'btn-primary' : 'btn-ghost'}`} to={DEPOSITOS.reutilizables.ruta} style={{ borderColor: '#10b981', color: esReutilizables ? undefined : '#10b981' }} title="Depósito de materiales reutilizables">♻️ Depósito Reutilizables</Link>
+              )}
+              {puedeVerAlmacen(ALMACEN_DANADOS) && (
+                <Link className={`btn ${esDanados ? 'btn-primary' : 'btn-ghost'}`} to={DEPOSITOS.danados.ruta} style={{ borderColor: '#f59e0b', color: esDanados ? undefined : '#f59e0b' }} title="Depósito de items y materiales dañados">⚠️ Depósito Items Dañados</Link>
+              )}
+              {almacenes
+                .filter((a) => a.nombre !== 'General' && a.nombre !== ALMACEN_MINA && a.nombre !== ALMACEN_REUTILIZABLES && a.nombre !== ALMACEN_DANADOS)
+                .filter((a) => puedeVerAlmacen(a.nombre))
+                .map((a) => {
+                  const d = resolverDeposito(a.nombre);
+                  const activo = dep.almacen === a.nombre;
+                  return (
+                    <Link key={a.id} className={`btn ${activo ? 'btn-primary' : 'btn-ghost'}`} to={d.ruta} title={`Depósito: ${a.nombre}`}>
+                      {d.icono} {a.nombre}
+                    </Link>
+                  );
+                })}
               {telDeposito && (
                 <Link className="btn btn-ghost" to={dep.rutaTelefono} title={`La pantalla de ${dep.nombre} con botones grandes para el teléfono`}>
                   📱 Vista teléfono
@@ -512,7 +532,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
               )}
             </>
           )}
-          {can('inventario') && <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>}
+          {puedeVerAlmacen(ALMACEN_GENERAL) && <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)}>🗑 Papelera</button>}
           {canWriteModulo && (
             <button
               className="btn btn-ghost"
