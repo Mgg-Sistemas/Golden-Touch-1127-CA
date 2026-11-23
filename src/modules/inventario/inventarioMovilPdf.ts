@@ -58,10 +58,14 @@ export function docSalidaMovil(
   producto: Pick<Producto, 'sku' | 'unidad' | 'precio' | 'precio_promedio'> | null,
   almacen: string,
   q: Quien,
+  opcionesExtra?: { unidadSolicitante?: string | null },
 ): DocMovilPdf {
   const sol = base({ actor: s.actor ?? q.actor, nombre: s.actor_name ?? q.nombre }, s.codigo, s.created_at, 'salida');
   sol.id = s.id;
   sol.almacen_origen = nombreDepositoChat(s.almacen || almacen);
+  const matchUnidad = /(?:^|·\s*)Unidad:\s*([^·\n]+)/i.exec(s.motivo || '');
+  const unidadFinal = opcionesExtra?.unidadSolicitante ?? (matchUnidad ? matchUnidad[1].trim() : null);
+  sol.unidad_solicitante = unidadFinal || null;
   sol.motivo = [
     s.motivo?.trim(),
     s.retorna ? 'Retorna: SÍ (queda en «Por retornar»)' : 'Retorna: NO',
@@ -75,7 +79,7 @@ export function docSalidaMovil(
     cantidad: Number(s.cantidad) || 0,
     precio_unit: costoProducto(producto),
   }];
-  return { sol, actor: sol.actor ?? null, opciones: { solicitadoPor: s.autorizado_por ?? null } };
+  return { sol, actor: sol.actor ?? null, opciones: { solicitadoPor: s.autorizado_por ?? null, unidadSolicitante: unidadFinal || null } };
 }
 
 /** Traslado entre almacenes del teléfono (TRA-####) → «ORDEN DE TRASLADO». */
@@ -180,8 +184,9 @@ export function docSalidasMovil(
   producto: (id: string) => Pick<Producto, 'sku' | 'unidad' | 'precio' | 'precio_promedio'> | null | undefined,
   almacen: string,
   q: Quien,
+  opcionesExtra?: { unidadSolicitante?: string | null },
 ): DocMovilPdf {
-  const primero = docSalidaMovil(ss[0], producto(ss[0].producto_id) ?? null, almacen, q);
+  const primero = docSalidaMovil(ss[0], producto(ss[0].producto_id) ?? null, almacen, q, opcionesExtra);
   if (ss.length === 1) return primero;
   const codigos = ss.map((s) => s.codigo);
   primero.sol.codigo = codigos.length <= 4 ? codigos.join(', ') : `${codigos[0]} … ${codigos[codigos.length - 1]}`;

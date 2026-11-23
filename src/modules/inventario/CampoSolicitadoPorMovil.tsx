@@ -15,6 +15,7 @@ import { toast } from '@/shared/ui/Toast';
 import { supabase } from '@/shared/lib/supabase';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { asegurarCatalogo, listCatalogos } from '@/modules/combustible/tanques.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { normalizarNombreSolicitante, unirNombresSolicitantes } from './solicitantesMovil';
 
 const STORAGE_KEY = 'gt_inventario_solicitantes_movil_v1';
@@ -52,6 +53,7 @@ export function CampoSolicitadoPorMovil({
   notaExtra?: ReactNode;
 }) {
   const [catalogo, setCatalogo] = useState<string[]>([]);
+  const [usuariosNombres, setUsuariosNombres] = useState<string[]>([]);
   const [historicos, setHistoricos] = useState<string[]>([]);
   const [locales, setLocales] = useState<string[]>(() => leerLocales());
   const [agregando, setAgregando] = useState(false);
@@ -61,6 +63,13 @@ export function CampoSolicitadoPorMovil({
   const cargar = useCallback(() => {
     listCatalogos()
       .then((cs) => setCatalogo(cs.filter((c) => c.tipo === 'autorizado' && c.activo).map((c) => c.valor)))
+      .catch(() => {});
+
+    listUsuarios()
+      .then((us) => {
+        const nombres = us.filter((u) => u.estado === 'activo').map((u) => `${u.nombre} ${u.apellido ?? ''}`.trim()).filter(Boolean);
+        setUsuariosNombres(nombres);
+      })
       .catch(() => {});
 
     supabase
@@ -85,8 +94,8 @@ export function CampoSolicitadoPorMovil({
   useRealtime(['combustible_catalogos', 'deposito_mina_salidas'], cargar);
 
   const personas = useMemo(
-    () => unirNombresSolicitantes(catalogo, historicos, locales, value ? [value] : []),
-    [catalogo, historicos, locales, value],
+    () => unirNombresSolicitantes(catalogo, usuariosNombres, historicos, locales, value ? [value] : []),
+    [catalogo, usuariosNombres, historicos, locales, value],
   );
 
   async function registrarPersonaNueva(raw: string) {

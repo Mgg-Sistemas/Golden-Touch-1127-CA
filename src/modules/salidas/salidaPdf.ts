@@ -170,6 +170,8 @@ export interface OpcionesOrdenPdf {
   /** Vista de teléfono (Salida / Traslado): quién solicitó el material.
    *  Si viene definido, reemplaza «Autorizado por» por «Solicitado por» en datos y firma. */
   solicitadoPor?: string | null;
+  /** Unidad / departamento que solicitó el material. */
+  unidadSolicitante?: string | null;
 }
 
 export async function descargarOrdenSalidaPdf(
@@ -286,7 +288,7 @@ export async function descargarOrdenSalidaPdf(
     ['Solicitado por', solicitanteNombre],
     ...((creo && creo !== solicitanteNombre && !esSolicitadoMovil) ? [['Registrado por', creo] as [string, string]] : []),
     ...(esSolicitadoMovil ? [['Registrado por', creo || '—'] as [string, string]] : []),
-    ...(sol.unidad_solicitante ? [['Unidad solicitante', sol.unidad_solicitante] as [string, string]] : []),
+    ...(opciones?.unidadSolicitante || sol.unidad_solicitante ? [['Unidad solicitante', (opciones?.unidadSolicitante || sol.unidad_solicitante)!] as [string, string]] : []),
     [opciones?.rotuloAlmacen || (esTraslado ? 'Almacén origen' : 'Almacén de salida'), invLabel(sol.almacen_origen)],
     ...(esTraslado ? [['Almacén destino', sol.almacen_destino || '—'] as [string, string]] : []),
     ...(sol.consumo_interno ? [['Tipo', 'CONSUMO INTERNO'] as [string, string]] : []),

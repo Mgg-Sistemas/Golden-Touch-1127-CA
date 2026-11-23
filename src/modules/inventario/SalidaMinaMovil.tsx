@@ -10,8 +10,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import type { Producto } from '@/shared/lib/types';
+import type { Producto, Usuario } from '@/shared/lib/types';
 import { CampoSolicitadoPorMovil } from './CampoSolicitadoPorMovil';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { listActivosPedido } from '@/modules/pedidos/pedidoCatalogos.repository';
 import {
   MAX_FOTOS_SALIDA_MINA, MAX_ITEMS_LOTE_MOVIL, errorFotosSalidaMina, errorItemsLote, errorRetornoMina, errorSalidaMina, fechaHoraVE, filtrarPorRetornar, leerCantidad,
   mensajeRetornoMina, mensajeSalidasMina, num, pendienteRetorno, type FotoSalidaMina, type SalidaMina,
@@ -139,7 +141,34 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
+  const [unidadSolicitante, setUnidadSolicitante] = useState('');
+  const [unidadOpciones, setUnidadOpciones] = useState<string[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [retorna, setRetorna] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    Promise.all([
+      listUsuarios().catch(() => [] as Usuario[]),
+      listActivosPedido('unidad_solicitante').catch(() => [] as string[]),
+    ]).then(([us, uns]) => {
+      if (!vivo) return;
+      setUsuarios(us.filter((u) => u.estado === 'activo'));
+      setUnidadOpciones(uns);
+    });
+    return () => { vivo = false; };
+  }, []);
+
+  function handleCambioAutorizado(personaElegida: string) {
+    setAutorizado(personaElegida);
+    const u = usuarios.find((usr) => {
+      const full = `${usr.nombre} ${usr.apellido ?? ''}`.trim();
+      return full.toLowerCase() === personaElegida.toLowerCase() || usr.email.toLowerCase() === personaElegida.toLowerCase();
+    });
+    if (u?.departamento?.trim()) {
+      setUnidadSolicitante(u.departamento.trim().toUpperCase());
+    }
+  }
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [guardandoPre, setGuardandoPre] = useState(false);
@@ -158,8 +187,12 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
     listEquipos().then((xs) => setEquipos(xs.filter((x) => x.activo !== false))).catch(() => toast('No se pudo cargar la lista de máquinas', 'error'));
   }, [paraMant, equipos.length]);
   const equipo = equipos.find((x) => x.id === equipoId) ?? null;
-  // El motivo lleva la máquina: así queda en el kardex y en el PDF de la salida.
-  const motivoFinal = [motivo.trim(), paraMant && equipo ? `Mantenimiento: ${equipo.equipo}` : ''].filter(Boolean).join(' · ');
+  // El motivo lleva la unidad y la máquina: así queda en el kardex y en el PDF de la salida.
+  const motivoFinal = [
+    motivo.trim(),
+    unidadSolicitante.trim() ? `Unidad: ${unidadSolicitante.trim().toUpperCase()}` : '',
+    paraMant && equipo ? `Mantenimiento: ${equipo.equipo}` : '',
+  ].filter(Boolean).join(' · ');
   const listos = itemsLoteListos(items);
   const malItems = errorItemsLote(listos);
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
@@ -287,7 +320,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
     ) : null;
     return <>{avisoMaq}<Listo titulo={hechas.length === 1 ? `Salida ${hechas[0].codigo} registrada` : `Salida de ${hechas.length} productos registrada`}
       texto={mensajeSalidasMina(hechas, actorName ?? actor)} onListo={onSaved} fotos={fotos}
-      pdf={docSalidasMovil(hechas, (id) => porId.get(id), almacen, { actor, nombre: actorName })} /></>;
+      pdf={docSalidasMovil(hechas, (id) => porId.get(id), almacen, { actor, nombre: actorName }, { unidadSolicitante: unidadSolicitante.trim().toUpperCase() || null })} /></>;
   }
 
   return (
@@ -332,10 +365,28 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
       <CampoSolicitadoPorMovil
         id="mina-salida-autorizado"
         value={autorizado}
-        onChange={setAutorizado}
+        onChange={handleCambioAutorizado}
         disabled={guardando}
         notaExtra={mostrarPreSalidas ? <small className="muted">(para salida directa)</small> : undefined}
       />
+      <div className="surt-campo">
+        <label htmlFor="mina-salida-unidad">Unidad solicitante</label>
+        <div className="surt-buscable">
+          <SearchSelect
+            id="mina-salida-unidad"
+            value={unidadSolicitante}
+            onChange={(v) => setUnidadSolicitante(v.toUpperCase())}
+            allowCreate
+            createLabel={(q) => `➕ Usar «${q.toUpperCase().trim()}»`}
+            placeholder="🔍 Busca o escribe el departamento / unidad…"
+            options={(unidadSolicitante && !unidadOpciones.includes(unidadSolicitante) ? [unidadSolicitante, ...unidadOpciones] : unidadOpciones).map((u) => ({ value: u, label: u }))}
+            disabled={guardando}
+          />
+        </div>
+        <small className="muted">
+          Se toma la unidad a la que pertenezca la persona solicitante (si la tiene).
+        </small>
+      </div>
       <div className="surt-campo">
         <span className="surt-rotulo" id="mina-salida-retorna">¿Retorna?</span>
         <div className="surt-sino" role="group" aria-labelledby="mina-salida-retorna">
