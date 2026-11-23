@@ -52,9 +52,9 @@ export function hoyVE(): string {
 /** Lee el snapshot guardado en config (puede ser de un día anterior). */
 async function leerSnapshot(): Promise<TasaHoy | null> {
   const { data } = await supabase.from('config').select('value').eq('key', CONFIG_KEY).maybeSingle();
-  const v = data?.value as { usd?: number; eur?: number; fecha?: string } | undefined;
+  const v = data?.value as { usd?: number; eur?: number; fecha?: string; fuente?: string } | undefined;
   if (!v || typeof v.usd !== 'number') return null;
-  return { usd: v.usd, eur: typeof v.eur === 'number' ? v.eur : null, fecha: v.fecha ?? null };
+  return { usd: v.usd, eur: typeof v.eur === 'number' ? v.eur : null, fecha: v.fecha ?? null, fuente: v.fuente ?? null };
 }
 
 /**
@@ -71,7 +71,7 @@ const TASAS_TTL_MS = 60_000;
 let _tasaHoyCache: { at: number; val: TasaHoy } | null = null;
 let _mercadoCache: { at: number; val: TasasMercado } | null = null;
 
-/** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco). */
+/** Invalida el cache en memoria de tasas (lo llaman las funciones de refresco y guardado). */
 export function bustTasasCache(): void { _tasaHoyCache = null; _mercadoCache = null; }
 
 export async function getTasaHoy(): Promise<TasaHoy> {
@@ -83,17 +83,99 @@ export async function getTasaHoy(): Promise<TasaHoy> {
 
 async function _resolverTasaHoy(): Promise<TasaHoy> {
   const hoy = hoyVE();
-  const snap = await leerSnapshot();
-  if (snap && snap.fecha === hoy && snap.usd != null) return snap;
 
+  // 1. Consultar en tasa_cambio las filas más recientes (USD y EUR).
+  // Trae tanto fechas futuras (día siguiente/feriado), como hoy e histórico reciente.
+  let rows: Array<{ fecha: string; moneda: string; tasa: number; fuente: string | null }> = [];
+  try {
+    const { data } = await supabase
+      .from('tasa_cambio')
+      .select('fecha, moneda, tasa, fuente')
+      .in('moneda', ['USD', 'EUR'])
+      .order('fecha', { ascending: false })
+      .limit(30);
+    if (data) rows = data as typeof rows;
+  } catch {
+    /* si falla red o Supabase, continúa con snapshot/reserva */
+  }
+
+  const usdRows = rows.filter((r) => r.moneda === 'USD');
+  const eurRows = rows.filter((r) => r.moneda === 'EUR');
+
+  // PRIORIDAD 1: Corrección manual activa para hoy o día siguiente/futuro (fecha >= hoy con fuente 'manual').
+  // La corrección manual del administrador SIEMPRE manda sobre cualquier API o snapshot.
+  const manualUsd = usdRows.find((r) => r.fecha >= hoy && r.fuente === 'manual');
+  if (manualUsd) {
+    const manualEur = eurRows.find((r) => r.fecha === manualUsd.fecha && r.fuente === 'manual')
+      ?? eurRows.find((r) => r.fecha === manualUsd.fecha)
+      ?? eurRows[0];
+    return {
+      usd: Number(manualUsd.tasa),
+      eur: manualEur ? Number(manualEur.tasa) : null,
+      fecha: manualUsd.fecha,
+      fuente: 'manual',
+    };
+  }
+
+  // PRIORIDAD 2: Tasa del día siguiente disponible (fecha > hoy).
+  // Clave en feriados bancarios (ej. lunes bancario) o fines de semana donde ya está
+  // disponible la tasa con fecha valor del siguiente día hábil (ej. martes).
+  const siguienteUsd = usdRows.find((r) => r.fecha > hoy);
+  if (siguienteUsd) {
+    const siguienteEur = eurRows.find((r) => r.fecha === siguienteUsd.fecha) ?? eurRows[0];
+    return {
+      usd: Number(siguienteUsd.tasa),
+      eur: siguienteEur ? Number(siguienteEur.tasa) : null,
+      fecha: siguienteUsd.fecha,
+      fuente: siguienteUsd.fuente ?? 'bcv',
+    };
+  }
+
+  // PRIORIDAD 3: Tasa de hoy (fecha === hoy) en tasa_cambio.
+  const hoyUsd = usdRows.find((r) => r.fecha === hoy);
+  if (hoyUsd) {
+    const hoyEur = eurRows.find((r) => r.fecha === hoy) ?? eurRows[0];
+    return {
+      usd: Number(hoyUsd.tasa),
+      eur: hoyEur ? Number(hoyEur.tasa) : null,
+      fecha: hoy,
+      fuente: hoyUsd.fuente ?? 'bcv',
+    };
+  }
+
+  // PRIORIDAD 4: Snapshot en config (si ya tiene fecha >= hoy).
+  const snap = await leerSnapshot();
+  if (snap && snap.fecha && snap.fecha >= hoy && snap.usd != null) {
+    return snap;
+  }
+
+  // PRIORIDAD 5: Si no hay tasa para hoy ni mañana en BD, intentar Edge Function `tasa-bcv`.
   try {
     const { data, error } = await supabase.functions.invoke<
       { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
     >('tasa-bcv', { body: {} });
-    if (!error && data && 'ok' in data) return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha };
-  } catch { /* sin conexión / función no desplegada: usamos lo último conocido */ }
+    if (!error && data && 'ok' in data && data.usd != null) {
+      return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha, fuente: 'bcv' };
+    }
+  } catch {
+    /* sin conexión / función no desplegada: usamos lo último conocido */
+  }
 
-  if (snap) return snap;
+  // PRIORIDAD 6: Snapshot guardado en config (aunque sea de día anterior).
+  if (snap && snap.usd != null) return snap;
+
+  // PRIORIDAD 7: Última fila por moneda en tasa_cambio.
+  if (usdRows.length > 0) {
+    const u = usdRows[0];
+    const e = eurRows.find((r) => r.fecha === u.fecha) ?? eurRows[0];
+    return {
+      usd: Number(u.tasa),
+      eur: e ? Number(e.tasa) : null,
+      fecha: u.fecha,
+      fuente: u.fuente ?? null,
+    };
+  }
+
   // Último recurso: última fila por moneda del historial.
   return ultimaConocida();
 }
@@ -106,23 +188,24 @@ export async function refrescarTasa(): Promise<TasaHoy> {
   if (error) throw new Error(await mensajeDeFuncion(error, 'No se pudo actualizar la tasa'));
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
   bustTasasCache();
-  return { usd: data.usd, eur: data.eur ?? null, fecha: data.fecha };
+  return getTasaHoy();
 }
 
 /** Última tasa conocida (por si no hay snapshot ni conexión). */
 async function ultimaConocida(): Promise<TasaHoy> {
   const { data } = await supabase
     .from('tasa_cambio')
-    .select('fecha, moneda, tasa')
+    .select('fecha, moneda, tasa, fuente')
     .order('fecha', { ascending: false })
     .limit(8);
-  const rows = (data ?? []) as Array<{ fecha: string; moneda: MonedaTasa; tasa: number }>;
+  const rows = (data ?? []) as Array<{ fecha: string; moneda: MonedaTasa; tasa: number; fuente?: string | null }>;
   const usdRow = rows.find((r) => r.moneda === 'USD');
   const eurRow = rows.find((r) => r.moneda === 'EUR');
   return {
     usd: usdRow ? Number(usdRow.tasa) : null,
     eur: eurRow ? Number(eurRow.tasa) : null,
     fecha: usdRow?.fecha ?? eurRow?.fecha ?? null,
+    fuente: usdRow?.fuente ?? null,
   };
 }
 
@@ -134,10 +217,21 @@ export async function getTasaUsdDeFecha(fecha: string): Promise<number | null> {
   const rows = (data ?? []) as Array<{ tasa: number; fuente: string | null }>;
   const r = rows.find((x) => x.fuente === 'manual') ?? rows[0];
   if (r) return Number(r.tasa);
+
+  // Si se pide la tasa de hoy y no hay fila exacta (ej. feriado bancario o fin de semana),
+  // se devuelve la tasa resuelta para hoy (que toma el día siguiente o manual vigente).
   if (fecha === hoyVE()) {
     const hoy = await getTasaHoy();
-    if (hoy.fecha === fecha && hoy.usd != null) return hoy.usd;
+    if (hoy.usd != null) return hoy.usd;
   }
+
+  // Fallback para fechas no hábiles pasadas (ej. sábado/domingo): tomar la tasa más cercana anterior
+  const { data: antData } = await supabase.from('tasa_cambio').select('tasa, fuente')
+    .eq('moneda', 'USD').lte('fecha', fecha).order('fecha', { ascending: false }).limit(4);
+  const antRows = (antData ?? []) as Array<{ tasa: number; fuente: string | null }>;
+  const antR = antRows.find((x) => x.fuente === 'manual') ?? antRows[0];
+  if (antR) return Number(antR.tasa);
+
   return null;
 }
 
@@ -169,28 +263,39 @@ export async function setTasaManual(input: { moneda: string; tasa: number; fecha
   if (tasa <= 0) throw new Error('La tasa debe ser mayor que 0.');
   const fecha = input.fecha || hoyVE();
 
+  // Invalida cache antes y después de escribir
+  bustTasasCache();
+
   const { error } = await supabase
     .from('tasa_cambio')
     .upsert({ fecha, moneda: input.moneda, tasa, fuente: 'manual' }, { onConflict: 'fecha,moneda,fuente' });
   if (error) throw error;
 
-  // Si es la tasa de hoy, actualizamos el snapshot (conservando la otra moneda).
-  if (fecha === hoyVE()) {
+  // Si es la tasa de hoy o una fecha siguiente/futura (ej. feriado bancario cargando la tasa de mañana),
+  // actualizamos de inmediato el snapshot en config para que los chips y el sistema la tomen.
+  if (fecha >= hoyVE()) {
     const snap = (await leerSnapshot()) ?? { usd: null, eur: null, fecha };
     const nuevo = {
       usd: input.moneda === 'USD' ? tasa : snap.usd,
       eur: input.moneda === 'EUR' ? tasa : snap.eur,
       fecha,
+      fuente: 'manual',
     };
-    await supabase.from('config').upsert(
-      { key: CONFIG_KEY, value: nuevo, updated_at: new Date().toISOString() },
-      { onConflict: 'key' },
-    );
+    try {
+      await supabase.from('config').upsert(
+        { key: CONFIG_KEY, value: nuevo, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      );
+    } catch (e) {
+      console.warn('setTasaManual: config snapshot no pudo ser actualizado:', e);
+    }
   }
 
   // USDT/COP cargadas a mano también alimentan el gráfico (serie histórica).
   const par = input.moneda === 'USDT' ? 'USDT_VES' : input.moneda === 'COP' ? 'COP_USD' : input.moneda === 'BRL' ? 'BRL_USD' : null;
   if (par) await supabase.from('tasa_snapshot').insert({ par, tasa, fuente: 'manual' });
+
+  bustTasasCache();
 }
 
 /** Historial de tasas filtrable por rango de fecha y moneda. */

@@ -4,7 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { TasaCambio, TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy, getTasasMercado, listHistorialTasas, refrescarBrl, refrescarCop, refrescarTasa, setTasaManual, ultimaTasaBrl } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, listHistorialTasas, refrescarBrl, refrescarCop, refrescarTasa, setTasaManual, ultimaTasaBrl, hoyVE, bustTasasCache } from './tasas.repository';
 import { listMonedas } from './monedas';
 
 /** Formatea una tasa (Bs por unidad) con 2 decimales en es-VE. */
@@ -87,6 +87,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   const [copUsd, setCopUsd] = useState<number | null>(null);
   useEffect(() => { getTasasMercado().then((m) => setCopUsd(m.copUsd)).catch(() => { /* sin conexión */ }); }, []);
   // Corrección manual
+  const [mFecha, setMFecha] = useState<string>(() => hoyVE());
   const [mMoneda, setMMoneda] = useState<string>('USD');
   const [mTasa, setMTasa] = useState('');
   // Fuerza remonte del input no controlado al limpiarlo tras guardar.
@@ -97,6 +98,12 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
     listMonedas()
       .then((ms) => setMonedasTasa(Array.from(new Set(['USD', 'EUR', ...ms, 'BRL'])).filter((m) => m !== 'Bs')))
       .catch(() => { /* base */ });
+  }, []);
+
+  const mananaVE = useCallback(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(d);
   }, []);
 
   const reload = useCallback(async () => {
@@ -152,11 +159,15 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
     if (!Number.isFinite(v) || v <= 0) { toast('Indica una tasa válida', 'error'); return; }
     setBusy(true);
     try {
-      await setTasaManual({ moneda: mMoneda, tasa: v });
+      bustTasasCache();
+      const f = mFecha || hoyVE();
+      await setTasaManual({ moneda: mMoneda, tasa: v, fecha: f });
+      bustTasasCache();
       setMTasa('');
       setMTasaKey((k) => k + 1);
-      onRefreshed?.(await getTasaHoy());
-      toast('Tasa corregida', 'success');
+      const nueva = await getTasaHoy();
+      onRefreshed?.(nueva);
+      toast(`Tasa manual guardada para ${date(f)}: ${fmtTasa(mMoneda, v)}`, 'success');
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
     finally { setBusy(false); }
@@ -174,19 +185,58 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   return (
     <Modal title="Historial de tasas" size="lg" onClose={onClose} footer={footer}>
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <div><div className="muted" style={{ fontSize: '.72rem' }}>USD (BCV) hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.usd)}</strong></div>
-          <div><div className="muted" style={{ fontSize: '.72rem' }}>EUR hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.eur)}</strong></div>
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div><div className="muted" style={{ fontSize: '.72rem' }}>USD (BCV) activo</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.usd)}</strong></div>
+          <div><div className="muted" style={{ fontSize: '.72rem' }}>EUR activo</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.eur)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>COP (TRM Colombia)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{copUsdFmt(copUsd)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>Real brasileño (R$)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{brlUsdFmt(brlUsd)}</strong></div>
-          <div><div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div><strong>{tasaHoy?.fecha ? date(tasaHoy.fecha) : '—'}</strong></div>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Fecha valor</div>
+            <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+              {tasaHoy?.fecha ? date(tasaHoy.fecha) : '—'}
+              {tasaHoy?.fuente === 'manual' && (
+                <span className="badge badge-warning" style={{ fontSize: '.65rem' }}>Manual</span>
+              )}
+            </strong>
+          </div>
         </div>
       </div>
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: '1rem' }}>
-          <div className="card-title"><span>Corregir tasa de hoy (manual)</span></div>
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Corregir / registrar tasa manual</span>
+            <span className="badge badge-warning" style={{ fontSize: '.7rem' }}>Admin</span>
+          </div>
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label>Fecha valor</label>
+              <div style={{ display: 'flex', gap: '.25rem' }}>
+                <input
+                  className="input"
+                  type="date"
+                  value={mFecha}
+                  onChange={(e) => setMFecha(e.target.value)}
+                  style={{ width: '145px' }}
+                />
+                <button
+                  type="button"
+                  className={`btn btn-xs ${mFecha === hoyVE() ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setMFecha(hoyVE())}
+                  title="Tasa con fecha de hoy"
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs ${mFecha === mananaVE() ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setMFecha(mananaVE())}
+                  title="Tasa de mañana (feriado bancario / siguiente día hábil)"
+                >
+                  Mañana
+                </button>
+              </div>
+            </div>
             <div className="form-row" style={{ margin: 0 }}>
               <label>Moneda</label>
               <select className="select" value={mMoneda} onChange={(e) => setMMoneda(e.target.value)}>
@@ -195,9 +245,24 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
             </div>
             <div className="form-row" style={{ margin: 0 }}>
               <label>{mMoneda === 'COP' ? 'Tasa (COP por $)' : mMoneda === 'BRL' ? 'Tasa (R$ por $)' : 'Tasa (Bs)'}</label>
-              <input key={mTasaKey} name="m-tasa" className="input mono" type="number" min={0} step={mMoneda === 'BRL' ? '0.0001' : '0.01'} defaultValue={mTasa} onChange={(e) => setMTasa(e.target.value)} />
+              <input
+                key={mTasaKey}
+                name="m-tasa"
+                className="input mono"
+                type="number"
+                min={0}
+                step={mMoneda === 'BRL' ? '0.0001' : '0.01'}
+                defaultValue={mTasa}
+                onChange={(e) => setMTasa(e.target.value)}
+                placeholder="0,00"
+              />
             </div>
-            <button className="btn btn-sm btn-primary" onClick={guardarManual} disabled={busy}>Guardar</button>
+            <button className="btn btn-sm btn-primary" onClick={guardarManual} disabled={busy}>
+              {busy ? 'Guardando…' : 'Guardar manual'}
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem', marginTop: '.45rem' }}>
+            💡 En días feriados bancarios o fines de semana, podés registrar la tasa para hoy o con la fecha valor del siguiente día hábil (mañana). La tasa manual manda sobre la oficial.
           </div>
         </div>
       )}

@@ -141,6 +141,7 @@ export interface TasaHoy {
   usd: number | null;
   eur: number | null;
   fecha: string | null;
+  fuente?: string | null;
 }
 
 /** Caja de la tesorería (cuenta de dinero con saldo). */

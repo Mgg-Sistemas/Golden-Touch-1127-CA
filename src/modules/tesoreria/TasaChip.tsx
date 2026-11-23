@@ -83,7 +83,10 @@ export function TasaChip() {
             )}
           </span>
         )}
-        <span className="muted tasa-fecha" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
+        <span className="muted tasa-fecha" style={{ fontSize: '.7rem' }}>
+          {fechaCorta(tasa.fecha)}
+          {tasa.fuente === 'manual' ? ' (manual)' : ''}
+        </span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}
     </>
