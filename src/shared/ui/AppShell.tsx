@@ -678,7 +678,7 @@ function NavInventariosGrupo({
       (puedeVerMina && coincideMenu(filtro, 'Depósito Mina', '/app/inventario/deposito-mina')) ||
       (puedeVerReutilizables && coincideMenu(filtro, 'Depósito Reutilizables', '/app/inventario/deposito-reutilizables')) ||
       (puedeVerDanados && coincideMenu(filtro, 'Depósito Items Dañados', '/app/inventario/deposito-danados')) ||
-      coincideMenu(filtro, 'INVENTARIO / DEPÓSITOS', '/app/inventario');
+      coincideMenu(filtro, 'Inventario / Depósitos', '/app/inventario');
 
     if (!algunHijoCoincide) return null;
   }
@@ -689,11 +689,11 @@ function NavInventariosGrupo({
         type="button"
         className={`nav-dropdown-btn${estaEnInventario ? ' has-active' : ''}`}
         onClick={() => setUsuarioAbierto(!abierto)}
-        title="INVENTARIO / DEPÓSITOS"
+        title="Inventario / Depósitos"
         aria-expanded={abierto}
       >
         <span className="icn">🏬</span>
-        <span className="nav-dropdown-label">INVENTARIO / DEPÓSITOS</span>
+        <span className="nav-dropdown-label">Inventario / Depósitos</span>
         <span className={`nav-dropdown-caret${abierto ? ' open' : ''}`}>▾</span>
       </button>
 
