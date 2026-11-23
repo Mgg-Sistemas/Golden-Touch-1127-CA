@@ -23,6 +23,7 @@ import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloMotivo, rotuloSerie } fro
 import { r4Disponible } from './clasificaciones.repository';
 import { ParametrosClasificaciones } from './ParametrosClasificaciones';
 import { r5Disponible } from './tarifas.repository';
+import { limiteEntregaComprobante } from './retencionesCalculo';
 import { ParametrosTarifas } from './ParametrosTarifas';
 import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
@@ -217,7 +218,9 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             <div>{resumenVersion(vigente)}</div>
             <div className="muted">
               Si vence en día inhábil: {etiqueta(VENCE_SI_INHABIL, vigente.venceSiInhabil).toLowerCase()}.
-              {' '}Ejemplo: una factura de hoy se entrega hasta el {fechaCorta(plazoEntrega(vigente, hoyIso()))}.
+              {impuesto.clave === 'IVA'
+                ? ` Ejemplo (Art. 16 de la 0054): una operación de hoy se emite y entrega hasta el ${fechaCorta(limiteEntregaComprobante(hoyIso()))}, sin contar feriados.`
+                : ` Ejemplo con el plazo configurado: una operación de hoy se entrega hasta el ${fechaCorta(plazoEntrega(vigente, hoyIso()))}.`}
             </div>
             {vigente.baseLegal && <div className="muted">Base legal: {vigente.baseLegal}</div>}
             {vigente.fuente && <div className="muted">Fuente: {vigente.fuente}</div>}

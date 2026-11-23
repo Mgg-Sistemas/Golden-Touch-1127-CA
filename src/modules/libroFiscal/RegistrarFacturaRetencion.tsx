@@ -41,7 +41,7 @@ import { SeLeyo } from './SeLeyo';
 import { rotuloImpuesto } from './rotulos';
 import { BuscadorFactura } from './BuscadorFactura';
 import { pendientesComoTipos, r10Disponible, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
-import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnBaseImponible, faltaEnTotalFactura, avisoRetenidoSuperaBase } from './facturaDocumento';
+import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnFechaEntrega, faltaEnBaseImponible, faltaEnTotalFactura, avisoEntregaIvaTardia, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
@@ -198,11 +198,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaControl, setFacturaControl] = useState(s.facturaControl ?? '');
   const [facturaFecha, setFacturaFecha] = useState(s.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
+  const [fechaEntrega, setFechaEntrega] = useState(hoyIso());
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
   // D2b: ¿practica esta empresa el impuesto? NO-GT lee la RPC (L6) por empresa y fecha;
   // GT/single sigue con puedePracticar(config). Una sola fuente, también en el registro.
   const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, facturaFecha);
   const [exentoStr, setExentoStr] = useState(s.exento != null ? numeroATexto(s.exento) : '');
+  // Dato interno separado de exento: lo pide el requirente, no el Art. 18.8 de la 43.484.
+  const [sinDerechoStr, setSinDerechoStr] = useState('');
   const [nota, setNota] = useState('');
   // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
   const [conR10, setConR10] = useState(false);
@@ -425,7 +428,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     const cual = `regla «${rc.regla.nombre}» (versión ${rc.regla.version})`;
     return {
       ...hoy,
-      baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.monto,
+      baseImponible: r.base, impuesto: r.impuesto,
+      impuestoCausado: hoy.tipo === 'iva'
+        ? r.impuesto
+        : hoy.tipo === 'islr'
+          // El motor ya restó el sustraendo en el paso 5: el causado es el bruto.
+          ? Math.round((r.impuesto + r.sustraendo) * 100) / 100
+          : hoy.impuestoCausado,
+      porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.monto,
       explicacion: r.aplica ? `Calculado con la ${cual}, vigente al ${fechaCorta(facturaFecha)}.` : `No se retiene según la ${cual}: ${r.motivo ?? 'sin motivo'}.`,
     };
   }, [calculoHoyDe, reglas, direccion, facturaFecha]);
@@ -437,6 +447,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const pctDe = (l: LineaUI) => (esManual ? nDec(l.pctStr) : calculoDe(l).porcentaje);
 
   const totalRetenido = useMemo(() => lineas.reduce((a, l) => a + montoDe(l), 0), [lineas, montoDe]);
+  const entregaTardia = lineas.some((l) => l.tipo === 'iva') ? avisoEntregaIvaTardia(facturaFecha, fechaRetencion, fechaEntrega) : null;
   // C8: aviso de cordura NO bloqueante en recibida: si alguna línea retiene más que su base o su IVA.
   const avisoRecibida = useMemo(() => {
     if (!esManual) return null;
@@ -460,6 +471,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     ...(moneda !== 'Bs' && leerMonto(tasaStr) == null ? ['Tasa'] : []),
     ...(leerMonto(facturaTotal) == null ? ['Base imponible'] : []),
     ...(exentoStr.trim() !== '' && leerMonto(exentoStr) == null ? ['Monto exento'] : []),
+    ...(sinDerechoStr.trim() !== '' && leerMonto(sinDerechoStr) == null ? ['Sin derecho a crédito IVA'] : []),
     ...lineas.flatMap((l) => ([
       [l.tipo === 'iva' ? 'base imponible' : 'monto del pago', l.baseStr, true],
       ['IVA de la factura', l.ivaStr, l.tipo === 'iva'],
@@ -483,6 +495,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     const faltaFechaRet = faltaEnFechaRetencion(fechaRetencion, facturaFecha, hoyIso());
     if (faltaFechaRet) return faltaFechaRet;
+    const faltaEntrega = faltaEnFechaEntrega(fechaEntrega, fechaRetencion, hoyIso());
+    if (faltaEntrega) return faltaEntrega;
     const faltaTotal = faltaEnTotalFactura(nDec(facturaTotal));
     if (faltaTotal) return faltaTotal;
     if (avisoFecha) return avisoFecha;
@@ -626,6 +640,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           sustraendo: esManual ? null : calc.sustraendo,
           ivaAlicuota: l.tipo === 'iva' ? (esManual ? null : calc.alicuota) : null,
           ivaMonto: l.tipo === 'iva' ? (esManual ? nDec(l.ivaStr) : calc.impuesto) : null,
+          impuestoCausado: l.tipo === 'iva'
+            ? (esManual ? nDec(l.ivaStr) : calc.impuestoCausado)
+            : l.tipo === 'islr' && esManual
+              ? Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100
+              : calc.impuestoCausado,
+          sinDerechoCreditoIva: l.tipo === 'iva' ? (sinDerechoStr.trim() ? nDec(sinDerechoStr) : 0) : null,
+          fechaEntrega,
           // El texto del supuesto queda como foto en la retención.
           motivo: l.tipo === 'iva' && !esManual
             ? (supuestosIva ? supuestoAplicado(l.motivos, supuestosIva)?.texto ?? null : motivoCienTexto(l.motivos))
@@ -906,6 +927,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
           <small className="hint muted">Emisión del comprobante.</small>
         </div>
+        <div className="form-row" style={{ flex: '1 1 140px' }}>
+          <label>Fecha recibido / entrega (opcional)</label>
+          <input className="input" type="date" value={fechaEntrega} min={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaEntrega(e.target.value); }} />
+          <small className="hint muted">Puede quedar vacía. Si se informa: Art. 16 de la 0054 (IVA) · Art. 18.3 de la 0093.</small>
+          {entregaTardia && <small className="hint" style={{ color: 'var(--warning)' }}>{entregaTardia}</small>}
+        </div>
         {periodoCerrado && (
           <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', margin: '.3rem 0', padding: '.5rem .8rem', width: '100%' }}>
             <strong>🔒 Período Fiscal Cerrado ({nombrePeriodo(periodoCerrado)})</strong>
@@ -927,6 +954,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           <label>Monto exento</label>
           <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
           <SeLeyo texto={exentoStr} />
+        </div>
+        <div className="form-row" style={{ flex: '1 1 150px' }}>
+          <label>Sin derecho a crédito IVA</label>
+          <input className="input mono" value={sinDerechoStr} onChange={(e) => { marcarSucio(); setSinDerechoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+          <SeLeyo texto={sinDerechoStr} />
+          <small className="hint muted">Dato interno; separado de exento.</small>
         </div>
       </div>
 

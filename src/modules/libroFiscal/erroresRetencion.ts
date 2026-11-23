@@ -20,7 +20,7 @@ const TEXTOS: Record<string, string> = {
   RET_CERO_SIN_MOTIVO: 'Una retención en 0 se registra solo con su motivo.',
   RET_NUMERO_FALTA: 'Esta serie se numera a mano: escribe el número del comprobante antes de registrar.',
   RET_NUMERO_USADO: 'Ese número de comprobante ya se dio en la serie: no se vuelve a dar, aunque se haya anulado o cambiado.',
-  RET_NUMERO_FORMATO: 'El número del comprobante no tiene el formato de su serie: el de IVA lleva 14 dígitos (AAAAMM y 8 de la serie); el de ISLR, ISAE y estadal, 10 dígitos.',
+  RET_NUMERO_FORMATO: 'El número del comprobante no tiene el formato de su serie: cuando la serie usa AAAAMM8 lleva 14 dígitos (AAAAMM y 8 de la serie); cuando usa N10, 10 dígitos.',
   RET_NUMERO_NO_ES_EL_ULTIMO: 'Solo se puede cambiar el número de la última retención de su serie.',
   RET_NUMERO_NO_EDITABLE: 'El número no se puede cambiar: la retención está declarada o anulada.',
   RET_NUMERO_NO_SE_QUITA: 'El número de un comprobante emitido no se puede quitar.',

@@ -31,7 +31,7 @@ import type { TipoImpuesto } from './retencionesCalculo';
 const IMPUESTOS: Array<{ clave: string; tipo: TipoImpuesto; nombre: string }> = ([
   ['IVA', 'iva'], ['ISLR', 'islr'], ['MUNICIPAL', 'municipal'], ['ESTADAL', 'regional'], ['IGTF', 'igtf'],
 ] as const).map(([clave, tipo]) => ({ clave, tipo, nombre: rotuloImpuesto(clave) }));
-const NOMBRE_TEXTO: Record<string, string> = { encabezado: 'Encabezado (título)', nota_legal: 'Nota legal (bajo el título)', pie: 'Pie' };
+const NOMBRE_TEXTO: Record<string, string> = { encabezado: 'Encabezado (título)', nota_legal: 'Nota legal (bajo el título)', leyenda_art19: 'Leyenda «emitido conforme a esta providencia» (Art. 19)', pie: 'Pie' };
 const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 const diaSiguiente = (iso: string) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 

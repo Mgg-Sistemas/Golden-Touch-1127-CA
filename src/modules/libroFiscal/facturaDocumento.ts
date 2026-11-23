@@ -7,6 +7,7 @@
    Y si vale la pena ofrecer «Borrar»: solo una factura sin retenciones
    (ni anuladas); decisiones y notas las revisa la base (RET_DOCUMENTO_NO_LIBRE).
    ============================================================ */
+import { limiteEntregaComprobante } from './retencionesCalculo';
 
 /** Lo que falta en los datos fiscales de una factura; null si están bien. `hoy` en AAAA-MM-DD. */
 export function faltaEnDatosFactura(d: { nro?: string | null; control?: string | null; fecha?: string | null }, hoy: string): string | null {
@@ -43,6 +44,35 @@ export function faltaEnFechaRetencion(fechaRetencion: string | null | undefined,
   if (ff && fr < ff) return 'La fecha de la retención no puede ser anterior a la de la factura.';
   if (fr > hoy) return 'La fecha de la retención no puede ser futura.';
   return null;
+}
+
+/**
+ * La fecha de entrega (SNAT/2025/000054 Art. 16 y G.O. 43.484 Art. 18.3) es
+ * OPCIONAL: puede quedar vacía. Si se informa, debe ser válida, no anterior a
+ * la emisión ni futura. Compartida por los dos caminos de registro.
+ */
+export function faltaEnFechaEntrega(fechaEntrega: string | null | undefined, fechaEmision: string | null | undefined, hoy: string): string | null {
+  const fe = (fechaEntrega ?? '').slice(0, 10);
+  // Fecha Recibido / Entrega es opcional: vacía queda sin informar en el comprobante.
+  if (!fe) return null;
+  if (!fechaValida(fe)) return 'La fecha de entrega no es válida.';
+  const fem = (fechaEmision ?? '').slice(0, 10);
+  if (fem && fe < fem) return 'La fecha de entrega no puede ser anterior a la de emisión.';
+  if (fe > hoy) return 'La fecha de entrega no puede ser futura.';
+  return null;
+}
+
+/**
+ * IVA · SNAT/2025/000054 Art. 16: avisa, sin impedir el registro, si la emisión
+ * o la entrega queda después de los primeros 2 días hábiles del período siguiente.
+ */
+export function avisoEntregaIvaTardia(fechaFactura: string | null | undefined, fechaEmision: string | null | undefined, fechaEntrega: string | null | undefined): string | null {
+  const limite = limiteEntregaComprobante((fechaFactura ?? '').slice(0, 10));
+  if (!limite) return null;
+  const emision = (fechaEmision ?? '').slice(0, 10);
+  const entrega = (fechaEntrega ?? '').slice(0, 10);
+  if ((!emision || emision <= limite) && (!entrega || entrega <= limite)) return null;
+  return `Fuera de plazo del Art. 16: emitir y entregar dentro de los primeros 2 días hábiles del período siguiente (hasta ${limite}, sin contar feriados).`;
 }
 
 /** La base imponible no puede ser negativa (ni NaN). null si está bien. */

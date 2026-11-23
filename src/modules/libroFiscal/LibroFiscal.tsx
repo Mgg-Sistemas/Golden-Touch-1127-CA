@@ -68,7 +68,7 @@ import {
   type AlicuotasLocales, type CorrelativoEstimado, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
 import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
-import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnBaseImponible, avisoRetenidoSuperaBase } from './facturaDocumento';
+import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnFechaEntrega, faltaEnBaseImponible, avisoEntregaIvaTardia, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
 import { formatoParaImprimir, r8Disponible } from './formatos.repository';
@@ -489,7 +489,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   async function verComprobante(r: RetencionPracticada) {
     try {
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
-      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
+      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.fecha || r.facturaFecha || r.createdAt) || null, hoyIso());
       await verComprobanteRetencionPdf(r, config, formato, {
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
@@ -1036,7 +1036,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                         facturaControl: r.facturaControl,
                                         facturaFecha: r.facturaFecha ?? f.fecha,
                                         baseImponible: r.baseImponible || f.total,
+                                        facturaTotal: r.facturaTotal ?? f.total,
                                         iva: r.impuesto,
+                                        sinDerechoCreditoIva: r.sinDerechoCreditoIva,
                                         total: f.total,
                                         moneda: r.moneda,
                                         docId: r.docId ?? f.docId,
@@ -1212,7 +1214,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                           facturaControl: r.facturaControl,
                           facturaFecha: r.facturaFecha,
                           baseImponible: r.baseImponible,
+                          facturaTotal: r.facturaTotal,
                           iva: r.impuesto,
+                          sinDerechoCreditoIva: r.sinDerechoCreditoIva,
                           moneda: r.moneda,
                           docId: r.docId,
                           docKind: r.docKind,
@@ -1422,8 +1426,11 @@ export interface SemillaRetencion {
   contraparteRif?: string | null;
   moneda?: string;
   total?: number;
+  /** Total real de la factura o nota de débito (Art. 18.8); puede diferir de la base. */
+  facturaTotal?: number | null;
   iva?: number;
   baseImponible?: number;
+  sinDerechoCreditoIva?: number | null;
   porcentaje?: number | null;
   facturaNumero?: string | null;
   facturaControl?: string | null;
@@ -1490,9 +1497,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [facturaControl, setFacturaControl] = useState(semilla.facturaControl ?? '');
   const [facturaFecha, setFacturaFecha] = useState(semilla.facturaFecha ?? '');
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
+  const [fechaEntrega, setFechaEntrega] = useState(hoyIso());
+  // Dato interno separado de exento: lo pide el requirente, no el Art. 18.8 de la 43.484.
+  const [sinDerechoStr, setSinDerechoStr] = useState(semilla.sinDerechoCreditoIva != null ? numeroATexto(semilla.sinDerechoCreditoIva) : '');
   // D2b: ¿practica la empresa el impuesto? NO-GT lee la RPC (L6); GT/single, puedePracticar(config).
   const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, facturaFecha);
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
+  const [facturaTotalStr, setFacturaTotalStr] = useState(numeroATexto(semilla.facturaTotal ?? semilla.total ?? 0));
   const [baseStr, setBaseStr] = useState(numeroATexto(semilla.baseImponible ?? semilla.total ?? 0));
   const [ivaStr, setIvaStr] = useState(numeroATexto(semilla.iva ?? 0));
   const [pctStr, setPctStr] = useState(semilla.porcentaje != null ? numeroATexto(semilla.porcentaje) : '');
@@ -1662,10 +1673,17 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     setFacturaNumero(p.facturaNumero);
     setFacturaControl(p.facturaControl);
     setFacturaFecha(p.facturaFecha);
+    setFacturaTotalStr(numeroATexto(f.facturaTotal ?? 0));
     setMoneda(p.moneda);
     if (p.tasaStr) setTasaStr(p.tasaStr);
     if (p.tipo) setTipo(p.tipo);
     marcarSucio();
+  }
+
+  /** Mientras el total no se haya editado aparte, sigue a la base al escribirla. */
+  function cambiarBase(v: string) {
+    if (!facturaTotalStr.trim() || nDec(facturaTotalStr) === nDec(baseStr)) setFacturaTotalStr(v);
+    setBaseStr(v);
   }
 
   function elegirProveedor(id: string) {
@@ -1726,7 +1744,14 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     const cual = `regla «${reglaCalc.regla.nombre}» (versión ${reglaCalc.regla.version})`;
     return {
       ...calculoHoy,
-      baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0,
+      baseImponible: r.base, impuesto: r.impuesto,
+      impuestoCausado: calculoHoy.tipo === 'iva'
+        ? r.impuesto
+        : calculoHoy.tipo === 'islr'
+          // El motor ya restó el sustraendo en el paso 5: el causado es el bruto.
+          ? Math.round((r.impuesto + r.sustraendo) * 100) / 100
+          : calculoHoy.impuestoCausado,
+      porcentaje: r.pct ?? 0,
       sustraendo: r.sustraendo, montoRetenido: r.monto,
       explicacion: r.aplica ? `Calculado con la ${cual}, vigente al ${fechaCorta(facturaFecha)}.` : `No se retiene según la ${cual}: ${r.motivo ?? 'sin motivo'}.`,
     };
@@ -1753,12 +1778,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
   const montosIlegibles = ([
+    ['Total de la factura o nota de débito', facturaTotalStr, tipo === 'iva' || tipo === 'islr'],
     ['Base imponible', baseStr, true],
     ['IVA de la factura', ivaStr, tipo === 'iva'],
+    ['Sin derecho a crédito IVA', sinDerechoStr, tipo === 'iva' && sinDerechoStr.trim() !== ''],
     ['Tasa', tasaStr, moneda !== 'Bs'],
     ['% retenido', pctStr, esManual],
     ['Monto retenido', montoStr, esManual],
   ] as Array<[string, string, boolean]>).filter(([, v, aplica]) => aplica && leerMonto(v) == null).map(([n]) => n);
+  const entregaTardia = tipo === 'iva' ? avisoEntregaIvaTardia(facturaFecha, fechaRetencion, fechaEntrega) : null;
 
   async function emitir() {
     setError(null);
@@ -1785,6 +1813,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       const falta = faltaEnDatosFactura({ nro: facturaNumero, control: facturaControl, fecha: facturaFecha }, hoyIso()); if (falta) { setError(falta); return; }
     }
     const faltaFechaRet = faltaEnFechaRetencion(fechaRetencion, facturaFecha, hoyIso()); if (faltaFechaRet) { setError(faltaFechaRet); return; }
+    const faltaEntrega = faltaEnFechaEntrega(fechaEntrega, fechaRetencion, hoyIso()); if (faltaEntrega) { setError(faltaEntrega); return; }
+    if ((tipo === 'iva' || tipo === 'islr') && nDec(facturaTotalStr) < 0) { setError('El total de la factura o nota de débito no puede ser negativo.'); return; }
     const faltaBase = faltaEnBaseImponible(esManual ? nDec(baseStr) : calculo.baseImponible); if (faltaBase) { setError(faltaBase); return; }
     if (!esManual) {
       const errorDoc = validarDocumentoRespaldo(tipoArchivo, otroDetalle, !!archivo);
@@ -1806,15 +1836,23 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         facturaControl: facturaControl.trim() || null,
         facturaFecha: facturaFecha || null,
         fechaRetencion,
+        fechaEntrega,
         periodo, quincena: tipo === 'iva' ? quincenaDe(facturaFecha) : null,
         numeroComprobante: esManual ? (numero.trim() || null) : null,
         conceptoId: esManual ? null : (concepto?.id ?? null),
         conceptoNombre: esManual ? null : (concepto?.nombre ?? null),
         municipio: municipioDeLinea(tipo, config),
         moneda, tasa: moneda === 'Bs' ? null : tasa,
+        facturaTotal: tipo === 'iva' || tipo === 'islr' ? nDec(facturaTotalStr) : null,
         baseImponible: esManual ? nDec(baseStr) : calculo.baseImponible,
         alicuota: esManual ? 0 : calculo.alicuota,
         impuesto: esManual ? nDec(ivaStr) : calculo.impuesto,
+        impuestoCausado: esManual
+          ? tipo === 'iva'
+            ? nDec(ivaStr)
+            : tipo === 'islr' ? Math.round(nDec(baseStr) * nDec(pctStr)) / 100 : 0
+          : calculo.impuestoCausado,
+        sinDerechoCreditoIva: tipo === 'iva' ? (sinDerechoStr.trim() ? nDec(sinDerechoStr) : 0) : null,
         porcentaje: pctFinal,
         sustraendo: esManual ? 0 : calculo.sustraendo,
         montoRetenido: montoFinal,
@@ -2074,6 +2112,12 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => setFechaRetencion(e.target.value)} />
           <small className="hint muted">Emisión del comprobante. No cambia el período.</small>
         </div>
+        <div className="form-row" style={{ flex: '1 1 150px' }}>
+          <label>Fecha recibido / entrega (opcional)</label>
+          <input className="input" type="date" value={fechaEntrega} min={fechaRetencion} max={hoyIso()} onChange={(e) => setFechaEntrega(e.target.value)} />
+          <small className="hint muted">Puede quedar vacía. Si se informa: Art. 16 de la 0054 (IVA) · Art. 18.3 de la 0093.</small>
+          {entregaTardia && <small className="hint" style={{ color: 'var(--warning)' }}>{entregaTardia}</small>}
+        </div>
       </div>
 
       {periodoCerrado && (
@@ -2140,9 +2184,16 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             </small>
           </div>
         ) : null}
+        {(tipo === 'iva' || tipo === 'islr') && (
+          <div className="form-row" style={{ flex: '1 1 150px' }}>
+            <label>Total factura / nota de débito</label>
+            <input className="input mono" value={facturaTotalStr} readOnly={!!elegida} onChange={(e) => setFacturaTotalStr(e.target.value)} inputMode="decimal" />
+            <small className="hint muted">Art. 18.8: puede ser distinto de la base sobre la que se calcula.</small>
+          </div>
+        )}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Base imponible</label>
-          <input className="input mono" value={baseStr} onChange={(e) => setBaseStr(e.target.value)} inputMode="decimal" />
+          <input className="input mono" value={baseStr} onChange={(e) => cambiarBase(e.target.value)} inputMode="decimal" />
           {tipo !== 'iva' && <small className="hint muted">El monto de la factura sin IVA, sobre el que se calcula la retención.</small>}
         </div>
         {tipo === 'iva' && (
@@ -2162,6 +2213,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                 </small>
               );
             })()}
+          </div>
+        )}
+        {tipo === 'iva' && (
+          <div className="form-row" style={{ flex: '1 1 150px' }}>
+            <label>Sin derecho a crédito IVA</label>
+            <input className="input mono" value={sinDerechoStr} onChange={(e) => setSinDerechoStr(e.target.value)} inputMode="decimal" placeholder="0,00" />
+            <small className="hint muted">Dato interno; separado de exento.</small>
           </div>
         )}
         {esManual && (
@@ -2308,7 +2366,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
-          ? `Al registrar, la base le asigna el número de comprobante: ${rotuloSerie(!conV2R || tipo === 'iva' ? 'AAAAMM8' : 'N10').toLowerCase()}. El número no se reusa.${facturaFecha ? ` Entregar el comprobante hasta el ${fechaCorta(limiteEntregaComprobante(facturaFecha))}.` : ''}`
+          ? `Al registrar, la base le asigna el número de comprobante: ${rotuloSerie(correlativoEstimado?.formato ?? (!conV2R ? 'AAAAMM8' : fichasImpuesto?.get(tipo)?.serieFormato ?? formatoSerie(tipo))).toLowerCase()}. El número no se reusa.${facturaFecha && tipo === 'iva' ? ` Emitir y entregar el comprobante de IVA a más tardar dentro de los primeros 2 días hábiles del período siguiente (${fechaCorta(limiteEntregaComprobante(facturaFecha))}, sin contar feriados).` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
       </div>

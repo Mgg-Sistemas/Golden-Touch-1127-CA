@@ -159,13 +159,15 @@ describe('C3 · desglosarIvaDeTotal (IVA incluido / no discriminado)', () => {
 });
 
 describe('plazo de entrega y bolívares', () => {
-  it('primera quincena: hasta 5 días después del 15', () => {
-    expect(limiteEntregaComprobante('2026-10-03')).toBe('2026-10-20');
-  });
-
-  it('segunda quincena: hasta el día 5 del mes siguiente', () => {
-    expect(limiteEntregaComprobante('2026-10-20')).toBe('2026-11-05');
-    expect(limiteEntregaComprobante('2026-12-31')).toBe('2027-01-05');
+  it('IVA: primeros 2 días hábiles del período siguiente (Art. 16 de la 0054)', () => {
+    // Q1 termina jueves 15/10: viernes 16 (1) y lunes 19 (2).
+    expect(limiteEntregaComprobante('2026-10-03')).toBe('2026-10-19');
+    // Q2 termina sábado 31/10: lunes 02/11 (1) y martes 03/11 (2).
+    expect(limiteEntregaComprobante('2026-10-20')).toBe('2026-11-03');
+    // Q1 termina sábado 15/08: lunes 17 (1) y martes 18 (2).
+    expect(limiteEntregaComprobante('2026-08-03')).toBe('2026-08-18');
+    // Cambio de año, sin calendario de feriados: 01/01/2027 (1) y 04/01/2027 (2).
+    expect(limiteEntregaComprobante('2026-12-31')).toBe('2027-01-04');
   });
 
   it('sin fecha válida no inventa un plazo', () => {
@@ -332,6 +334,8 @@ describe('período y comprobante', () => {
     expect(formatoComprobante('202609', 1)).toBe('20260900000001');
     expect(formatoComprobante('202609', 1234)).toBe('20260900001234');
     expect(comprobanteValido('20260900000001')).toBe(true);
+    expect(comprobanteValido('20261300000001')).toBe(false);   // mes 13 no es AAAAMM
+    expect(comprobanteValido('99999900000001')).toBe(false);
     expect(comprobanteValido('2026-09-1')).toBe(false);
     expect(comprobanteValido(null)).toBe(false);
     // V1/V2: ISLR, ISAE y estadal llevan 10 dígitos continuos; el IVA, 14.

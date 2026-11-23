@@ -305,6 +305,8 @@ export interface CalculoRetencion {
   alicuota: number;
   /** El impuesto sobre el que se retiene (el IVA de la factura). */
   impuesto: number;
+  /** G.O. 43.484 Art. 18.8: impuesto causado. IVA = IVA de la factura; ISLR = bruto antes del sustraendo. */
+  impuestoCausado: number;
   /** Porcentaje de retención aplicado. */
   porcentaje: number;
   sustraendo: number;
@@ -317,7 +319,7 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const n0 = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 const CERO = (tipo: TipoImpuesto, explicacion: string): CalculoRetencion => ({
-  tipo, baseImponible: 0, alicuota: 0, impuesto: 0, porcentaje: 0, sustraendo: 0, montoRetenido: 0, explicacion,
+  tipo, baseImponible: 0, alicuota: 0, impuesto: 0, impuestoCausado: 0, porcentaje: 0, sustraendo: 0, montoRetenido: 0, explicacion,
 });
 
 /* ───────────────────────── IVA ───────────────────────── */
@@ -380,7 +382,7 @@ export function calcularRetencionIva(
   const porQue = sup ? ` (${pct}% porque: ${sup.texto.toLowerCase()})`
     : cien ? ` (100% porque: ${motivoCienTexto(input.motivos)?.toLowerCase()})` : '';
   return {
-    tipo: 'iva', baseImponible: base, alicuota, impuesto: iva,
+    tipo: 'iva', baseImponible: base, alicuota, impuesto: iva, impuestoCausado: iva,
     porcentaje: pct, sustraendo: 0, montoRetenido: monto,
     explicacion: `${pct}% del IVA de la factura (${iva.toLocaleString('es-VE')})${porQue}.`,
   };
@@ -431,7 +433,7 @@ export function calcularRetencionIslr(
   if (minimo > 0 && baseBs < minimo) {
     const detBs = tasaConv > 0 ? ` (${baseBs.toLocaleString('es-VE')} Bs al cambio)` : '';
     return {
-      tipo: 'islr', baseImponible: base, alicuota: 0, impuesto: 0, porcentaje: pct, sustraendo: 0, montoRetenido: 0,
+      tipo: 'islr', baseImponible: base, alicuota: 0, impuesto: 0, impuestoCausado: 0, porcentaje: pct, sustraendo: 0, montoRetenido: 0,
       explicacion: `No se retiene: la base${detBs} no llega al mínimo de ${minimo.toLocaleString('es-VE')} Bs (${c.baseMinimaUt} UT).`,
     };
   }
@@ -446,7 +448,7 @@ export function calcularRetencionIslr(
     ? ' · falta cargar el valor de la UT para el sustraendo'
     : '';
   return {
-    tipo: 'islr', baseImponible: base, alicuota: 0, impuesto: 0,
+    tipo: 'islr', baseImponible: base, alicuota: 0, impuesto: 0, impuestoCausado: bruto,
     porcentaje: pct, sustraendo, montoRetenido: monto,
     explicacion: `${pct}%${detalleBase}${detalleSus} · ${c.nombre}${avisoUt}.`,
   };
@@ -473,7 +475,7 @@ export function calcularRetencionLocal(
   }
   const base = r2((pago * n0(c.basePct)) / 100);
   return {
-    tipo, baseImponible: base, alicuota: 0, impuesto: 0,
+    tipo, baseImponible: base, alicuota: 0, impuesto: 0, impuestoCausado: 0,
     porcentaje: pct, sustraendo: 0, montoRetenido: r2((base * pct) / 100),
     explicacion: `${pct}% sobre ${base.toLocaleString('es-VE')} · ${c.nombre}.`,
   };
@@ -495,7 +497,7 @@ export function calcularIgtf(
   const pct = n0(config.pctIgtf);
   if (pct <= 0) return CERO('igtf', 'El porcentaje de IGTF está en 0 en la configuración fiscal.');
   return {
-    tipo: 'igtf', baseImponible: pago, alicuota: 0, impuesto: 0,
+    tipo: 'igtf', baseImponible: pago, alicuota: 0, impuesto: 0, impuestoCausado: 0,
     porcentaje: pct, sustraendo: 0, montoRetenido: r2((pago * pct) / 100),
     explicacion: `${pct}% sobre el pago en divisas (${pago.toLocaleString('es-VE')}).`,
   };
@@ -556,14 +558,15 @@ export function formatoComprobante(periodo: string, consecutivo: number, tipo: T
 export function comprobanteValido(v: string | null | undefined, tipo?: TipoImpuesto): boolean {
   const s = String(v ?? '');
   const formato = tipo ? formatoSerie(tipo) : null;
-  if (formato === 'AAAAMM8') return /^\d{14}$/.test(s);
+  if (formato === 'AAAAMM8') return numeroConFormato(s, 'AAAAMM8');
   if (formato === 'N10') return /^\d{10}$/.test(s);
-  return /^(\d{14}|\d{10})$/.test(s);
+  return numeroConFormato(s, 'AAAAMM8') || /^\d{10}$/.test(s);
 }
 
 /** ¿El número tiene la forma de ese formato? (con V2R el formato sale de retencion_impuestos). */
 export function numeroConFormato(v: string, formato: FormatoSerie): boolean {
-  return formato === 'AAAAMM8' ? /^\d{14}$/.test(v) : /^\d{10}$/.test(v);
+  // No basta con 14 dígitos: los seis primeros son un AAAAMM real (Art. 16 / 18.1).
+  return formato === 'AAAAMM8' ? /^2\d{3}(0[1-9]|1[0-2])\d{8}$/.test(v) : /^\d{10}$/.test(v);
 }
 
 export const textoDeFormato = (formato: FormatoSerie) => (formato === 'AAAAMM8' ? '14 dígitos (AAAAMM y 8 de la serie)' : '10 dígitos');
@@ -574,18 +577,24 @@ export function textoFormatoSerie(tipo: TipoImpuesto): string {
 }
 
 /**
- * Hasta cuándo hay tiempo de ENTREGAR el comprobante al proveedor: el de la
- * primera quincena, dentro de los 5 días continuos siguientes al 15; el de la
- * segunda, dentro de los 5 días continuos del mes siguiente.
+ * IVA · SNAT/2025/000054 Art. 16: emitir y ENTREGAR el comprobante dentro de
+ * los primeros dos días hábiles del período de imposición siguiente. Como el
+ * período del IVA es quincenal, se cuentan dos días hábiles desde el día
+ * siguiente al 15 o al fin de mes. Lunes a viernes, sin calendario de feriados.
  */
 export function limiteEntregaComprobante(fechaIso: string): string {
   const d = String(fechaIso ?? '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
   const y = Number(d.slice(0, 4));
   const m = Number(d.slice(5, 7));
-  const base = quincenaDe(d) === 1 ? new Date(Date.UTC(y, m - 1, 15)) : new Date(Date.UTC(y, m, 0));
-  base.setUTCDate(base.getUTCDate() + 5);
-  return base.toISOString().slice(0, 10);
+  const limite = quincenaDe(d) === 1 ? new Date(Date.UTC(y, m - 1, 15)) : new Date(Date.UTC(y, m, 0));
+  let habiles = 0;
+  while (habiles < 2) {
+    limite.setUTCDate(limite.getUTCDate() + 1);
+    const dia = limite.getUTCDay();
+    if (dia !== 0 && dia !== 6) habiles += 1;
+  }
+  return limite.toISOString().slice(0, 10);
 }
 
 /**

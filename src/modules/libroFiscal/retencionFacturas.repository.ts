@@ -41,6 +41,12 @@ export interface LineaFacturaNueva {
   sustraendo?: number | null;
   ivaAlicuota?: number | null;
   ivaMonto?: number | null;
+  /** Art. 18.8: IVA de la factura o bruto del ISLR antes del sustraendo. */
+  impuestoCausado?: number | null;
+  /** Dato interno manual «sin derecho a crédito IVA», separado de `exento`. */
+  sinDerechoCreditoIva?: number | null;
+  /** G.O. 43.484 Art. 18.3: fecha real de entrega del comprobante. */
+  fechaEntrega?: string | null;
   moneda?: string;
   tasa?: number | null;
   baseBs?: number | null;
@@ -158,6 +164,9 @@ export function pLineaDe(l: LineaFacturaNueva): Record<string, unknown> {
     monto_bs: l.montoBs ?? null,
     iva_alicuota: l.ivaAlicuota ?? null,
     iva_monto: l.ivaMonto ?? null,
+    impuesto_causado: l.impuestoCausado ?? l.ivaMonto ?? null,
+    monto_sin_derecho_credito_iva: l.sinDerechoCreditoIva ?? null,
+    fecha_entrega: l.fechaEntrega ?? null,
     moneda: l.moneda ?? null,
     tasa: l.tasa ?? null,
     motivo: l.motivo?.trim() || null,

@@ -394,6 +394,8 @@ export interface RetencionPracticada {
   facturaFecha: string | null;
   /** Fecha de emisión del comprobante (columna `retenciones.fecha`). */
   fecha?: string | null;
+  /** Opcional (Art. 18.3): fecha real de entrega; vacía si no se informa. */
+  fechaEntrega?: string | null;
   periodo: string;
   quincena: 1 | 2 | null;
   numeroComprobante: string | null;
@@ -409,6 +411,8 @@ export interface RetencionPracticada {
   facturaTotal?: number | null;
   /** Compras sin derecho a crédito fiscal o monto exento (PA 049). */
   exento?: number | null;
+  /** Monto manual «sin derecho a crédito IVA» (dato interno; no es un concepto literal del Art. 18.8). */
+  sinDerechoCreditoIva?: number | null;
   /** N° de licencia municipal o RIM del sujeto retenido (ISAE). */
   licenciaSujeto?: string | null;
   conceptoId: string | null;
@@ -420,6 +424,8 @@ export interface RetencionPracticada {
   baseBs?: number | null;
   alicuota: number;
   impuesto: number;
+  /** Art. 18.8: IVA de la factura o bruto del ISLR antes del sustraendo. */
+  impuestoCausado?: number | null;
   porcentaje: number;
   sustraendo: number;
   montoRetenido: number;
@@ -477,10 +483,13 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     facturaControl: texto(r.factura_control ?? doc?.factura_control),
     facturaFecha: fechaFactura,
     fecha: fechaEmision,
+    fechaEntrega: texto(r.fecha_entrega ?? doc?.fecha_entrega),
     tipoDocumento: tipoDocRaw === 'nota_debito' || tipoDocRaw === 'nota_credito' ? tipoDocRaw : (tipoDocRaw === 'factura' ? 'factura' : null),
     facturaAfectadaNro: texto(facturaAfectadaRaw),
     facturaTotal: facturaTotalRaw == null ? null : n(facturaTotalRaw),
     exento: exentoRaw == null ? null : n(exentoRaw),
+    sinDerechoCreditoIva: (r.monto_sin_derecho_credito_iva ?? doc?.monto_sin_derecho_credito_iva) == null
+      ? null : n(r.monto_sin_derecho_credito_iva ?? doc?.monto_sin_derecho_credito_iva),
     licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
     periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
@@ -493,6 +502,8 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     baseImponible: n(r.base),
     baseBs: r.base_bs == null ? null : n(r.base_bs),
     alicuota: n(r.iva_alicuota ?? doc?.iva_alicuota), impuesto: n(r.iva_monto ?? doc?.iva_monto),
+    impuestoCausado: (r.impuesto_causado ?? doc?.impuesto_causado) == null
+      ? null : n(r.impuesto_causado ?? doc?.impuesto_causado),
     porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido: n(r.monto),
     montoBs: r.monto_bs == null ? null : n(r.monto_bs),
     valorUt: r.valor_ut == null ? null : n(r.valor_ut),
@@ -579,6 +590,8 @@ export interface NuevaRetencion {
   facturaFecha?: string | null;
   /** Emisión del comprobante (columna `fecha`). El período sale de la fecha de la factura. */
   fechaRetencion?: string | null;
+  /** Opcional (Art. 18.3): fecha real de entrega del comprobante. */
+  fechaEntrega?: string | null;
   periodo: string;
   quincena?: 1 | 2 | null;
   /** Solo para las recibidas: el número que trae el comprobante del cliente. */
@@ -589,9 +602,15 @@ export interface NuevaRetencion {
   municipio?: string | null;
   moneda: string;
   tasa?: number | null;
+  /** Total real de la factura o nota de débito (Art. 18.8), distinto de la base si aplica. */
+  facturaTotal?: number | null;
   baseImponible: number;
   alicuota?: number;
   impuesto?: number;
+  /** Art. 18.8: impuesto causado (IVA de factura o bruto ISLR antes del sustraendo). */
+  impuestoCausado?: number | null;
+  /** Dato interno manual; separado de `exento`. */
+  sinDerechoCreditoIva?: number | null;
   porcentaje: number;
   sustraendo?: number;
   montoRetenido: number;
@@ -634,6 +653,8 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
   const fecha = (input.fechaRetencion || input.facturaFecha || hoyVenezuela()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
+    // La pantalla propone hoy, pero si el llamador no confirma una entrega no se inventa.
+    fecha_entrega: input.fechaEntrega?.slice(0, 10) || null,
     numero: numero.entero, comprobante_nro: numero.texto,
     comprobante_periodo: input.periodo, quincena: input.quincena ?? null,
     // En una recibida la contraparte es un cliente: no cabe en la clave foránea a proveedores.
@@ -644,9 +665,12 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     factura_nro: input.facturaNumero?.trim() || null,
     factura_control: input.facturaControl?.trim() || null,
     factura_fecha: input.facturaFecha || null,
+    factura_total: input.facturaTotal ?? null,
     base: r2(input.baseImponible),
     iva_alicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
     iva_monto: input.tipo === 'iva' ? input.impuesto ?? null : null,
+    impuesto_causado: r2(input.impuestoCausado ?? input.impuesto ?? 0),
+    monto_sin_derecho_credito_iva: input.tipo === 'iva' ? r2(input.sinDerechoCreditoIva ?? 0) : null,
     porcentaje: n(input.porcentaje),
     concepto_codigo: conceptoCodigo,
     concepto: input.conceptoNombre?.trim() || null,
@@ -717,6 +741,9 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     const formato = serie ? serie.formato : formatoSerie(input.tipo);
     if (numera && formato && !numeroConFormato(numero.texto, formato)) {
       throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoDeFormato(formato)}.`);
+    }
+    if (numera && formato === 'AAAAMM8' && numero.texto.slice(0, 6) !== input.periodo) {
+      throw new Error(`El número del comprobante empieza con ${numero.texto.slice(0, 6)} y debe coincidir con el período ${input.periodo} (AAAAMMSSSSSSSS).`);
     }
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
@@ -814,8 +841,8 @@ export async function consultarCorrelativoEstimado(
   const tipoGt = tipoAGt(tipo);
   // El formato sale de la ficha (R2) si el front lo pasa; si no, el mapeo fijo del tipo.
   const fmt = formatoFicha !== undefined ? formatoFicha : formatoSerie(tipo);
-  // Con formato AAAAMM8 el número lleva el período adelante (hoy solo el IVA).
-  const esIva = fmt === 'AAAAMM8';
+  // Con formato AAAAMM8 el número lleva el período adelante (lo pueden usar varios impuestos).
+  const conPeriodo = fmt === 'AAAAMM8';
 
   try {
     let q = supabase
@@ -824,7 +851,7 @@ export async function consultarCorrelativoEstimado(
       .eq('rol', 'practicada')
       .eq('tipo', tipoGt);
 
-    if (esIva && periodo) {
+    if (conPeriodo && periodo) {
       q = q.eq('comprobante_periodo', periodo);
     }
     // B2 (multi-empresa): cada empresa lleva su propia serie (R14). Si viene la empresa,
@@ -846,10 +873,10 @@ export async function consultarCorrelativoEstimado(
         }
         if (fila.comprobante_nro) {
           const digitos = String(fila.comprobante_nro).replace(/\D/g, '');
-          if (esIva && digitos.length >= 14 && digitos.startsWith(periodo)) {
+          if (conPeriodo && digitos.length >= 14 && digitos.startsWith(periodo)) {
             const sec = Number(digitos.slice(6));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
-          } else if (!esIva && digitos.length >= 1) {
+          } else if (!conPeriodo && digitos.length >= 1) {
             const sec = Number(digitos.length === 14 ? digitos.slice(6) : digitos.slice(-10));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
           }
@@ -864,7 +891,7 @@ export async function consultarCorrelativoEstimado(
       numero: siguienteNumero,
       comprobante: compTexto,
       formato: fmt,
-      explicacion: esIva
+      explicacion: conPeriodo
         ? `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} en el período ${periodo} (${compTexto}).`
         : `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} (${compTexto}).`,
     };

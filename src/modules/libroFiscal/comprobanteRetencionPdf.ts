@@ -97,36 +97,53 @@ export function lineaEquivalenteBs(r: Pick<RetencionPracticada, 'moneda' | 'mont
   return `Equivalente en bolívares: ${montoPdf(r.montoBs, 'Bs')}${tasa}`;
 }
 
+/** Los 8 dígitos del secuencial (Art. 18.1): AAAAMMSSSSSSSS → SSSSSSSS. */
+export function correlativoDeNumero(numero: string | null | undefined): string {
+  const d = String(numero ?? '').replace(/\D/g, '');
+  return d.length >= 14 ? d.slice(6, 14) : d || '—';
+}
+
 /** El valor de cada columna de la tabla del comprobante (por su campo). */
 export function valoresDeColumnas(r: RetencionPracticada): Record<string, string> {
   const op = r.operacionNumero != null
     ? String(r.operacionNumero).padStart(4, '0')
     : '0001';
   const signo = r.tipoDocumento === 'nota_credito' ? -1 : 1;
+  const esNd = r.tipoDocumento === 'nota_debito';
+  const esNc = r.tipoDocumento === 'nota_credito';
+  const documento = r.facturaNumero || r.docCodigo || '—';
   const exentoMonto = r.exento != null ? r.exento : 0;
+  // En IVA el total se puede reconstruir como base + IVA + exento. En ISLR no:
+  // la base puede ser solo un porcentaje del pago y no se presenta como total.
   const totFactura = r.facturaTotal != null
     ? r.facturaTotal
-    : (r.baseImponible + r.impuesto + exentoMonto);
+    : r.tipo === 'islr' ? null : (r.baseImponible + r.impuesto + exentoMonto);
 
   return {
     operacion: op,
-    factura: r.facturaNumero || r.docCodigo || '—',
+    factura: esNd || esNc ? '—' : documento,
     fecha: fechaPdf(r.facturaFecha),
     control: r.facturaControl || '—',
+    nd: esNd ? documento : '—',
+    nc: esNc ? documento : '—',
+    // Código de operación de compra general del ejemplar; no es el tipo de documento del TXT.
+    clase: '01-reg',
     afectada: r.facturaAfectadaNro || '—',
-    total_factura: montoPdf(totFactura * signo, r.moneda),
+    total_factura: totFactura == null ? '—' : montoPdf(totFactura * signo, r.moneda),
+    sin_derecho: montoPdf((r.sinDerechoCreditoIva ?? 0) * signo, r.moneda),
     exento: montoPdf(exentoMonto * signo, r.moneda),
     concepto: r.conceptoNombre || 'SERVICIOS',
     base: montoPdf(r.baseImponible * signo, r.moneda),
     alicuota: r.alicuota ? `${r.alicuota}%` : '—',
-    iva: montoPdf(r.impuesto * signo, r.moneda),
+    iva: montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signo, r.moneda),
+    causado: montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signo, r.moneda),
     sustraendo: r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00',
     pct: `${r.porcentaje}%`,
     monto: montoPdf(r.montoRetenido * signo, r.moneda),
   };
 }
 
-const COLUMNAS_NUMERICAS = new Set(['total_factura', 'exento', 'base', 'alicuota', 'iva', 'sustraendo', 'pct', 'monto']);
+const COLUMNAS_NUMERICAS = new Set(['total_factura', 'sin_derecho', 'exento', 'base', 'alicuota', 'iva', 'causado', 'sustraendo', 'pct', 'monto']);
 
 /** Cadena canónica para verificación tributaria y generación de huella digital SHA-256 (PA 0084 / 0093). */
 export function cadenaCanonicoFiscal(r: RetencionPracticada, config: ConfigRetencion): string {
@@ -357,7 +374,10 @@ export async function generarDocComprobanteRetencionPdf(
     : (r.exento != null ? r.exento : 0);
   const facturaTotal = docCabecera?.factura_total != null
     ? Number(docCabecera.factura_total)
-    : (r.facturaTotal != null ? r.facturaTotal : (r.baseImponible + r.impuesto + exentoMonto));
+    : r.facturaTotal != null
+      ? r.facturaTotal
+      // En ISLR no se inventa el total a partir de una base que puede ser parcial.
+      : r.tipo === 'islr' ? null : (r.baseImponible + r.impuesto + exentoMonto);
 
   let licenciaSujeto = r.licenciaSujeto ?? null;
   if (!licenciaSujeto && perfilesProv && perfilesProv.length > 0) {
@@ -432,16 +452,17 @@ export async function generarDocComprobanteRetencionPdf(
 
   const ejemplar = opciones.ejemplar ?? null;
 
-  // Recuadro superior derecho: N° DE COMPROBANTE, PERÍODO FISCAL, FECHA DE EMISIÓN
+  // Recuadro superior derecho: N° DE COMPROBANTE y su CORRELATIVO (Art. 18.1),
+  // PERÍODO FISCAL, FECHA DE EMISIÓN y FECHA DE ENTREGA (Art. 18.3).
   const boxW = Math.min(260, UTIL * 0.46);
-  const boxH = 40;
+  const boxH = 56;
   const boxX = W - M - boxW;
 
   const badgeH = ejemplar ? 14 : 0;
   const badgeGap = ejemplar ? 3 : 0;
   const badgeY = restoY;
   const boxY = restoY + badgeH + badgeGap;
-  const colDivX = boxX + 118; // divisor vertical que alinea perfectamente ambas filas
+  const colDivX = boxX + 118; // divisor vertical que alinea perfectamente ambas columnas
 
   // Badge oficial de Ejemplar (Original / Copia) según Providencia SENIAT
   if (ejemplar) {
@@ -462,38 +483,50 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.6);
   doc.rect(boxX, boxY, boxW, boxH);
-  doc.line(boxX, boxY + 18, boxX + boxW, boxY + 18); // divisor horizontal entre filas
-  doc.line(colDivX, boxY, colDivX, boxY + boxH);     // divisor vertical completo
+  doc.line(boxX, boxY + 19, boxX + boxW, boxY + 19);
+  doc.line(boxX, boxY + 38, boxX + boxW, boxY + 38);
+  doc.line(colDivX, boxY, colDivX, boxY + boxH);
 
-  // Fila 1 - Columna Izquierda: N° DE COMPROBANTE
+  // Fila 1 - N° DE COMPROBANTE y su correlativo (últimos 8 dígitos del Art. 18.1)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
   doc.setTextColor(0, 0, 0);
   doc.text(textoPdf(f.rotulos.n_comprobante || 'N° DE COMPROBANTE'), boxX + 6, boxY + 12);
-
-  // Fila 1 - Columna Derecha: Número alineado con la fecha inferior
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.text(textoPdf(r.numeroComprobante ?? '—'), colDivX + 6, boxY + 12);
 
-  // Fila 2 - Columna Izquierda: PERÍODO FISCAL
+  // Fila 2 - PERÍODO FISCAL y CORRELATIVO N°
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.periodo || 'PERÍODO FISCAL'), boxX + 6, boxY + 26);
+  doc.text(textoPdf(f.rotulos.periodo || 'PERIODO FISCAL'), boxX + 6, boxY + 30);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   const pDigits = (r.periodo ?? '').replace(/\D/g, '');
   const anioStr = pDigits.length >= 4 ? pDigits.slice(0, 4) : (r.facturaFecha?.slice(0, 4) ?? '');
   const mesStr = pDigits.length >= 6 ? pDigits.slice(4, 6) : (r.facturaFecha?.slice(5, 7) ?? '');
-  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 36);
-
-  // Fila 2 - Columna Derecha: FECHA DE EMISIÓN
+  doc.text(`AÑO: ${anioStr}   MES: ${mesStr}`, boxX + 6, boxY + 34);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISIÓN'), colDivX + 6, boxY + 26);
+  doc.text(textoPdf(f.rotulos.correlativo || 'CORRELATIVO N°'), colDivX + 6, boxY + 30);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(fechaPdf(r.fecha || r.facturaFecha || r.createdAt)), colDivX + 6, boxY + 36);
+  doc.text(correlativoDeNumero(r.numeroComprobante), colDivX + 6, boxY + 34);
+
+  // Fila 3 - FECHA DE EMISIÓN y FECHA DE ENTREGA (Art. 18.3)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.text(textoPdf(f.rotulos.fecha_emision || 'FECHA DE EMISION'), boxX + 6, boxY + 49);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text(textoPdf(fechaPdf(r.fecha || r.facturaFecha || r.createdAt)), boxX + 6, boxY + 53);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.text(textoPdf(f.rotulos.fecha_entrega || 'FECHA DE ENTREGA'), colDivX + 6, boxY + 49);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  // Fecha Recibido / Entrega es opcional: sin dato, el espacio queda en blanco.
+  doc.text(r.fechaEntrega ? textoPdf(fechaPdf(r.fechaEntrega)) : '', colDivX + 6, boxY + 53);
 
   y = Math.max(boxY + boxH, tieneLogo ? restoY + logoH : 0) + 8;
 
@@ -728,10 +761,15 @@ export async function generarDocComprobanteRetencionPdf(
 
   const signoTabla = rEnriquecida.tipoDocumento === 'nota_credito' ? -1 : 1;
   const filaTotales = f.columnas.map((c, i) => {
-    if (c.campo === 'total_factura') return montoPdf((rEnriquecida.facturaTotal ?? (r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0))) * signoTabla, r.moneda);
+    if (c.campo === 'total_factura') {
+      const total = rEnriquecida.facturaTotal ?? (r.tipo === 'islr' ? null : r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0));
+      return total == null ? '—' : montoPdf(total * signoTabla, r.moneda);
+    }
+    if (c.campo === 'sin_derecho') return montoPdf((rEnriquecida.sinDerechoCreditoIva ?? 0) * signoTabla, r.moneda);
     if (c.campo === 'exento') return montoPdf((rEnriquecida.exento ?? 0) * signoTabla, r.moneda);
     if (c.campo === 'base') return montoPdf(r.baseImponible * signoTabla, r.moneda);
-    if (c.campo === 'iva') return montoPdf(r.impuesto * signoTabla, r.moneda);
+    if (c.campo === 'iva') return montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signoTabla, r.moneda);
+    if (c.campo === 'causado') return montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signoTabla, r.moneda);
     if (c.campo === 'sustraendo') return r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00';
     if (c.campo === 'monto') return montoPdf(r.montoRetenido * signoTabla, r.moneda);
     if (i === idxRotuloTotal) return f.rotulos.total || 'TOTALES:';
@@ -1026,7 +1064,14 @@ export async function generarDocComprobanteRetencionPdf(
     }
   }
 
-  // ── Pie de página con el texto configurado en Parámetros y destino del ejemplar ──
+  // ── Pie de página: leyenda configurable del Art. 19, texto configurado y destino del ejemplar ──
+  const leyendaArt19 = String(f.textos.leyenda_art19 ?? '').trim();
+  if (leyendaArt19) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(50, 50, 50);
+    doc.text(textoPdf(leyendaArt19), M, H - 25, { maxWidth: UTIL });
+  }
   const pieTexto = f.textos.pie || razonSocialAgente(config);
   if (ejemplar) {
     const rotuloDestino = ejemplar === 'original'
@@ -1086,7 +1131,7 @@ export async function verComprobanteRetencionPdf(
   formato?: FormatoParaAplicar | null,
   opciones: OpcionesComprobantePdf = {},
 ): Promise<void> {
-  const fechaRef = r.facturaFecha || r.createdAt || hoyVenezuela();
+  const fechaRef = r.fecha || r.facturaFecha || r.createdAt || hoyVenezuela();
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
@@ -1241,7 +1286,7 @@ export async function verTodosComprobantesFacturaPdf(
     throw new Error('Esta factura no tiene comprobantes emitidos para imprimir.');
   }
 
-  const fechaRef = seleccionadas[0]?.facturaFecha || seleccionadas[0]?.createdAt || hoyVenezuela();
+  const fechaRef = seleccionadas[0]?.fecha || seleccionadas[0]?.facturaFecha || seleccionadas[0]?.createdAt || hoyVenezuela();
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
@@ -1256,7 +1301,7 @@ export async function verTodosComprobantesFacturaPdf(
   const generarLote = async () => {
     let doc: any = null;
     for (const r of seleccionadas) {
-      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyVenezuela());
+      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.fecha || r.facturaFecha || r.createdAt) || null, hoyVenezuela());
       doc = await anexarPaginasComprobantePdf(r, config, formato, {
         modoEjemplar,
         incluirLogo: conLogo,
