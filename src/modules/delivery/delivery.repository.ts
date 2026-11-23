@@ -17,7 +17,7 @@
 import { esDelCanal, type CanalDelivery } from './delivery';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
-import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { prepararFotoDelivery } from './fotoDelivery';
 import { interruptorActivo } from '@/shared/lib/interruptores';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { comprobantesDeLaOrden } from '@/modules/pedidos/adjuntosPago';
@@ -150,7 +150,7 @@ export async function subirFotosDelivery(
 ): Promise<FotoDelivery[]> {
   if (actuales.length + archivos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
   const nuevas = await Promise.all(archivos.map(async (original) => {
-    const f = await comprimirImagen(original).catch(() => original);
+    const f = await prepararFotoDelivery(original);
     const path = `${pedidoId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
     if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
@@ -181,7 +181,7 @@ export async function editarFotosDelivery(
 ): Promise<{ fotos: FotoDelivery[]; sinBorrar: number }> {
   if (quedan.length + nuevos.length > MAX_FOTOS_DELIVERY) throw new Error(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`);
   const subidas = await Promise.all(nuevos.map(async (original) => {
-    const f = await comprimirImagen(original).catch(() => original);
+    const f = await prepararFotoDelivery(original);
     const path = `${pedidoId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
     if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);

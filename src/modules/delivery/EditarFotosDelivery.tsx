@@ -15,11 +15,14 @@ type Tipo = TipoFotoDelivery;
 
 const SIN_FOTOS: FotoDelivery[] = [];
 
-export const esImagen = (f: File) =>
-  !f.type ||
-  /^image\//.test(f.type) ||
-  f.type === 'application/octet-stream' ||
-  /\.(jpe?g|png|webp|gif|heic|heif|bmp)$/i.test(f.name);
+export const esImagen = (f: File) => {
+  // SVG puede ejecutar scripts: nunca se sube como foto (aunque venga sin MIME).
+  if (f.type === 'image/svg+xml' || /\.svg$/i.test(f.name)) return false;
+  return !f.type ||
+    /^image\//.test(f.type) ||
+    f.type === 'application/octet-stream' ||
+    /\.(jpe?g|png|webp|gif|heic|heif|bmp)$/i.test(f.name);
+};
 
 /** ¿Puede este usuario editar las fotos de un pedido entregado? */
 export function puedeEditarFotosDelivery(

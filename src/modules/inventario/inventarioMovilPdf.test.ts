@@ -40,7 +40,7 @@ describe('Inventario · PDF de la vista de teléfono (formato Orden de Salida/Tr
     }]);
     expect(d.sol.motivo).toContain('Para la bomba del pozo 3');
     expect(d.sol.motivo).toContain('Retorna: SÍ');
-    expect(d.opciones).toEqual({ solicitadoPor: 'JESUS GARCIA' });
+    expect(d.opciones).toEqual({ solicitadoPor: 'JESUS GARCIA', unidadSolicitante: null });
     expect(d.opciones.titulo).toBeUndefined();
   });
 
