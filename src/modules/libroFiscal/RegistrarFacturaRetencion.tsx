@@ -484,7 +484,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const ocCod = o.oc_codigo || o.codigo || `OC-${o.id.slice(0, 8)}`;
       const prov = proveedorNombre || 'Proveedor sin nombre';
       const totalTxt = money(o.total, o.total_moneda === 'Bs' ? 'Bs' : 'USD');
-      const fechaTxt = fechaCorta(o.fecha || '');
+      const fechaTxt = fechaCorta(o.created_at || '');
       const tieneAdjunto = Boolean(o.factura_recepcion_path);
       const label = `${ocCod} · ${prov} · ${totalTxt}`;
       const hint = `${fechaTxt}${tieneAdjunto ? ' · 📎 Factura' : ''}`;
@@ -513,7 +513,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const nro = b.facturaNumero ? `Factura ${b.facturaNumero}` : 'Sin N°';
       const prov = b.proveedorNombre || b.proveedorRif || 'Proveedor';
       const totalTxt = money(b.montoTotal, b.moneda);
-      const fechaTxt = fechaCorta(b.facturaFecha || b.creadoEn || '');
+      const fechaTxt = fechaCorta(b.facturaFecha || b.createdAt || '');
       const label = `${nro} · ${prov} · ${totalTxt}`;
       const hint = `${fechaTxt} (${b.empresaNombre || 'GT'}) 📎`;
       const keywords = [
@@ -558,9 +558,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     // Gobernanza de Parámetros: comprobar si la empresa practica el impuesto según su régimen
     if (direccion === 'practicada' && !puedePracticarEmpresa(tipo, config)) {
-      const motivo = empresaFicha
+      const motivo = (empresaFicha
         ? `La empresa no practica retención de ${labelImpuesto(tipo)} según su régimen en Parámetros.`
-        : motivoNoPuedePracticar(tipo, config);
+        : motivoNoPuedePracticar(tipo, config)) || 'La empresa no practica retenciones para este impuesto.';
       toast(motivo, 'warning');
       return;
     }
@@ -867,45 +867,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Desde «Facturas registradas»: se abre ya sobre esa factura.
   useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const aplicarIva16 = () => {
-    const tot = nDec(facturaTotal);
-    const ex = nDec(exentoStr);
-    if (tot <= 0) {
-      toast('Escribe primero el monto total de la factura para calcular el IVA.', 'warning');
-      return;
-    }
-    marcarSucio();
-    const { base, iva } = desglosarIvaDeTotal(tot, ex, aliIvaPct);
-    setIvaFacturaStr(numeroATexto(iva));
-    setLineas((xs) => {
-      return xs.map((l) => {
-        if (l.tipo === 'iva') {
-          return { ...l, baseStr: numeroATexto(base), ivaStr: numeroATexto(iva) };
-        }
-        return { ...l, baseStr: numeroATexto(base) };
-      });
-    });
-    toast(`Desglose aplicado: Base Bs ${numeroATexto(base)} + IVA Bs ${numeroATexto(iva)} = Total Bs ${numeroATexto(tot)}`, 'info');
-  };
-
-  const aplicarSinIva = () => {
-    marcarSucio();
-    setIvaFacturaStr('0');
-    const tot = nDec(facturaTotal);
-    const ex = nDec(exentoStr);
-    const base = Math.max(0, tot - ex);
-    setLineas((xs) => xs.map((l) => ({
-      ...l,
-      baseStr: numeroATexto(base),
-      ...(l.tipo === 'iva' ? { ivaStr: '0' } : {}),
-    })));
-    toast('Factura sin IVA: la base gravable es el total menos exento.', 'info');
-  };
-
-  const desglosarIvaIncluido = () => {
-    aplicarIva16();
-  };
-
   async function emitir() {
     const falla = validar();
     if (falla) { setError(falla); return; }
@@ -1125,7 +1086,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 onChange={elegirOrden}
                 options={opcionesOrdenes}
                 placeholder="Escribe código de OC (ej. OC-2026-0152), proveedor o monto para buscar…"
-                allowClear
               />
               {ordenSeleccionadaId ? (
                 <div style={{
@@ -1177,7 +1137,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 onChange={elegirFacturaBuzon}
                 options={opcionesBuzon}
                 placeholder="Escribe N° de factura, proveedor o monto del buzón…"
-                allowClear
               />
               {buzonSeleccionadaId ? (
                 <div style={{

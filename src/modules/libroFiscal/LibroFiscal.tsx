@@ -52,7 +52,7 @@ import type { EstadoOrden } from '@/shared/lib/types';
 import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
   CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, desglosarIvaDeTotal, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
