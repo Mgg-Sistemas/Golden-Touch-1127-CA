@@ -256,18 +256,33 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     return ordenesPendientes.filter((it) => it.orden.proveedor_id === proveedorId);
   }, [ordenesPendientes, proveedorId]);
 
+  function sugerirConceptoParaLinea(cs: ConceptoRetencion[], tipo: TipoImpuesto, sujeto: SujetoRetenido): string {
+    const candidatos = cs.filter((c) => c.tipo === tipo && c.activo !== false && (c.sujeto === sujeto || c.sujeto === 'todos'));
+    if (!candidatos.length) return '';
+    if (tipo === 'islr') {
+      const serv2 = candidatos.find((c) => (c.codigo?.includes('054') || c.nombre.toLowerCase().includes('servicio')) && c.porcentaje === 2);
+      if (serv2) return serv2.id;
+      const pct2 = candidatos.find((c) => c.porcentaje === 2);
+      if (pct2) return pct2.id;
+    }
+    return candidatos[0].id;
+  }
+
   function elegirOrden(id: string) {
     marcarSucio();
     setOrdenSeleccionadaId(id);
+    if (!id) return;
     const item = ordenesPendientes.find((x) => x.orden.id === id);
     if (!item) return;
     const o = item.orden;
+    let provRif = '';
     if (o.proveedor_id) {
       setProveedorId(o.proveedor_id);
       const prov = proveedores.find((p) => p.id === o.proveedor_id);
       if (prov) {
         setContraparte(prov.razon_social);
         setRif(prov.rif ?? '');
+        provRif = prov.rif ?? '';
       } else {
         setContraparte(item.proveedorNombre || '');
       }
@@ -279,9 +294,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     setIvaFacturaStr(numeroATexto(o.iva_monto ?? 0));
     const baseCalc = Math.max(0, (o.total ?? 0) - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0));
     const tipoSugerido = puedePracticarEmpresa('islr', config) ? 'islr' : 'iva';
+    const sujetoSugerido = sugerirSujetoPorRif(provRif)?.sujeto ?? 'pj_domiciliada';
+    const conceptoSugerido = sugerirConceptoParaLinea(conceptos, tipoSugerido, sujetoSugerido);
+
     setLineas([nuevaLinea({
       tipo: tipoSugerido,
-      sujeto: sugerirSujetoPorRif(o.proveedor_id ? proveedores.find((p) => p.id === o.proveedor_id)?.rif ?? '' : '')?.sujeto ?? 'pj_domiciliada',
+      sujeto: sujetoSugerido,
+      conceptoId: conceptoSugerido,
       baseStr: numeroATexto(baseCalc),
       ivaStr: numeroATexto(o.iva_monto ?? 0),
     })]);
@@ -297,6 +316,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   function elegirFacturaBuzon(id: string) {
     marcarSucio();
     setBuzonSeleccionadaId(id);
+    if (!id) return;
     const f = buzonPendientes.find((x) => x.id === id);
     if (!f) return;
     setContraparte(f.proveedorNombre || '');
@@ -313,9 +333,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     const { base: bBuzon, iva: iBuzon } = desglosarIvaDeTotal(f.montoTotal ?? 0, 0, aliIvaPct);
     setIvaFacturaStr(numeroATexto(iBuzon));
     const tipoBuzon = puedePracticarEmpresa('islr', config) ? 'islr' : 'iva';
+    const sujetoBuzon = sugerirSujetoPorRif(f.proveedorRif ?? '')?.sujeto ?? 'pj_domiciliada';
+    const conceptoBuzon = sugerirConceptoParaLinea(conceptos, tipoBuzon, sujetoBuzon);
+
     setLineas([nuevaLinea({
       tipo: tipoBuzon,
-      sujeto: sugerirSujetoPorRif(f.proveedorRif ?? '')?.sujeto ?? 'pj_domiciliada',
+      sujeto: sujetoBuzon,
+      conceptoId: conceptoBuzon,
       baseStr: numeroATexto(bBuzon),
       ivaStr: numeroATexto(iBuzon),
     })]);
@@ -361,9 +385,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     previewArchivo(archivoFacturaUrl, archivoFactura.name);
   };
 
-  const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
-    tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
-  })]);
+  const [lineas, setLineas] = useState<LineaUI[]>(() => {
+    const tipoDef = s.tipoInicial ?? (OFRECER_DIRECCION && s.direccion === 'recibida' ? 'iva' : 'islr');
+    return [nuevaLinea({
+      tipo: tipoDef, baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
+    })];
+  });
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
@@ -377,7 +404,17 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         if (p) {
           setContraparte(p.razon_social); setRif(p.rif ?? '');
           const sug = sugerirSujetoPorRif(p.rif ?? '');
-          if (sug) setLineas((xs) => xs.map((l) => ({ ...l, sujeto: sug.sujeto })));
+          const sujetoVal = sug?.sujeto ?? 'pj_domiciliada';
+          setLineas((xs) => xs.map((l) => ({
+            ...l,
+            sujeto: sug ? sug.sujeto : l.sujeto,
+            conceptoId: l.conceptoId || sugerirConceptoParaLinea(cs, l.tipo, sujetoVal),
+          })));
+        } else {
+          setLineas((xs) => xs.map((l) => ({
+            ...l,
+            conceptoId: l.conceptoId || sugerirConceptoParaLinea(cs, l.tipo, l.sujeto),
+          })));
         }
       })
       .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
@@ -442,12 +479,97 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     return lista.map((p) => ({ value: p.id, label: `${p.razon_social}${p.rif ? ` · ${p.rif}` : ''}` }));
   }, [proveedores, proveedorIdsPendientes]);
 
+  const opcionesOrdenes = useMemo(() => {
+    return ordenesPendientesFiltradas.map(({ orden: o, proveedorNombre }) => {
+      const ocCod = o.oc_codigo || o.codigo || `OC-${o.id.slice(0, 8)}`;
+      const prov = proveedorNombre || 'Proveedor sin nombre';
+      const totalTxt = money(o.total, o.total_moneda === 'Bs' ? 'Bs' : 'USD');
+      const fechaTxt = fechaCorta(o.fecha || '');
+      const tieneAdjunto = Boolean(o.factura_recepcion_path);
+      const label = `${ocCod} · ${prov} · ${totalTxt}`;
+      const hint = `${fechaTxt}${tieneAdjunto ? ' · 📎 Factura' : ''}`;
+      const keywords = [
+        ocCod,
+        o.codigo || '',
+        prov,
+        totalTxt,
+        String(o.total ?? ''),
+        fechaTxt,
+        o.factura_recepcion_nombre || '',
+        o.notas || '',
+      ].filter(Boolean);
+
+      return {
+        value: o.id,
+        label,
+        hint,
+        keywords,
+      };
+    });
+  }, [ordenesPendientesFiltradas]);
+
+  const opcionesBuzon = useMemo(() => {
+    return buzonPendientes.map((b) => {
+      const nro = b.facturaNumero ? `Factura ${b.facturaNumero}` : 'Sin N°';
+      const prov = b.proveedorNombre || b.proveedorRif || 'Proveedor';
+      const totalTxt = money(b.montoTotal, b.moneda);
+      const fechaTxt = fechaCorta(b.facturaFecha || b.creadoEn || '');
+      const label = `${nro} · ${prov} · ${totalTxt}`;
+      const hint = `${fechaTxt} (${b.empresaNombre || 'GT'}) 📎`;
+      const keywords = [
+        nro,
+        b.facturaNumero || '',
+        b.facturaControl || '',
+        prov,
+        b.proveedorRif || '',
+        totalTxt,
+        String(b.montoTotal ?? ''),
+        fechaTxt,
+        b.empresaNombre || '',
+      ].filter(Boolean);
+
+      return {
+        value: b.id,
+        label,
+        hint,
+        keywords,
+      };
+    });
+  }, [buzonPendientes]);
+
   /** El proveedor llena razón social y RIF. El sujeto del ISLR no se toca: se sugiere en cada línea. */
   function elegirProveedor(id: string) {
     marcarSucio();
     setProveedorId(id);
     const p = proveedores.find((x) => x.id === id);
     if (p) { setContraparte(p.razon_social); setRif(p.rif ?? ''); }
+  }
+
+  function toggleImpuesto(tipo: TipoImpuesto) {
+    marcarSucio();
+    const existe = lineas.find((l) => l.tipo === tipo);
+    if (existe) {
+      if (lineas.length === 1) {
+        toast(`Para quitar ${labelImpuesto(tipo)}, primero agrega el impuesto que deseas retener (ej. ISLR o ISAE).`, 'info');
+        return;
+      }
+      setLineas((xs) => xs.filter((l) => l.tipo !== tipo));
+      return;
+    }
+    const sujetoVal = sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada';
+    const conceptoDef = sugerirConceptoParaLinea(conceptos, tipo, sujetoVal);
+    const baseSugerida = (tipo === 'islr' || tipo === 'municipal') && baseNetaGravable > 0
+      ? numeroATexto(baseNetaGravable)
+      : tipo === 'iva' && ivaFacturaNum > 0
+        ? numeroATexto(baseNetaGravable)
+        : (lineas[0]?.baseStr || '0');
+    setLineas((xs) => [...xs, nuevaLinea({
+      tipo,
+      sujeto: sujetoVal,
+      conceptoId: conceptoDef,
+      baseStr: baseSugerida,
+      ivaStr: ivaFacturaStr || '0',
+    })]);
   }
 
   const esManual = direccion === 'recibida';
@@ -975,30 +1097,51 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
           {modoOrigen === 'oc' && (
             <div style={{ marginTop: '.35rem' }}>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
-                Selecciona la Orden de Compra (OC) pendiente por retener:
-              </label>
-              <select
-                className="select"
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.25rem' }}>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, margin: 0 }}>
+                  🔍 Buscar y seleccionar Orden de Compra (OC) pendiente ({ordenesPendientesFiltradas.length}):
+                </label>
+                {ordenSeleccionadaId && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '1px 6px', color: 'var(--text-muted)' }}
+                    onClick={() => { marcarSucio(); setOrdenSeleccionadaId(''); }}
+                  >
+                    ✕ Limpiar selección
+                  </button>
+                )}
+              </div>
+              <SearchSelect
                 value={ordenSeleccionadaId}
-                onChange={(e) => elegirOrden(e.target.value)}
-                style={{ width: '100%', borderColor: ordenSeleccionadaId ? 'var(--success, #22c55e)' : undefined }}
-              >
-                <option value="">— Seleccionar Orden de Compra pendiente ({ordenesPendientesFiltradas.length}) —</option>
-                {ordenesPendientesFiltradas.map(({ orden: o, proveedorNombre }) => (
-                  <option key={o.id} value={o.id}>
-                    {o.oc_codigo || o.codigo} · {proveedorNombre} · {money(o.total, o.total_moneda === 'Bs' ? 'Bs' : 'USD')}
-                    {o.factura_recepcion_path ? ' (📎 Factura adjunta)' : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={elegirOrden}
+                options={opcionesOrdenes}
+                placeholder="Escribe código de OC (ej. OC-2026-0152), proveedor o monto para buscar…"
+                allowClear
+              />
               {ordenSeleccionadaId ? (
-                <small className="hint" style={{ color: 'var(--success, #22c55e)', display: 'block', marginTop: '.25rem' }}>
-                  ✓ Vinculada a {ordenesPendientes.find((x) => x.orden.id === ordenSeleccionadaId)?.orden.oc_codigo || 'la OC'}. Al registrar, los montos y el estado de la OC se actualizarán automáticamente.
-                </small>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginTop: '.45rem',
+                  padding: '.4rem .65rem',
+                  borderRadius: '6px',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  flexWrap: 'wrap',
+                  gap: '.4rem',
+                }}>
+                  <small style={{ color: 'var(--success, #22c55e)', fontWeight: 600, fontSize: '.82rem' }}>
+                    ✓ Vinculada a {ordenesPendientes.find((x) => x.orden.id === ordenSeleccionadaId)?.orden.oc_codigo || 'la OC'} · {contraparte} · {money(totalFacturaNum, moneda)}
+                  </small>
+                  <small className="muted" style={{ fontSize: '.75rem' }}>
+                    Al registrar, la OC se marcará como «Retenida» automáticamente.
+                  </small>
+                </div>
               ) : (
                 <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
-                  Al seleccionar la orden, se cargarán el proveedor, el monto y el archivo de respaldo si Compras ya lo subió.
+                  💡 Puedes escribir para filtrar por proveedor, N° de OC, fecha o monto. Si hay órdenes con montos iguales, verás su fecha y código para diferenciarlas.
                 </small>
               )}
             </div>
@@ -1006,25 +1149,51 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
           {modoOrigen === 'buzon' && (
             <div style={{ marginTop: '.35rem' }}>
-              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
-                Selecciona la factura recibida en el Buzón Móvil:
-              </label>
-              <select
-                className="select"
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.25rem' }}>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, margin: 0 }}>
+                  🔍 Buscar y seleccionar factura del Buzón Móvil ({buzonPendientes.length}):
+                </label>
+                {buzonSeleccionadaId && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '1px 6px', color: 'var(--text-muted)' }}
+                    onClick={() => { marcarSucio(); setBuzonSeleccionadaId(''); }}
+                  >
+                    ✕ Limpiar selección
+                  </button>
+                )}
+              </div>
+              <SearchSelect
                 value={buzonSeleccionadaId}
-                onChange={(e) => elegirFacturaBuzon(e.target.value)}
-                style={{ width: '100%', borderColor: buzonSeleccionadaId ? 'var(--success, #22c55e)' : undefined }}
-              >
-                <option value="">— Seleccionar factura del buzón ({buzonPendientes.length}) —</option>
-                {buzonPendientes.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.facturaNumero ? `Factura ${b.facturaNumero}` : 'Sin N°'} · {b.proveedorNombre} · {money(b.montoTotal, b.moneda)} ({b.empresaNombre || 'GT'})
-                  </option>
-                ))}
-              </select>
-              {buzonSeleccionadaId && (
-                <small className="hint" style={{ color: 'var(--success, #22c55e)', display: 'block', marginTop: '.25rem' }}>
-                  ✓ Soporte y datos importados del Buzón Móvil. Al emitir, quedará marcada como «Retenida».
+                onChange={elegirFacturaBuzon}
+                options={opcionesBuzon}
+                placeholder="Escribe N° de factura, proveedor o monto del buzón…"
+                allowClear
+              />
+              {buzonSeleccionadaId ? (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginTop: '.45rem',
+                  padding: '.4rem .65rem',
+                  borderRadius: '6px',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  flexWrap: 'wrap',
+                  gap: '.4rem',
+                }}>
+                  <small style={{ color: 'var(--success, #22c55e)', fontWeight: 600, fontSize: '.82rem' }}>
+                    ✓ Soporte y datos importados del Buzón Móvil ({contraparte || 'Proveedor'} · {money(totalFacturaNum, moneda)}).
+                  </small>
+                  <small className="muted" style={{ fontSize: '.75rem' }}>
+                    Al emitir, la factura quedará marcada como «Retenida».
+                  </small>
+                </div>
+              ) : (
+                <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+                  💡 Escribe el número de la factura o el nombre del proveedor para encontrar rápidamente las facturas enviadas desde la app móvil.
                 </small>
               )}
             </div>
@@ -1376,60 +1545,65 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
       </div>
 
-      {/* Las líneas de impuesto */}
-      <div className="card" style={{ marginTop: '.4rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
-            {direccion === 'practicada' && nDec(facturaTotal) > 0 && !documento && (
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                style={{ fontSize: '.75rem', padding: '2px 8px', border: '1px dashed var(--primary)', color: 'var(--primary)' }}
-                title={`Aplica la regla de precio con IVA incluido: Base = Total ÷ ${divisorIvaTxt} e IVA = ${aliIvaPct}% sobre la base`}
-                onClick={desglosarIvaIncluido}
-              >
-                ⚡ Desglosar IVA incluido (÷{divisorIvaTxt})
-              </button>
-            )}
+      {/* ── 5. Impuestos a retener al proveedor ── */}
+      <div className="card" style={{ marginTop: '.4rem', background: 'rgba(255, 255, 255, 0.02)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem', flexWrap: 'wrap', gap: '.6rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: '.92rem', color: 'var(--text-normal)' }}>
+                🛡️ Impuestos a retener al proveedor (Retenciones practicadas)
+              </strong>
+            </div>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.15rem', fontSize: '.76rem' }}>
+              Indica qué tributos se le van a deducir al proveedor al momento de liquidar la factura. El IVA facturado ({aliIvaPct}%) ya fue registrado en la cabecera superior.
+            </small>
           </div>
-          {(() => {
-            const tiposUsados = new Set(lineas.map((l) => l.tipo));
-            const tiposDisponibles = soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null)
-              // Multi-empresa (DE1): en una empresa NO-GT no se ofrece un impuesto que no
-              // practica según su ficha. GT/single-empresa: se ofrece y se bloquea con aviso, como hoy.
-              .filter((t) => !tiposUsados.has(t.key) && admiteDireccion(fichasImpuesto?.get(t.key), direccion)
-                && (!empresaFicha || direccion !== 'practicada' || puedePracticarEmpresa(t.key, config)));
-            const puedeAgregar = tiposDisponibles.length > 0;
-            return (
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                disabled={!puedeAgregar}
-                title={puedeAgregar ? 'Agregar otra línea de impuesto diferente' : 'Una factura no admite dos retenciones del mismo impuesto (ya están todos los tipos agregados)'}
-                onClick={() => {
-                  if (!puedeAgregar) return;
-                  marcarSucio();
-                  const proximoTipo = tiposDisponibles[0].key;
-                  const baseSugerida = baseNetaGravable > 0 ? numeroATexto(baseNetaGravable) : (lineas[0]?.baseStr || '0');
-                  setLineas((xs) => [...xs, nuevaLinea({
-                    tipo: proximoTipo,
-                    sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
-                    baseStr: baseSugerida,
-                    ivaStr: ivaFacturaStr || '0',
-                  })]);
-                }}
-              >
-                + Agregar línea
-              </button>
-            );
-          })()}
+
+          {/* Selector interactivo de retenciones por botón (ISLR, ISAE, IVA, IGTF) */}
+          <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Tributos a retener:</span>
+            <button
+              type="button"
+              className={`btn btn-sm ${lineas.some((l) => l.tipo === 'islr') ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontSize: '.76rem', padding: '2px 8px' }}
+              title={lineas.some((l) => l.tipo === 'islr') ? 'Retención de ISLR activa (clic para quitar)' : 'Activar retención de ISLR para esta factura'}
+              onClick={() => toggleImpuesto('islr')}
+            >
+              {lineas.some((l) => l.tipo === 'islr') ? '✓ ISLR activo' : '+ Retener ISLR'}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${lineas.some((l) => l.tipo === 'municipal') ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontSize: '.76rem', padding: '2px 8px' }}
+              title={lineas.some((l) => l.tipo === 'municipal') ? 'Retención de ISAE activa (clic para quitar)' : 'Activar retención municipal ISAE'}
+              onClick={() => toggleImpuesto('municipal')}
+            >
+              {lineas.some((l) => l.tipo === 'municipal') ? '✓ ISAE activo' : '+ Retener ISAE (Municipal)'}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${lineas.some((l) => l.tipo === 'iva') ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ fontSize: '.76rem', padding: '2px 8px' }}
+              title={lineas.some((l) => l.tipo === 'iva') ? 'Retención de IVA activa (clic para quitar)' : 'Activar retención de IVA (Solo agentes retenedores de IVA)'}
+              onClick={() => toggleImpuesto('iva')}
+            >
+              {lineas.some((l) => l.tipo === 'iva') ? '✓ Retener IVA activo' : '+ Retener IVA (Especial)'}
+            </button>
+          </div>
         </div>
         {lineas.map((l) => {
           const calc = calculoDe(l);
           const monto = montoDe(l);
           const sugerido = l.tipo === 'islr' ? sugerirSujetoPorRif(rif) : null;
           const noPuede = direccion === 'practicada' && !puedePracticarEmpresa(l.tipo, config);
+          const etiquetaTitulo = l.tipo === 'islr'
+            ? '🏷️ Retención de Impuesto Sobre la Renta (ISLR · Decreto 1.808)'
+            : l.tipo === 'municipal'
+              ? '🏛️ Retención Municipal de Actividades Económicas (ISAE)'
+              : l.tipo === 'iva'
+                ? '🧾 Retención de IVA (Solo contribuyentes especiales agentes de retención)'
+                : rotuloImpuesto(l.tipo);
+
           return (
             <div key={l.id} className="card" style={{ margin: '.35rem 0', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
               {/* Barra de cabecera de la línea con el correlativo asignado según el impuesto */}
@@ -1445,7 +1619,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
                   <strong style={{ fontSize: '.86rem', color: 'var(--text)' }}>
-                    {rotuloImpuesto(l.tipo)}
+                    {etiquetaTitulo}
                   </strong>
                   {direccion === 'practicada' && l.tipo !== 'igtf' && monto > 0 && (
                     <span
@@ -1478,17 +1652,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                     </span>
                   )}
                 </div>
-                {lineas.length > 1 && (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    style={{ color: 'var(--danger)', padding: '2px 6px', fontSize: '.75rem' }}
-                    title="Quitar esta línea de impuesto"
-                    onClick={() => { marcarSucio(); setLineas((xs) => xs.filter((x) => x.id !== l.id)); }}
-                  >
-                    ✕ Quitar
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  style={{ color: 'var(--danger)', padding: '2px 6px', fontSize: '.75rem' }}
+                  title="Quitar esta retención de la factura"
+                  onClick={() => toggleImpuesto(l.tipo)}
+                >
+                  ✕ Quitar retención
+                </button>
               </div>
 
               <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1500,7 +1672,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                     onChange={(e) => {
                       const nuevoTipo = e.target.value as TipoImpuesto;
                       if (lineas.some((otra) => otra.id !== l.id && otra.tipo === nuevoTipo)) {
-                        toast(`Esta factura ya tiene una línea de ${labelImpuesto(nuevoTipo)}. Una factura admite una sola retención por impuesto.`, 'warning');
+                        toast(`Esta factura ya tiene una retención de ${labelImpuesto(nuevoTipo)}. Una factura admite una sola retención por impuesto.`, 'warning');
                         return;
                       }
                       const baseActual = nDec(l.baseStr);
@@ -1509,7 +1681,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                         && baseNetaGravable > 0
                         ? numeroATexto(baseNetaGravable)
                         : l.baseStr;
-                      setLinea(l.id, { tipo: nuevoTipo, baseStr: baseAjustada });
+                      const sujetoVal = sugerirSujetoPorRif(rif)?.sujeto ?? l.sujeto;
+                      const conceptoAjustado = sugerirConceptoParaLinea(conceptos, nuevoTipo, sujetoVal);
+                      setLinea(l.id, { tipo: nuevoTipo, baseStr: baseAjustada, conceptoId: conceptoAjustado });
                     }}
                   >
                     {tiposDeLinea(impuestosActivos, fichasImpuesto, direccion, l.tipo).map((t) => {
@@ -1524,17 +1698,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 </div>
                 {l.tipo === 'islr' && (
                   <div className="form-row" style={{ margin: 0, flex: '1 1 180px' }}>
-                    <label>Sujeto</label>
-                    <select className="select" value={l.sujeto} onChange={(e) => setLinea(l.id, { sujeto: e.target.value as SujetoRetenido })}>
+                    <label>Sujeto pasivo</label>
+                    <select className="select" value={l.sujeto} onChange={(e) => {
+                      const nuevoSujeto = e.target.value as SujetoRetenido;
+                      const cSugerido = sugerirConceptoParaLinea(conceptos, l.tipo, nuevoSujeto);
+                      setLinea(l.id, { sujeto: nuevoSujeto, conceptoId: cSugerido || l.conceptoId });
+                    }}>
                       {SUJETOS.filter((x) => x.key !== 'todos').map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
                     </select>
                   </div>
                 )}
                 {l.tipo !== 'iva' && l.tipo !== 'igtf' && (
                   <div className="form-row" style={{ margin: 0, flex: '2 1 200px' }}>
-                    <label>Concepto</label>
+                    <label>Concepto de retención</label>
                     <select className="select" value={l.conceptoId} onChange={(e) => setLinea(l.id, { conceptoId: e.target.value })}>
-                      <option value="">—</option>
+                      <option value="">— Seleccionar concepto —</option>
                       {conceptosDeLinea(l).map((c) => <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} · ` : ''}{c.nombre} — {c.porcentaje}%</option>)}
                     </select>
                   </div>
@@ -1644,11 +1822,37 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{empresaFicha ? `La empresa no practica retención de ${labelImpuesto(l.tipo)} según su régimen (Parámetros → Régimen).` : motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (
-                <div className="form-row" style={{ margin: '.3rem 0 0' }}>
-                  <label style={{ color: 'var(--warning)' }}>Motivo del 0 % (obligatorio)</label>
-                  <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
-                    placeholder="Ej.: el pago no supera el mínimo exento" />
-                </div>
+                l.tipo === 'iva' ? (
+                  <div className="card" style={{ margin: '.35rem 0 0', background: 'rgba(239, 68, 68, 0.05)', borderColor: 'var(--warning)', padding: '.45rem .7rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
+                      <div>
+                        <strong style={{ fontSize: '.8rem', color: 'var(--warning)' }}>¿No retienes IVA a este proveedor?</strong>
+                        <span style={{ fontSize: '.75rem', display: 'block', color: 'var(--text-muted)' }}>
+                          Si Golden Touch no es agente de retención de IVA para este proveedor, pulsa «Quitar retención de IVA» y deja solo ISLR.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        style={{ fontSize: '.74rem', padding: '2px 8px', color: 'var(--danger)', border: '1px solid var(--danger)' }}
+                        onClick={() => toggleImpuesto('iva')}
+                      >
+                        ✕ Quitar retención de IVA
+                      </button>
+                    </div>
+                    <div className="form-row" style={{ margin: '.35rem 0 0' }}>
+                      <label style={{ color: 'var(--warning)', fontSize: '.76rem' }}>Motivo legal del 0 % (solo si mantienes la retención en cero)</label>
+                      <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
+                        placeholder="Ej.: proveedor exento de retención / no designado agente" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="form-row" style={{ margin: '.3rem 0 0' }}>
+                    <label style={{ color: 'var(--warning)' }}>Motivo del 0 % (obligatorio si el monto a retener es 0)</label>
+                    <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
+                      placeholder="Ej.: el pago no supera el mínimo exento" />
+                  </div>
+                )
               )}
             </div>
           );
