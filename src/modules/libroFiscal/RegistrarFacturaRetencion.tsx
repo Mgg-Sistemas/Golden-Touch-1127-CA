@@ -915,13 +915,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           porcentaje: pctDe(l),
           monto,
           sustraendo: esManual ? null : calc.sustraendo,
-          ivaAlicuota: l.tipo === 'iva' ? (esManual ? null : calc.alicuota) : null,
-          ivaMonto: l.tipo === 'iva' ? (esManual ? nDec(l.ivaStr) : calc.impuesto) : null,
+          ivaAlicuota: l.tipo === 'iva'
+            ? (esManual ? null : calc.alicuota)
+            : (ivaFacturaStr.trim() && nDec(ivaFacturaStr) > 0 ? aliIvaPct : null),
+          ivaMonto: l.tipo === 'iva'
+            ? (esManual ? nDec(l.ivaStr) : calc.impuesto)
+            : (ivaFacturaStr.trim() && nDec(ivaFacturaStr) > 0 ? nDec(ivaFacturaStr) : null),
           impuestoCausado: l.tipo === 'iva'
             ? (esManual ? nDec(l.ivaStr) : calc.impuestoCausado)
-            : l.tipo === 'islr' && esManual
-              ? Math.round(nDec(l.baseStr) * nDec(l.pctStr)) / 100
-              : calc.impuestoCausado,
+            : (ivaFacturaStr.trim() && nDec(ivaFacturaStr) > 0 ? nDec(ivaFacturaStr) : (nDec(l.ivaStr) > 0 ? nDec(l.ivaStr) : 0)),
           sinDerechoCreditoIva: l.tipo === 'iva' ? (sinDerechoStr.trim() ? nDec(sinDerechoStr) : 0) : null,
           fechaEntrega,
           // El texto del supuesto queda como foto en la retención.

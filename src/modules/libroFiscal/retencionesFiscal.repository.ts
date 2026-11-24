@@ -806,7 +806,7 @@ export async function corregirBaseRetencion(id: string, datos: DatosCorreccionRe
   const patch: Record<string, unknown> = {
     base: datos.base,
     monto: datos.monto,
-    impuesto_causado: datos.impuestoCausado ?? datos.monto,
+    impuesto_causado: datos.impuestoCausado ?? datos.ivaMonto ?? datos.monto,
     updated_at: ahora,
   };
   if (datos.ivaMonto !== undefined) patch.iva_monto = datos.ivaMonto;

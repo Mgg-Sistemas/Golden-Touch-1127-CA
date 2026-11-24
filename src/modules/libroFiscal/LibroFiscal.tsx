@@ -1919,11 +1919,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         baseImponible: esManual ? nDec(baseStr) : calculo.baseImponible,
         alicuota: esManual ? 0 : calculo.alicuota,
         impuesto: esManual ? nDec(ivaStr) : calculo.impuesto,
-        impuestoCausado: esManual
-          ? tipo === 'iva'
-            ? nDec(ivaStr)
-            : tipo === 'islr' ? Math.round(nDec(baseStr) * nDec(pctStr)) / 100 : 0
-          : calculo.impuestoCausado,
+        impuestoCausado: tipo === 'iva'
+          ? (esManual ? nDec(ivaStr) : calculo.impuestoCausado)
+          : (nDec(ivaStr) > 0 ? nDec(ivaStr) : (calculo.impuesto > 0 ? calculo.impuesto : 0)),
         sinDerechoCreditoIva: tipo === 'iva' ? (sinDerechoStr.trim() ? nDec(sinDerechoStr) : 0) : null,
         porcentaje: pctFinal,
         sustraendo: esManual ? 0 : calculo.sustraendo,
