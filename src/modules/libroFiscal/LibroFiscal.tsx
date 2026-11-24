@@ -60,7 +60,7 @@ import {
   type EstadoRetencion, type FichaFiscalEmpresa, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import {
-  activarConcepto, adjuntarComprobante, anularRetencion, corregirBaseRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
+  activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt, tipoDeGt,
   urlComprobante,
   PORCENTAJES_IVA,
@@ -185,7 +185,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [loading, setLoading] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
-  const [corregir, setCorregir] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // Con V2R o fallback nativo: una factura con varias líneas de impuesto en un solo registro.
@@ -1022,19 +1021,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                 {r.comprobantePath && (
                                   <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver documento de respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
                                 )}
-                                {canWrite && !r.anulada && est !== 'declarada' && (r.tipo === 'islr' || r.tipo === 'municipal') && (
-                                  <button
-                                    type="button"
-                                    className="lfv8-mini"
-                                    onClick={() => setCorregir(r)}
-                                    title={r.facturaTotal && Math.abs(r.baseImponible - r.facturaTotal) < 0.05
-                                      ? '⚠️ Base imponible incluye IVA. Clic para corregir sin IVA según Decreto 1.808'
-                                      : 'Ajustar o recalcular base imponible'}
-                                    style={r.facturaTotal && Math.abs(r.baseImponible - r.facturaTotal) < 0.05 ? { color: 'var(--brand, #ff8a00)', fontWeight: 'bold' } : undefined}
-                                  >
-                                    ⚡
-                                  </button>
-                                )}
                                 {canWrite && !r.anulada && (
                                   <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
                                 )}
@@ -1347,76 +1333,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
           </div>
         </Modal>
       )}
-
-      {corregir && (() => {
-        const total = corregir.facturaTotal || corregir.baseImponible;
-        const aliPct = corregir.alicuota || 16;
-        const ex = corregir.exento || 0;
-        const { base: baseSinIva, iva: ivaCalculado } = desglosarIvaDeTotal(total, ex, aliPct);
-        const pctRet = corregir.porcentaje || 2;
-        const nuevoCausado = Math.round((baseSinIva * pctRet / 100) * 100) / 100;
-        const sustraendo = corregir.sustraendo || 0;
-        const nuevoMonto = Math.max(0, nuevoCausado - sustraendo);
-
-        return (
-          <Modal
-            title={`⚡ Corregir base gravable · Comprobante ${corregir.numeroComprobante || ''}`}
-            compact
-            onClose={() => setCorregir(null)}
-            footer={(
-              <>
-                <button type="button" className="btn btn-ghost" onClick={() => setCorregir(null)}>Cancelar</button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    try {
-                      await corregirBaseRetencion(corregir.id, {
-                        base: baseSinIva,
-                        monto: nuevoMonto,
-                        impuestoCausado: nuevoCausado,
-                        ivaMonto: ivaCalculado,
-                        ivaAlicuota: aliPct,
-                        baseBs: enBolivares(baseSinIva, corregir.moneda, corregir.tasa),
-                        montoBs: enBolivares(nuevoMonto, corregir.moneda, corregir.tasa),
-                      });
-                      toast('Retención corregida exitosamente (base imponible recalculada sin IVA)', 'success');
-                      setCorregir(null);
-                      await reload();
-                    } catch (e) {
-                      toast(e instanceof Error ? e.message : 'No se pudo corregir la retención', 'error');
-                    }
-                  }}
-                >
-                  Confirmar corrección fiscal
-                </button>
-              </>
-            )}
-          >
-            <div style={{ fontSize: '.88rem', display: 'grid', gap: '.6rem' }}>
-              <p style={{ margin: 0 }}>
-                Esta retención de <strong>{labelImpuesto(corregir.tipo)}</strong> de <strong>{corregir.contraparteNombre}</strong> fue registrada con la base imponible igual al total con IVA ({monto(corregir.baseImponible, corregir.moneda)}).
-              </p>
-              <div className="card" style={{ background: 'rgba(255, 138, 0, 0.08)', borderColor: 'var(--brand, #ff8a00)', padding: '.75rem' }}>
-                <strong style={{ color: 'var(--brand, #ff8a00)', display: 'block', marginBottom: '.4rem' }}>
-                  Recálculo fiscal según Decreto 1.808 (exclusión de IVA):
-                </strong>
-                <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.5 }}>
-                  <li>Total factura: <strong>{monto(total, corregir.moneda)}</strong></li>
-                  <li>IVA ({aliPct}%): <strong>{monto(ivaCalculado, corregir.moneda)}</strong></li>
-                  {ex > 0 && <li>Exento: <strong>{monto(ex, corregir.moneda)}</strong></li>}
-                  <li>Base imponible gravable: <strong style={{ color: 'var(--success)' }}>{monto(baseSinIva, corregir.moneda)}</strong> (antes {monto(corregir.baseImponible, corregir.moneda)})</li>
-                  <li>Alícuota retenida: <strong>{pctRet}%</strong></li>
-                  <li>Impuesto retenido corregido: <strong style={{ color: 'var(--success)' }}>{monto(nuevoMonto, corregir.moneda)}</strong> (antes {monto(corregir.montoRetenido, corregir.moneda)})</li>
-                </ul>
-              </div>
-              <small className="muted">
-                Al confirmar, se actualizarán la base imponible, el monto retenido y el comprobante PDF se generará con los valores corregidos por ley.
-              </small>
-            </div>
-          </Modal>
-        );
-      })()}
 
       {modalArc && (
         <Modal title="Comprobante Anual ARC de ISLR (Art. 24 Decreto 1.808)" compact onClose={() => setModalArc(null)}
