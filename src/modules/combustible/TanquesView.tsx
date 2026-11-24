@@ -5,7 +5,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { AdjuntosSalida } from '@/modules/salidas/AdjuntosSalida';
+import { AdjuntosSalida, SelectorAdjuntos } from '@/modules/salidas/AdjuntosSalida';
 import { adjuntosCombustible, MODULO_ADJUNTO_TANQUE } from './adjuntosCombustible.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { useSession } from '@/modules/auth/authStore';
@@ -1852,6 +1852,7 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MERMA_IMPLICITA_PCT;
   }, [pctMermaInput]);
   const [verRespaldoMovs, setVerRespaldoMovs] = useState(false);
+  const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const { can } = usePermissions();
   const isAdmin = can('combustible', 'full'); // Full control de Combustible guarda mermas fuera de margen (17/10/2026).
 
@@ -1979,12 +1980,23 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
       };
     setSaving(true);
     try {
-      if (tipo === 'entrada') await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName, recepcion: rec });
-      else if (tipo === 'uso') await registrarUso({ tanqueId, litros: litrosNum, campos, actor, actorName });
-      else if (tipo === 'retorno') await registrarRetorno({ tanqueId, litros: litrosNum, campos, actor, actorName });
-      else if (tipo === 'merma') await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
-      else if (destinoId === DESTINO_MGG) await registrarTrasladoMGG({ tanqueId, litros: litrosNum, campos, actor, actorName });
-      else await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName, recepcion: rec });
+      let mov: MovimientoTanque;
+      if (tipo === 'entrada') mov = await registrarEntrada({ tanqueId, litros: litrosNum, costoLitro: Number(costo) || 0, campos, actor, actorName, recepcion: rec });
+      else if (tipo === 'uso') mov = await registrarUso({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else if (tipo === 'retorno') mov = await registrarRetorno({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else if (tipo === 'merma') mov = await registrarMerma({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else if (destinoId === DESTINO_MGG) mov = await registrarTrasladoMGG({ tanqueId, litros: litrosNum, campos, actor, actorName });
+      else mov = await registrarTraslado({ tanqueId, litros: litrosNum, tanqueDestinoId: destinoId || null, campos, actor, actorName, recepcion: rec });
+
+      if (adjuntos.length && mov?.id) {
+        try {
+          const r = await adjuntosCombustible.subir(MODULO_ADJUNTO_TANQUE, mov.id, adjuntos, actor);
+          for (const f of r.fallos) toast(`Movimiento guardado, pero un soporte no se pudo subir: ${f}`, 'error');
+        } catch {
+          toast('Movimiento guardado, pero hubo un detalle al subir los soportes de imagen', 'warning');
+        }
+      }
+
       toast(destinoEsBidon ? 'Salida directa a bidón registrada' : 'Movimiento registrado', 'success');
       onSaved();
     } catch (err) { setError((err as { message?: string })?.message || 'No se pudo registrar.'); }
@@ -2404,6 +2416,26 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
                 )}
               </div>
             </div>
+          </div>
+
+          {/* SECCIÓN 5: SOPORTES Y FOTOS */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>📷 Soportes & Fotos de Respaldo</span>
+            </div>
+            <SelectorAdjuntos
+              archivos={adjuntos}
+              onChange={setAdjuntos}
+              titulo={
+                tipo === 'entrada'
+                  ? '📷 Fotos (guía, factura, cisterna, medida de varilla)'
+                  : tipo === 'merma'
+                  ? '📷 Fotos (medida de varilla, acta de merma, soporte)'
+                  : tipo === 'traslado'
+                  ? '📷 Fotos (contador, comprobante de traslado, precinto)'
+                  : '📷 Fotos (contador del surtidor, odómetro, equipo, vale)'
+              }
+            />
           </div>
         </form>
       </div>

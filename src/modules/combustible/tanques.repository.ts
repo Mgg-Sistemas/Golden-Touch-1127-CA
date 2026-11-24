@@ -998,13 +998,13 @@ export async function registrarRetorno(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros === 0) throw new Error('Los litros no pueden ser 0 (se admiten negativos, como en el Excel).');
   const t = await getTanque(input.tanqueId);
   const tasa = num(t.tasa_usd_litro);
 
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos(input.campos ?? {}),
     tanque_id: input.tanqueId,
     tipo: 'retorno',
@@ -1014,6 +1014,7 @@ export async function registrarRetorno(input: {
     actor_name: input.actorName ?? null,
   });
   await recomputarTanque(input.tanqueId); // GT-SIN-19 · saldo recalculado desde el libro
+  return mov;
 }
 
 /**
@@ -1109,7 +1110,7 @@ export async function registrarTrasladoMGG(input: {
   campos?: MovimientoTanqueCampos;
   actor: string;
   actorName?: string | null;
-}): Promise<void> {
+}): Promise<MovimientoTanque> {
   const litros = num(input.litros);
   if (litros <= 0) throw new Error('Para enviar a MGG los litros deben ser mayores que 0.');
   const t = await getTanque(input.tanqueId);
@@ -1126,7 +1127,7 @@ export async function registrarTrasladoMGG(input: {
   const resumen = `${num(litros).toLocaleString('es-VE', { maximumFractionDigits: 2 })} L de ${combustibleNombre}`;
 
   // 1. Sale del tanque origen (queda registrado como traslado externo).
-  await insertarMovimiento({
+  const mov = await insertarMovimiento({
     ...campos({ ...(await camposConContador(input.tanqueId, 'traslado', litros, input.campos ?? {})), observacion }),
     tanque_id: input.tanqueId,
     tipo: 'traslado',
@@ -1171,6 +1172,8 @@ export async function registrarTrasladoMGG(input: {
       .update({ estado: 'error', mensaje_error: mensajeError(e, 'No se pudo entregar') }).eq('id', rowId);
     throw new Error(`El combustible salió del tanque pero no se pudo entregar a MGG (queda para reintentar): ${mensajeError(e, 'error desconocido')}`);
   }
+
+  return mov;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
