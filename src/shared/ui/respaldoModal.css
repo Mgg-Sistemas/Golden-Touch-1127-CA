@@ -86,6 +86,32 @@
   color: var(--text-muted);
 }
 
+.respaldo-salud-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.respaldo-sync-btn {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: var(--text-muted);
+  border-radius: var(--r-sm);
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all 0.2s ease;
+}
+
+.respaldo-sync-btn:hover {
+  border-color: var(--primary);
+  color: var(--text);
+  background: rgba(255, 138, 0, 0.08);
+}
+
 /* Grid de Acciones Principales */
 .respaldo-grid {
   display: grid;

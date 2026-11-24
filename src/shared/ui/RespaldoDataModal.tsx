@@ -8,6 +8,7 @@ import {
   descargarRespaldoSql,
   enviarRespaldoPorCorreo,
   obtenerDetalleUltimoRespaldo,
+  registrarUltimoRespaldo,
   type DetalleUltimoRespaldo,
 } from '@/shared/lib/backup';
 import './respaldoModal.css';
@@ -40,11 +41,11 @@ export function RespaldoDataModal({ open, onClose, userEmail }: RespaldoDataModa
     if (enProgreso) return;
     setAccion('descargando');
     try {
-      await descargarRespaldoSql(userEmail ?? 'sistema', false);
+      const email = userEmail || 'admin';
+      await descargarRespaldoSql(email, false);
       toast('Respaldo de base de datos descargado (.sql)', 'success');
       const det = await obtenerDetalleUltimoRespaldo();
-      setUltimo(det);
-      onClose();
+      setUltimo(det ?? { at: new Date().toISOString(), por: email, automatico: false });
     } catch (e) {
       toast(mensajeError(e, 'No se pudo generar el respaldo'), 'error');
     } finally {
@@ -56,16 +57,23 @@ export function RespaldoDataModal({ open, onClose, userEmail }: RespaldoDataModa
     if (enProgreso) return;
     setAccion('enviando');
     try {
-      const { destinatarios } = await enviarRespaldoPorCorreo(userEmail ?? 'sistema', false);
+      const email = userEmail || 'admin';
+      const { destinatarios } = await enviarRespaldoPorCorreo(email, false);
       toast(`Respaldo comprimido (.zip) enviado a: ${destinatarios.join(', ')}`, 'success');
       const det = await obtenerDetalleUltimoRespaldo();
-      setUltimo(det);
-      onClose();
+      setUltimo(det ?? { at: new Date().toISOString(), por: email, automatico: false });
     } catch (e) {
       toast(mensajeError(e, 'No se pudo enviar el respaldo a la bóveda'), 'error');
     } finally {
       setAccion(null);
     }
+  }
+
+  async function handleRegistrarManual() {
+    const email = userEmail || 'admin';
+    const reg = await registrarUltimoRespaldo(email, false);
+    setUltimo(reg);
+    toast('Fecha de último respaldo actualizada a hoy', 'success');
   }
 
   // Cálculo de salud del respaldo (días transcurridos)
@@ -144,9 +152,19 @@ export function RespaldoDataModal({ open, onClose, userEmail }: RespaldoDataModa
               </span>
             </div>
           </div>
-          <span className={saludBadgeClass}>
-            {saludBadgeTexto}
-          </span>
+          <div className="respaldo-salud-actions">
+            <span className={saludBadgeClass}>
+              {saludBadgeTexto}
+            </span>
+            <button
+              type="button"
+              className="respaldo-sync-btn"
+              onClick={() => void handleRegistrarManual()}
+              title="Si ya hiciste un respaldo manual o externo recientemente, pulsa para actualizar la fecha registrada"
+            >
+              ↻ Registrar hecho hoy
+            </button>
+          </div>
         </div>
 
         {/* Tarjetas duales de acción */}

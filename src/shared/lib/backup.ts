@@ -67,14 +67,42 @@ export async function generarRespaldoSql(): Promise<string> {
   return (data as string) ?? '';
 }
 
-/** Marca en `config` la fecha del último respaldo (no rompe si falla). */
-async function registrarUltimoRespaldo(actorEmail: string, automatico: boolean): Promise<void> {
+/** Marca la fecha del último respaldo tanto en localStorage como en config de Supabase. */
+export async function registrarUltimoRespaldo(actorEmail: string, automatico: boolean): Promise<DetalleUltimoRespaldo> {
+  const ahora = new Date().toISOString();
+  const registro: DetalleUltimoRespaldo = { at: ahora, por: actorEmail || 'admin', automatico };
+
+  // 1. Guardar de inmediato en localStorage (disponible en el cliente sin depender de RLS)
   try {
-    await supabase.from('config').upsert(
-      { key: CONFIG_KEY, value: { at: new Date().toISOString(), por: actorEmail, automatico }, updated_at: new Date().toISOString() },
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('gt.backup.ultimo', JSON.stringify(registro));
+    }
+  } catch { /* quota */ }
+
+  // 2. Persistir en config de Supabase
+  try {
+    const { error: upsertErr } = await supabase.from('config').upsert(
+      {
+        key: CONFIG_KEY,
+        value: registro,
+        updated_by: actorEmail || 'sistema',
+        updated_at: ahora,
+      },
       { onConflict: 'key' },
     );
-  } catch { /* el registro de fecha es best-effort */ }
+    if (upsertErr) {
+      console.warn('registrarUltimoRespaldo: fallo en upsert, intentando update directo', upsertErr);
+      await supabase.from('config').update({
+        value: registro,
+        updated_by: actorEmail || 'sistema',
+        updated_at: ahora,
+      }).eq('key', CONFIG_KEY);
+    }
+  } catch (err) {
+    console.warn('registrarUltimoRespaldo error al persistir en BD:', err);
+  }
+
+  return registro;
 }
 
 /** Dispara la descarga de un texto como archivo. */
@@ -156,28 +184,43 @@ export async function enviarRespaldoPorCorreo(
   return { destinatarios: data.destinatarios ?? toEmails };
 }
 
-/** Fecha del último respaldo (o null si nunca se hizo). */
-export async function ultimoRespaldo(): Promise<string | null> {
-  const { data } = await supabase.from('config').select('value').eq('key', CONFIG_KEY).maybeSingle();
-  return (data?.value as { at?: string } | undefined)?.at ?? null;
-}
-
 export interface DetalleUltimoRespaldo {
   at: string;
   por?: string;
   automatico?: boolean;
 }
 
-/** Información detallada del último respaldo registrado (fecha, autor, tipo). */
+/** Información detallada del último respaldo registrado (combina config y localStorage). */
 export async function obtenerDetalleUltimoRespaldo(): Promise<DetalleUltimoRespaldo | null> {
+  let local: DetalleUltimoRespaldo | null = null;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('gt.backup.ultimo');
+      if (raw) {
+        const parsed = JSON.parse(raw) as DetalleUltimoRespaldo;
+        if (parsed?.at) local = parsed;
+      }
+    }
+  } catch { /* noop */ }
+
+  let remoto: DetalleUltimoRespaldo | null = null;
   try {
     const { data } = await supabase.from('config').select('value').eq('key', CONFIG_KEY).maybeSingle();
     const val = data?.value as DetalleUltimoRespaldo | undefined;
-    if (!val || typeof val !== 'object' || !val.at) return null;
-    return val;
-  } catch {
-    return null;
+    if (val && typeof val === 'object' && val.at) remoto = val;
+  } catch { /* noop */ }
+
+  // Si ambos existen, devolver el más reciente cronológicamente
+  if (local?.at && remoto?.at) {
+    return new Date(local.at).getTime() >= new Date(remoto.at).getTime() ? local : remoto;
   }
+  return local?.at ? local : remoto;
+}
+
+/** Fecha del último respaldo (o null si nunca se hizo). */
+export async function ultimoRespaldo(): Promise<string | null> {
+  const det = await obtenerDetalleUltimoRespaldo();
+  return det?.at ?? null;
 }
 
 /**
