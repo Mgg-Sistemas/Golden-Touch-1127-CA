@@ -1971,7 +1971,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           {error && <small style={{ color: 'var(--danger)', marginRight: 'auto', maxWidth: '60%' }}>No se registró: {error}</small>}
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
           <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving}>
-            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${moneda !== 'Bs' && tasa > 0 ? monto(montoBs, 'Bs') : monto(montoFinal, moneda)}`)}
+            {saving ? 'Guardando…' : (esCero ? 'Registrar retención (0 % justificado)' : `Registrar retención · ${moneda !== 'Bs' && tasa > 0 ? monto(montoBs, 'Bs') : monto(montoFinal, moneda)}`)}
           </button>
         </>
       }>
@@ -2019,35 +2019,42 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       )}
 
       {sinDocumento && !avisoSinDocDescartado && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem', position: 'relative', paddingRight: '2rem' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '.6rem',
+          padding: '.55rem .85rem',
+          borderRadius: '8px',
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.25)',
+          marginBottom: '.85rem',
+          fontSize: '.82rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', color: 'var(--text-normal)' }}>
+            <span style={{ fontSize: '1.05rem' }}>📄</span>
+            <span>
+              <strong>Factura directa / sin OC vinculada:</strong> Ingresa los datos fiscales impresos en la factura física (N°, control, fecha, base e IVA) y adjunta el comprobante o soporte.
+            </span>
+          </div>
           <button
             type="button"
             onClick={descartarAvisoSinDoc}
             style={{
-              position: 'absolute',
-              top: '6px',
-              right: '8px',
               background: 'transparent',
               border: 'none',
               color: 'var(--text-muted, #888)',
-              fontSize: '1.1rem',
+              fontSize: '1rem',
               cursor: 'pointer',
               padding: '2px 6px',
               borderRadius: '4px',
               lineHeight: 1,
             }}
-            title="Descartar este aviso"
+            title="Ocultar aviso"
             aria-label="Cerrar aviso"
           >
             ✕
           </button>
-          <strong>Sin documento del sistema.</strong>{' '}
-          <small>
-            Esta retención no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa (por ejemplo, una factura de otra sede). Se registra de igual forma:
-            escribe abajo los datos de la factura (<b>N° de factura</b>, <b>N° de control</b>, <b>fecha</b> y <b>base imponible</b>),
-            adjunta su documento en <b>«Documento de respaldo»</b> seleccionando «Factura del proveedor», y anota en la <b>observación</b> su procedencia u origen.
-            Quedará en el libro fiscal registrada como «Fuera del sistema». Si la compra sí se encuentra en el sistema, regístrala desde «Por realizar».
-          </small>
         </div>
       )}
 
@@ -2458,61 +2465,61 @@ type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'f
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
-  { key: 'motivos', capa: 'ajustes', titulo: 'Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
+  { key: 'motivos', capa: 'ajustes', titulo: '🏷️ Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
     que: 'Las razones que se eligen al marcar que una factura no lleva retención.', ingresa: 'El texto del motivo y el impuesto en que se ofrece (o todos).',
     efecto: 'Se ofrecen al registrar una retención en 0 %, según el impuesto y la fecha de la factura.', noCambia: 'Lo ya registrado conserva el texto de su motivo, aunque el motivo se edite o se desactive.' },
-  { key: 'entes', capa: 'ajustes', titulo: 'Entes y logos', linea: 'Quién recibe cada retención y el logo de su comprobante.',
+  { key: 'entes', capa: 'ajustes', titulo: '🏛️ Entes y logos', linea: 'Quién recibe cada retención y el logo de su comprobante.',
     que: 'Los organismos que reciben cada retención y su logo en el comprobante.', ingresa: 'El nombre del ente, su logo y qué impuestos lo usan.',
     efecto: 'El comprobante de cada impuesto lleva el logo de su ente.', noCambia: 'Los comprobantes emitidos conservan el logo de su emisión.' },
-  { key: 'perfiles', capa: 'ajustes', titulo: 'Perfiles fiscales de proveedores', linea: 'Tipo de contribuyente, persona, actividades y licencia de cada proveedor.',
+  { key: 'perfiles', capa: 'ajustes', titulo: '👥 Perfiles fiscales de proveedores', linea: 'Tipo de contribuyente, persona, actividades y licencia de cada proveedor.',
     que: 'Los datos fiscales de cada proveedor que deciden qué se le retiene.', ingresa: 'Tipo de contribuyente, tipo de persona, residencia, actividades económicas y licencia.',
     efecto: 'Con estos datos se propone si cada retención aplica en las facturas pendientes.', noCambia: 'Las retenciones registradas y sus comprobantes conservan los datos con que se emitieron.' },
-  { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
+  { key: 'licencias', capa: 'ajustes', titulo: '📜 Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
     que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
     efecto: 'Son las opciones del tipo de licencia en el perfil fiscal de cada proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se desactive.' },
-  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa base', linea: 'Los datos del agente de retención que van en cada comprobante (single-empresa).',
+  { key: 'empresa', capa: 'ajustes', titulo: '🏢 Datos de la empresa base', linea: 'Los datos del agente de retención que van en cada comprobante (single-empresa).',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
-  { key: 'compras', capa: 'ajustes', titulo: 'Flujo de compras y kanban', linea: 'Estatus del kanban a abordar e impuestos a practicar.',
+  { key: 'compras', capa: 'ajustes', titulo: '🛒 Flujo de compras y kanban', linea: 'Estatus del kanban a abordar e impuestos a practicar.',
     que: 'Controla qué compras aparecen en «Por realizar» según su estatus en el Kanban y qué impuestos practica la empresa.',
     ingresa: 'Selección de estatus permitidos (Confirmada pagar, Pagada, etc.) y qué impuestos retiene la empresa (IVA, ISLR, ISAE).',
     efecto: 'Filtra las órdenes que entran a Retenciones y define si se exigen IVA, ISLR y/o ISAE.',
     noCambia: 'Las retenciones ya emitidas o registradas en el libro fiscal.' },
-  { key: 'firma', capa: 'ajustes', titulo: 'Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
+  { key: 'firma', capa: 'ajustes', titulo: '🖋️ Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
     que: 'Las imágenes de la empresa que van en cada comprobante: logo, firma (con su firmante) y sello.', ingresa: 'Una imagen PNG o JPG de hasta 1 MB, vigente desde una fecha.',
     efecto: 'Los comprobantes nuevos llevan la versión vigente a su fecha de emisión. Sin imagen, el recuadro queda en blanco para firmar a mano.', noCambia: 'Los comprobantes emitidos conservan la versión con que salieron.' },
-  { key: 'vencimientos', capa: 'ajustes', titulo: 'Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
+  { key: 'vencimientos', capa: 'ajustes', titulo: '⏰ Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
     que: 'Los avisos de lo que vence: licencias, declaraciones y actividades con fecha «hasta».', ingresa: 'Con cuántos días de anticipación se avisa y si los avisos están encendidos.',
     efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
-  { key: 'empresas_fiscal', capa: 'ajustes', titulo: 'Config fiscal por empresa', linea: 'El régimen y los porcentajes de cada empresa (multi-empresa).',
+  { key: 'empresas_fiscal', capa: 'ajustes', titulo: '🌐 Config fiscal por empresa', linea: 'El régimen y los porcentajes de cada empresa (multi-empresa).',
     que: 'La configuración fiscal de cada empresa receptora: régimen (agente de IVA, especial, ISLR, ISAE) y porcentajes (IVA, IGTF, alícuota, ISAE).',
     ingresa: 'Por cada empresa: sus banderas de régimen, sus % de retención y su licencia municipal.',
     efecto: 'El libro, el registro y los reportes de esa empresa usan su propio régimen y sus %.', noCambia: 'La identidad de la empresa (nombre, RIF) se edita en el buzón. Lo ya registrado conserva sus valores.' },
-  { key: 'buzon_telefono', capa: 'ajustes', titulo: 'Buzón / Vista teléfono', linea: 'Activar el buzón de facturas del teléfono y el padrón de empresas receptoras.',
+  { key: 'buzon_telefono', capa: 'ajustes', titulo: '📱 Buzón / Vista teléfono', linea: 'Activar el buzón de facturas del teléfono y el padrón de empresas receptoras.',
     que: 'Si el buzón (vista teléfono) está disponible en el módulo y qué empresas reciben facturas.',
     ingresa: 'El interruptor de activación del buzón. (El padrón de empresas se edita acá y en el buzón.)',
     efecto: 'Enciende o apaga la pestaña del buzón y la vista de teléfono en Retenciones.', noCambia: 'Las facturas ya cargadas en el buzón.' },
 ];
 const AVANZADOS_PA: DefSeccionPa[] = [
-  { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
+  { key: 'impuestos', capa: 'avanzados', titulo: '⚖️ Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
     que: 'El catálogo de conceptos del ISLR (Decreto 1.808).', ingresa: 'El porcentaje de cada concepto por sujeto y si está activo.',
     efecto: 'Cambia cuánto se retiene de ISLR en los registros nuevos.', noCambia: 'Lo ya registrado conserva su porcentaje y su monto.' },
-  { key: 'valores', capa: 'avanzados', titulo: 'Valores', linea: 'Unidad Tributaria y porcentaje del IGTF.',
+  { key: 'valores', capa: 'avanzados', titulo: '💵 Valores', linea: 'Unidad Tributaria y porcentaje del IGTF.',
     que: 'Los valores que usan los cálculos: la Unidad Tributaria y el porcentaje del IGTF.', ingresa: 'El valor vigente. Todavía no guarda historial: el nuevo reemplaza al anterior.',
     efecto: 'Los registros nuevos se calculan con el valor guardado.', noCambia: 'Lo ya registrado conserva su monto.' },
-  { key: 'supuestos', capa: 'avanzados', titulo: 'Supuestos del %', linea: 'Los casos que cambian el porcentaje retenido (el 100 % del IVA).',
+  { key: 'supuestos', capa: 'avanzados', titulo: '📑 Supuestos del %', linea: 'Los casos que cambian el porcentaje retenido (el 100 % del IVA).',
     que: 'Los supuestos que llevan la retención a otro porcentaje, por impuesto y con vigencia.', ingresa: 'El texto del supuesto, el % que impone, desde cuándo rige y su fuente.',
     efecto: 'Al registrar, se ofrecen los supuestos vigentes a la fecha de la factura.', noCambia: 'Lo ya registrado conserva el texto del supuesto con que se retuvo.' },
-  { key: 'numeracion', capa: 'avanzados', titulo: 'Períodos y numeración', linea: 'Periodicidad, series de comprobantes y paso inicial de cada impuesto.',
+  { key: 'numeracion', capa: 'avanzados', titulo: '🔢 Períodos y numeración', linea: 'Periodicidad, series de comprobantes y paso inicial de cada impuesto.',
     que: 'Cómo se agrupan las retenciones para declarar y cómo se numeran los comprobantes.', ingresa: 'Periodicidad, quién numera la serie, período en curso y último número del otro sistema.',
     efecto: 'Cambia los períodos por declarar y el número que se propone al registrar.', noCambia: 'Nunca se cambia dentro de un período declarado. Un número usado no se repite.' },
-  { key: 'regimen', capa: 'avanzados', titulo: 'Régimen fiscal de la empresa', linea: 'Agente de retención de IVA, contribuyente especial y % de retención del IVA.',
+  { key: 'regimen', capa: 'avanzados', titulo: '📋 Régimen fiscal de la empresa', linea: 'Agente de retención de IVA, contribuyente especial y % de retención del IVA.',
     que: 'Las condiciones de la empresa ante el SENIAT.', ingresa: 'Si es agente de retención de IVA, si es contribuyente especial y los porcentajes de retención del IVA (75 y 100).',
     efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» habilita el IGTF.', noCambia: 'Lo ya registrado. Todavía no guarda la fecha ni el historial del cambio.' },
-  { key: 'formatos', capa: 'avanzados', titulo: 'Formatos de impresión', linea: 'Textos, rótulos y columnas del comprobante de cada impuesto, por fecha.',
+  { key: 'formatos', capa: 'avanzados', titulo: '🖨️ Formatos de impresión', linea: 'Textos, rótulos y columnas del comprobante de cada impuesto, por fecha.',
     que: 'Cómo se imprime el comprobante de cada impuesto: encabezado, nota legal, pie, rótulos, columnas y orientación.', ingresa: 'Una versión con su fecha «desde» y su motivo; o la vuelta al diseño de fábrica.',
     efecto: 'El comprobante usa la versión vigente a su fecha de emisión.', noCambia: 'Los datos de las retenciones: solo cambia cómo se imprimen.' },
-  { key: 'interruptores', capa: 'avanzados', titulo: 'Interruptores de reglas', linea: 'Reglas del módulo que se encienden o se apagan sin programar.',
+  { key: 'interruptores', capa: 'avanzados', titulo: '⚙️ Interruptores de reglas', linea: 'Reglas del módulo que se encienden o se apagan sin programar.',
     que: 'Reglas del módulo que se encienden o se apagan sin programar.', ingresa: 'El valor de cada interruptor. Cada cambio pide confirmación.',
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];

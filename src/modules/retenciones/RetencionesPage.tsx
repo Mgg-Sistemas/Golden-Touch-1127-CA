@@ -29,7 +29,7 @@ import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAp
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
-import { semillaFacturaDesdeBuzon, semillaFacturaDesdeOrdenArchivo, semillaRetencionDesdeOrden } from '@/modules/libroFiscal/semillasRetencion';
+import { semillaFacturaDesdeBuzon, semillaFacturaDesdeOrden, semillaFacturaDesdeOrdenArchivo } from '@/modules/libroFiscal/semillasRetencion';
 import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { ColaPorHacerView } from './ColaPorHacerView';
 import { construirColaPorHacer, type ItemColaPorHacer } from './colaPorHacer';
@@ -400,7 +400,7 @@ export function RetencionesPage() {
               Por hacer{colaPorHacer.length ? ` (${colaPorHacer.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-            <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
+            <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📋 Control de Retenciones</button>
             {buzonVisible && (
               <button className={vista === 'buzon' ? 'active' : ''} onClick={() => { setVista('buzon'); marcarBuzonVisto(); }}>
                 📥 Buzón Móvil{buzonNuevas > 0 ? ` (${buzonNuevas})` : ''}
@@ -445,10 +445,7 @@ export function RetencionesPage() {
           onRegistrarBuzon={abrirDesdeBuzon}
           onRegistrarArchivo={(f) => { void abrirDesdeFactura(f); }}
           onRegistrarOrden={(item) => {
-            const pends = item.orden
-              ? impuestosPendientesDeOrden(item.orden, registradas, practica, configFiscal, impuestosActivos)
-              : ['iva' as const];
-            setRegistrar(semillaRetencionDesdeOrden(item, pends));
+            setRegistrarFactura(semillaFacturaDesdeOrden(item));
           }}
           onVerDetalle={(item, soporte) => setSel({ ...item, soporteCola: soporte })}
           onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}

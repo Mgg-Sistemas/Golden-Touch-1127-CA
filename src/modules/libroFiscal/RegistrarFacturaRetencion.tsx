@@ -1247,31 +1247,42 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       )}
 
       {sinDocumento && !documento && !avisoSinDocDescartado && modoOrigen === 'manual' && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', position: 'relative', paddingRight: '2rem' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '.6rem',
+          padding: '.55rem .85rem',
+          borderRadius: '8px',
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.25)',
+          marginBottom: '.85rem',
+          fontSize: '.82rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', color: 'var(--text-normal)' }}>
+            <span style={{ fontSize: '1.05rem' }}>📄</span>
+            <span>
+              <strong>Factura directa / sin OC:</strong> Ingresa los datos de la factura fiscal y adjunta el soporte digital. Quedará registrada para el control y emisión de comprobantes.
+            </span>
+          </div>
           <button
             type="button"
             onClick={descartarAvisoSinDoc}
             style={{
-              position: 'absolute',
-              top: '6px',
-              right: '8px',
               background: 'transparent',
               border: 'none',
               color: 'var(--text-muted, #888)',
-              fontSize: '1.1rem',
+              fontSize: '1rem',
               cursor: 'pointer',
               padding: '2px 6px',
               borderRadius: '4px',
               lineHeight: 1,
             }}
-            title="Descartar este aviso"
+            title="Ocultar aviso"
             aria-label="Cerrar aviso"
           >
             ✕
           </button>
-          <small>
-            Esta factura no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa. Quedará en el libro fiscal registrada como «Fuera del sistema», por lo que se recomienda indicar en las notas su procedencia u origen.
-          </small>
         </div>
       )}
 
