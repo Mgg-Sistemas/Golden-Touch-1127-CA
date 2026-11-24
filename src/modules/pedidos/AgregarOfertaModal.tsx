@@ -469,7 +469,7 @@ export function AgregarOfertaModal({
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo' | 'exento'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo' | 'exento' | 'unidad'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
@@ -1128,7 +1128,14 @@ export function AgregarOfertaModal({
                             )}
                           </>
                         );
-                      })() : it.unidad && <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div>}
+                      })() : editando ? (
+                        /* Al corregir una cotización (también una descartada) la medida
+                           de los renglones sin producto de inventario se puede arreglar. */
+                        <input key={`un-${it.factor ?? 1}`} className="input" style={{ fontSize: '.7rem', padding: '.1rem .2rem', height: 'auto', marginTop: '.2rem', maxWidth: 130 }}
+                          aria-label={`Medida de ${it.nombre}`} placeholder="Medida"
+                          defaultValue={it.unidad ?? ''} onFocus={(e) => e.target.select()}
+                          onChange={(e) => updateItem(idx, { unidad: e.target.value.toUpperCase() })} />
+                      ) : (it.unidad ? <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div> : null)}
                     </td>
                     <td className="num">
                       <input key={`p-${it.factor ?? 1}`} className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}

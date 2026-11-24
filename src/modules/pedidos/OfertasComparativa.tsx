@@ -24,6 +24,7 @@ import { RepartirProveedoresModal } from './RepartirProveedoresModal';
 import { agruparVariantes, hayVariantes, totalesRepresentativos } from './variantesOferta';
 import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from './modalidadPago';
 import { esCotizacionDeEstaOc } from './ofertasPadreHija';
+import { esOfertaEditable } from './ofertasEditables';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
@@ -67,7 +68,7 @@ interface Props {
   reloadKey?: number;
   onAccepted: () => void;
   onAddOferta: () => void;
-  /** Editar una oferta pendiente (proveedor, marca/modelo, cantidad, precio…). */
+  /** Editar una oferta pendiente o descartada (proveedor, marca/modelo, cantidad, precio, medida…). */
   onEditarOferta?: (o: OfertaProveedor) => void;
   /** Reelegir oferta: devuelve la OC a «aprobada» para elegir de nuevo o añadir más ofertas. */
   onReelegir?: () => void;
@@ -285,7 +286,8 @@ export function OfertasComparativa({
   const minOk = ofertas.length >= MIN_OFERTAS;
   const puedeDecidir = canDecidir && enEtapaOc && minOk;
   const puedeAgregar = (canCrearOferta ?? canDecidir) && enEtapaOc && ofertas.length < MAX_OFERTAS;
-  // Edición/eliminación de ofertas: nunca en hijas ni en la madre repartida.
+  // Edición de ofertas: nunca en hijas ni en la madre repartida. Las descartadas también
+  // se corrigen (precios, medidas…); su estado NO cambia al guardar.
   const puedeEditarOfertas = (canCrearOferta ?? canDecidir) && !soloLectura;
   // Reelegir oferta: disponible cuando la OC ya eligió oferta pero aún no se ha pagado en Tesorería.
   const puedeReelegir = !soloLectura && canDecidir && ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
@@ -395,12 +397,14 @@ export function OfertasComparativa({
                       <div>
                         <span className="muted" style={{ marginRight: '.35rem' }}>{expandido === s.oferta.id ? '▾' : '▸'}</span>
                         <strong>{prov?.razon_social ?? '—'}</strong>{' '}
-                        {puedeEditarOfertas && onEditarOferta && s.oferta.estado === 'pendiente' && (
+                        {puedeEditarOfertas && onEditarOferta && esOfertaEditable(s.oferta.estado) && (
                           <button
                             type="button"
                             className="btn btn-sm btn-ghost"
-                            title="Editar esta cotización (proveedor, marca/modelo, cantidad, precios, condiciones…)"
-                            aria-label={`Editar la cotización de ${prov?.razon_social ?? 'este proveedor'}`}
+                            title={s.oferta.estado === 'descartada'
+                              ? 'Corregir esta cotización descartada (precios, medidas, condiciones…). Sigue descartada al guardar.'
+                              : 'Editar esta cotización (proveedor, marca/modelo, cantidad, precios, medidas, condiciones…)'}
+                            aria-label={`Editar la cotización ${s.oferta.estado === 'descartada' ? 'descartada' : ''} de ${prov?.razon_social ?? 'este proveedor'}`}
                             style={{ padding: '0 .4rem', marginLeft: '.1rem' }}
                             onClick={(e) => { e.stopPropagation(); onEditarOferta(s.oferta); }}
                           >✎</button>
@@ -616,16 +620,18 @@ export function OfertasComparativa({
                           </div>
                             );
                           })()}
-                          {puedeEditarOfertas && s.oferta.estado === 'pendiente' && (
+                          {puedeEditarOfertas && esOfertaEditable(s.oferta.estado) && (
                             <div style={{ textAlign: 'right', marginTop: '.4rem', display: 'flex', gap: '.4rem', justifyContent: 'flex-end' }}>
                               {onEditarOferta && (
                                 <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); onEditarOferta(s.oferta); }}>
-                                  ✎ Editar oferta
+                                  {s.oferta.estado === 'descartada' ? '✎ Corregir oferta descartada' : '✎ Editar oferta'}
                                 </button>
                               )}
-                              <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setAEliminar(s.oferta); }}>
-                                🗑 Eliminar esta oferta
-                              </button>
+                              {s.oferta.estado === 'pendiente' && (
+                                <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); setAEliminar(s.oferta); }}>
+                                  🗑 Eliminar esta oferta
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
