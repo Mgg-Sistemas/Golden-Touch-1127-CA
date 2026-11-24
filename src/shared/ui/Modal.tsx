@@ -11,6 +11,7 @@ interface ModalProps {
   /** Modal pequeño y centrado (confirmaciones / “aceptar algo”). Los formularios
    *  van a pantalla completa (compact=false, por defecto). */
   compact?: boolean;
+  /** Clase CSS adicional para el contenedor de la ventana modal y su fondo. */
   className?: string;
   style?: React.CSSProperties;
   onClose: () => void;
@@ -73,9 +74,9 @@ export function Modal({ title, size = 'md', compact = false, className, style, o
   // Regla del sistema: el modal NO se cierra por clic fuera ni con Escape; solo
   // con la ✕ (o un botón explícito del pie). Así no se pierde lo cargado por error.
   return createPortal(
-    <div className="modal-backdrop" style={oculto ? { display: 'none' } : undefined}>
+    <div className={`modal-backdrop ${className ? `${className}-backdrop` : ''}`.trim()} style={oculto ? { display: 'none' } : undefined}>
       <div
-        className={`modal ${compact ? 'modal-compact' : ''} ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''} ${className ?? ''}`}
+        className={`modal ${compact ? 'modal-compact' : ''} ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''} ${className ?? ''}`.trim()}
         style={style}
       >
         <div className="modal-header">

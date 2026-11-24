@@ -16,13 +16,27 @@ export function CombustiblePage() {
   // Notificación push al acceder al módulo si la alerta roja de poco combustible está activa
   useAlertaCombustiblePush('modulo');
   return (
-    <div>
-      <div className="page-head">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
-          <h1>⛽ Combustible</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0 }}>
+            ⛽ Combustible
+          </h1>
+          <p className="muted" style={{ margin: '.2rem 0 0 0', fontSize: '.84rem' }}>
+            Control ejecutivo de tanques, despachos a maquinaria, telemetría y conciliación
+          </p>
         </div>
         <div className="actions">
-          {puedeVista('surtidor') && <Link to="/app/combustible/surtidor" className="btn btn-ghost" title="La pantalla del surtidor, con botones grandes para el teléfono">📱 Vista teléfono</Link>}
+          {puedeVista('surtidor') && (
+            <Link
+              to="/app/combustible/surtidor"
+              className="btn btn-ghost"
+              title="La pantalla del surtidor, con botones grandes para el teléfono"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontWeight: 600 }}
+            >
+              <span>📱</span> Vista teléfono
+            </Link>
+          )}
         </div>
       </div>
 

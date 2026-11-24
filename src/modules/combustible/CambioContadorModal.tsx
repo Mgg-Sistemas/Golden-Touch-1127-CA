@@ -105,7 +105,8 @@ export function CambioContadorModal({ tanque, actor, onClose, onGuardado }: {
     <Modal
       title={`🔧 Se cambió el contador · ${tanque.nombre}`}
       onClose={onClose}
-      size="lg"
+      size="md"
+      className="comb-modal comb-modal-md"
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem', width: '100%' }}>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={guardando}>Cancelar</button>

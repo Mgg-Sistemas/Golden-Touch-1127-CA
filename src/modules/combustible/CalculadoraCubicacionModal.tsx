@@ -104,6 +104,7 @@ export function CalculadoraCubicacionModal({
     <Modal
       title="📐 Calculadora de cubicación"
       size="lg"
+      className="comb-modal comb-modal-lg"
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>

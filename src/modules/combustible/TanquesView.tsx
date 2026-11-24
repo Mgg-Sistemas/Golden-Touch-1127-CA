@@ -56,6 +56,7 @@ import { CambioContadorModal } from './CambioContadorModal';
 import { calcularMermaImplicitaTanque, DEFAULT_MERMA_IMPLICITA_PCT, generarObservacionMermaImplicita } from './mermaImplicita';
 import { useFichasEquipos } from './fichasEquipos';
 import { opcionesEquipos, esTanquePermitidoParaEquipo, type FichaEquipoOpcion } from './opcionesEquipos';
+import './combustible.css';
 
 /** Hora actual del sistema (zona Venezuela) en formato «8:02:00 AM», como en el Excel. */
 function horaSistema(): string {
@@ -86,60 +87,93 @@ function totalesGrupo(rep: ReporteTanque[]): { litros: number; valor: number; ta
   return { litros, valor, tasa: litros > 0 ? valor / litros : 0, count: rep.length };
 }
 
-/** Tarjeta-resumen de un grupo de combustible (litros + valor + tasa promedio). */
-function ResumenCombustible({ titulo, totales }: { titulo: string; totales: { litros: number; valor: number; tasa: number; count: number } }) {
+/** Tarjeta-resumen ejecutiva de un grupo de combustible (litros + valor + tasa promedio + barra de ocupación). */
+function ResumenCombustible({ titulo, totales, grupo }: {
+  titulo: string;
+  totales: { litros: number; valor: number; tasa: number; count: number };
+  grupo: ReporteTanque[];
+}) {
+  const capTotal = useMemo(() => grupo.reduce((a, r) => a + (Number(r.tanque.capacidad_litros) || 0), 0), [grupo]);
+  const pctOcupacion = capTotal > 0 ? Math.min(100, Math.max(0, (totales.litros / capTotal) * 100)) : 0;
+
   return (
-    <div className="card" style={{ margin: 0, borderColor: 'var(--primary)', borderWidth: 2, background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' }}>
-      <div className="card-title"><span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
-        <svg width="14" height="18" viewBox="0 0 14 18" aria-hidden="true" style={{ flexShrink: 0 }}>
-          <path d="M7 0 C7 0 0 8 0 12 a7 7 0 0 0 14 0 C14 8 7 0 7 0 Z" fill="#000" stroke="rgba(255,255,255,.35)" strokeWidth="0.6" />
-        </svg>
-        {titulo}
-      </span></div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.5rem', flexWrap: 'wrap' }}>
-        <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary-3)' }} className="mono">
-          {num(totales.litros)} <span style={{ fontSize: '1rem', fontWeight: 500 }}>ltrs</span>
+    <div className="comb-resumen-banner">
+      <div className="comb-resumen-top">
+        <div className="comb-resumen-title">
+          <svg width="15" height="19" viewBox="0 0 14 18" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M7 0 C7 0 0 8 0 12 a7 7 0 0 0 14 0 C14 8 7 0 7 0 Z" fill="#f59e0b" stroke="rgba(255,255,255,.3)" strokeWidth="0.8" />
+          </svg>
+          {titulo}
         </div>
-        <div className="muted" style={{ fontSize: '.9rem' }}>disponibles en <strong>{totales.count}</strong> tanque(s)</div>
+        <div className="comb-resumen-badge">
+          <span>{totales.count} tanque(s) en este grupo</span>
+          {capTotal > 0 && <span>· Cap. instalada {num(capTotal)} L</span>}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginTop: '.5rem' }}>
-        <div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>Valor total del combustible</div>
-          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)' }}>{money(totales.valor)}</div>
+
+      <div className="comb-resumen-stats-grid">
+        <div className="comb-stat-volumen">
+          <div className="comb-stat-volumen-num">
+            {num(totales.litros)}<span>ltrs</span>
+          </div>
+          <div className="comb-stat-volumen-sub">Combustible disponible en tanques</div>
         </div>
-        <div>
-          <div className="muted" style={{ fontSize: '.72rem' }}>Tasa promedio (ponderada por litros)</div>
-          <div className="mono" style={{ fontSize: '1.3rem', fontWeight: 700 }}>{money(totales.tasa)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>/ltrs</span></div>
+
+        {capTotal > 0 && (
+          <div className="comb-stat-capacidad">
+            <div className="comb-stat-capacidad-header">
+              <span>Nivel de ocupación del grupo</span>
+              <strong className="mono">{num(pctOcupacion)}%</strong>
+            </div>
+            <div className="comb-stat-capacidad-bar-bg" title={`${num(totales.litros)} L de ${num(capTotal)} L de capacidad instalada`}>
+              <div className="comb-stat-capacidad-bar-fill" style={{ width: `${pctOcupacion}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="comb-stat-valores">
+          <div className="comb-stat-valor-col">
+            <span className="comb-stat-valor-label">Valoración total USD</span>
+            <span className="comb-stat-valor-usd">{money(totales.valor)}</span>
+          </div>
+          <div className="comb-stat-valor-col">
+            <span className="comb-stat-valor-label">Tasa promedio ponderada</span>
+            <span className="comb-stat-valor-tasa">{money(totales.tasa)} <span>/ltrs</span></span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/** Un grupo de combustible: su tarjeta-resumen (banner) + las tarjetas de SUS tanques debajo. */
-function GrupoTanques({ titulo, totales, grupo, canWrite, loading, estiloTop, vacio, onAbrir, onEditar }: {
+/** Un grupo de combustible: su tarjeta-resumen ejecutiva + grid de tanques debajo. */
+function GrupoTanques({ titulo, totales, grupo, canWrite, loading, vacio, onAbrir, onEditar }: {
   titulo: string;
   totales: { litros: number; valor: number; tasa: number; count: number };
   grupo: ReporteTanque[];
   canWrite: boolean;
   loading: boolean;
-  estiloTop: string;
+  estiloTop?: string;
   vacio: string;
   onAbrir: (id: string) => void;
   onEditar: (t: TanqueCombustible) => void;
 }) {
   return (
-    <div style={{ marginTop: estiloTop, marginBottom: '1.5rem' }}>
-      <ResumenCombustible titulo={titulo} totales={totales} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+    <section className="comb-grupo-section">
+      <ResumenCombustible titulo={titulo} totales={totales} grupo={grupo} />
+      <div className="comb-tanques-grid">
         {grupo.map((r) => (
           <TanqueCard key={r.tanque.id} r={r} canWrite={canWrite}
             onClick={() => onAbrir(r.tanque.id)}
             onEdit={() => onEditar(r.tanque)} />
         ))}
-        {!grupo.length && !loading && <div className="card"><p className="muted" style={{ margin: 0 }}>{vacio}</p></div>}
+        {!grupo.length && !loading && (
+          <div className="card" style={{ gridColumn: '1 / -1', padding: '1.5rem', textAlign: 'center' }}>
+            <p className="muted" style={{ margin: 0 }}>{vacio}</p>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -237,6 +271,7 @@ export function TanquesView() {
   const totalBrasileros = useMemo(() => totalesGrupo(grupoBrasileros), [grupoBrasileros]);
   // Modo de vista: false = inicio (resumen + tarjetas); true = detalle (tarjeta + movimientos).
   const [abierto, setAbierto] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState<'none' | 'reportes' | 'mediciones' | 'ajustes'>('none');
   const reporteSel = useMemo(() => reporte.find((r) => r.tanque.id === selId) ?? null, [reporte, selId]);
 
   // La lista actual solo muestra los movimientos del MES EN CURSO. Los meses
@@ -247,30 +282,201 @@ export function TanquesView() {
   async function recargarTodo() { await reloadTanques(); await reloadMovs(selId); setReloadKey((k) => k + 1); }
 
   return (
-    <div>
-      <div className="filterbar" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: '.5rem' }}>
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setHistorico(true)} disabled={!tanques.length} title="Movimientos de meses anteriores, por mes">📚 Histórico de Movimientos</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setModal('reporte')} disabled={!reporte.length} title="Vista previa del resumen de existencias por tanque a la fecha (imprimible)">📄 Reporte de existencias</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumo')}>📊 Consumo por equipo</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setModal('calculadora')} title="Calculadora rápida de cubicación (seleccionar tanque y altura en cm)">📐 Calculadora cubicación</button>
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('cubicacion')} disabled={!sel} title="Medir altura → litros">📐 Cubicación</button>}
-          {puedeCambiarContador && <button className="btn btn-ghost btn-sm" onClick={() => setModal('contador')} disabled={!sel} title="Dejar asentado que a este tanque se le cambio el contador, para no perder lo ya surtido">⚙ Cambio de contador</button>}
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('catalogos')}>🗂 Catálogos</button>}
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('conciliacion')} disabled={!tanques.length} title="Conciliación semanal de los tanques">⚖ Conciliación</button>}
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => setModal('consumoSemanal')} title="Cargar en la caja de Peramanal el consumo de GT de una semana (gasto + entrada de multimoneda por la misma cantidad). Respaldo del automático dominical, por si no se actualizó el fin de semana.">💰 CAJA</button>}
+    <div className="comb-root">
+      {/* Backdrop transparente para cerrar menús abiertos */}
+      {menuAbierto !== 'none' && (
+        <div className="comb-dropdown-backdrop" onClick={() => setMenuAbierto('none')} />
+      )}
+
+      {/* Toolbar Ejecutiva */}
+      <div className="comb-toolbar">
+        <div className="comb-toolbar-group">
+          {/* Dropdown 1: Reportes & Histórico */}
+          <div className="comb-dropdown-wrap">
+            <button
+              type="button"
+              className={`btn btn-ghost btn-sm ${menuAbierto === 'reportes' ? 'active' : ''}`}
+              onClick={() => setMenuAbierto((prev) => (prev === 'reportes' ? 'none' : 'reportes'))}
+              title="Reportes, existencias y consumos"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontWeight: 600 }}
+            >
+              <span>📊 Reportes</span>
+              <span style={{ fontSize: '.7rem', opacity: 0.7 }}>▾</span>
+            </button>
+            {menuAbierto === 'reportes' && (
+              <div className="comb-dropdown-menu">
+                <button
+                  type="button"
+                  className="comb-dropdown-item"
+                  onClick={() => { setMenuAbierto('none'); setHistorico(true); }}
+                  disabled={!tanques.length}
+                >
+                  <span>📚</span> Histórico de movimientos
+                </button>
+                <button
+                  type="button"
+                  className="comb-dropdown-item"
+                  onClick={() => { setMenuAbierto('none'); setModal('reporte'); }}
+                  disabled={!reporte.length}
+                >
+                  <span>📄</span> Reporte de existencias al corte
+                </button>
+                <button
+                  type="button"
+                  className="comb-dropdown-item"
+                  onClick={() => { setMenuAbierto('none'); setModal('consumo'); }}
+                >
+                  <span>📊</span> Consumo por equipo
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Dropdown 2: Operaciones & Mediciones */}
+          <div className="comb-dropdown-wrap">
+            <button
+              type="button"
+              className={`btn btn-ghost btn-sm ${menuAbierto === 'mediciones' ? 'active' : ''}`}
+              onClick={() => setMenuAbierto((prev) => (prev === 'mediciones' ? 'none' : 'mediciones'))}
+              title="Medición, cubicación y conciliación semanal"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontWeight: 600 }}
+            >
+              <span>📐 Mediciones</span>
+              <span style={{ fontSize: '.7rem', opacity: 0.7 }}>▾</span>
+            </button>
+            {menuAbierto === 'mediciones' && (
+              <div className="comb-dropdown-menu">
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="comb-dropdown-item"
+                    onClick={() => { setMenuAbierto('none'); setModal('cubicacion'); }}
+                    disabled={!sel}
+                    title="Medir altura con varilla → litros"
+                  >
+                    <span>📐</span> Cubicación de tanque
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="comb-dropdown-item"
+                  onClick={() => { setMenuAbierto('none'); setModal('calculadora'); }}
+                  title="Calculadora rápida de cubicación (tanque y cm)"
+                >
+                  <span>🧮</span> Calculadora rápida
+                </button>
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="comb-dropdown-item"
+                    onClick={() => { setMenuAbierto('none'); setModal('conciliacion'); }}
+                    disabled={!tanques.length}
+                    title="Conciliación semanal de los tanques"
+                  >
+                    <span>⚖</span> Conciliación semanal
+                  </button>
+                )}
+                {canWrite && (
+                  <button
+                    type="button"
+                    className="comb-dropdown-item"
+                    onClick={() => { setMenuAbierto('none'); setModal('consumoSemanal'); }}
+                    title="Cargar consumo de GT en Caja Peramanal"
+                  >
+                    <span>💰</span> Cargar en Caja Peramanal
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Botón directo: Envíos a MGG */}
           <button
+            type="button"
             className={`btn btn-sm ${transferenciasEnError ? 'btn-danger' : 'btn-ghost'}`}
             onClick={() => setModal('transferencias')}
             title={transferenciasEnError
               ? `${transferenciasEnError} envío(s) a MGG no llegaron: el combustible ya salió del tanque`
               : 'Combustible enviado a MGG y su estado'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontWeight: 600 }}
           >
-            🌐 Envíos a MGG{transferenciasEnError ? ` · ${transferenciasEnError}` : ''}
+            <span>🌐 Envíos a MGG</span>
+            {transferenciasEnError > 0 && (
+              <span style={{
+                background: '#dc2626',
+                color: '#fff',
+                fontSize: '.72rem',
+                fontWeight: 800,
+                padding: '1px 6px',
+                borderRadius: '999px',
+              }}>
+                {transferenciasEnError}
+              </span>
+            )}
           </button>
-          {canWrite && <button className="btn btn-ghost btn-sm" onClick={() => { setEditTanque(null); setModal('tanque'); }}>+ Tanque</button>}
-          {canWrite && <button className="btn btn-primary btn-sm" onClick={() => setModal('mov')} disabled={!tanques.length}>+ Nuevo movimiento</button>}
+
+          {/* Dropdown 3: Ajustes & Configuración */}
+          {(canWrite || puedeCambiarContador) && (
+            <div className="comb-dropdown-wrap">
+              <button
+                type="button"
+                className={`btn btn-ghost btn-sm ${menuAbierto === 'ajustes' ? 'active' : ''}`}
+                onClick={() => setMenuAbierto((prev) => (prev === 'ajustes' ? 'none' : 'ajustes'))}
+                title="Configuración de tanques, catálogos y contadores"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontWeight: 600 }}
+              >
+                <span>⚙ Ajustes</span>
+                <span style={{ fontSize: '.7rem', opacity: 0.7 }}>▾</span>
+              </button>
+              {menuAbierto === 'ajustes' && (
+                <div className="comb-dropdown-menu">
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="comb-dropdown-item"
+                      onClick={() => { setMenuAbierto('none'); setEditTanque(null); setModal('tanque'); }}
+                    >
+                      <span>➕</span> Crear nuevo tanque
+                    </button>
+                  )}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="comb-dropdown-item"
+                      onClick={() => { setMenuAbierto('none'); setModal('catalogos'); }}
+                    >
+                      <span>🗂</span> Catálogos de combustible
+                    </button>
+                  )}
+                  {puedeCambiarContador && (
+                    <button
+                      type="button"
+                      className="comb-dropdown-item"
+                      onClick={() => { setMenuAbierto('none'); setModal('contador'); }}
+                      disabled={!sel}
+                      title="Asentar cambio de contador físico"
+                    >
+                      <span>⚙</span> Cambio de contador
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Acción Primaria Protagonista */}
+        {canWrite && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setModal('mov')}
+            disabled={!tanques.length}
+            style={{ fontWeight: 800, padding: '.45rem 1.1rem', display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}
+          >
+            <span>+</span> Nuevo movimiento
+          </button>
+        )}
       </div>
 
       {!abierto ? (
@@ -278,13 +484,13 @@ export function TanquesView() {
           {/* Cada banner con SUS tanques debajo: general (sin Brasileros) y Los Brasileros. */}
           <GrupoTanques
             titulo="Combustible disponible" totales={totalGeneral} grupo={grupoGeneral}
-            canWrite={canWrite} loading={loading} estiloTop="1rem"
+            canWrite={canWrite} loading={loading}
             vacio={reporte.length ? 'Sin tanques en este grupo.' : 'Sin tanques. Crea uno con "+ Tanque".'}
             onAbrir={(id) => { setSelId(id); setAbierto(true); }}
             onEditar={(t) => { setEditTanque(t); setModal('tanque'); }} />
           <GrupoTanques
             titulo="Los Brasileros" totales={totalBrasileros} grupo={grupoBrasileros}
-            canWrite={canWrite} loading={loading} estiloTop="0"
+            canWrite={canWrite} loading={loading}
             vacio="Sin tanques en Los Brasileros."
             onAbrir={(id) => { setSelId(id); setAbierto(true); }}
             onEditar={(t) => { setEditTanque(t); setModal('tanque'); }} />
@@ -292,16 +498,29 @@ export function TanquesView() {
       ) : sel && reporteSel ? (
         <>
           {/* Detalle: botón Volver + tarjeta seleccionada arriba + movimientos abajo */}
-          <div style={{ margin: '1rem 0 .75rem' }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setAbierto(false)} title="Volver al inicio de Combustible">← Volver</button>
+          <div className="comb-detalle-back-bar">
+            <button className="comb-btn-volver" onClick={() => setAbierto(false)} title="Volver al inicio de Combustible">
+              ← Volver a todos los tanques
+            </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <TanqueCard r={reporteSel} canWrite={canWrite} activo
               onEdit={() => { setEditTanque(reporteSel.tanque); setModal('tanque'); }} />
           </div>
 
-          <div className="page-head" style={{ marginBottom: '.5rem' }}>
-            <div><h2 style={{ margin: 0 }}>📒 {sel.nombre}</h2><p className="muted" style={{ margin: 0, fontSize: '.82rem' }}>Saldo: <strong className="mono">{num(sel.saldo_litros)} ltrs</strong> · <strong className="mono">{money(sel.saldo_usd)}</strong> · Tasa {money(sel.tasa_usd_litro)}/ltrs</p></div>
+          <div className="comb-detalle-hero">
+            <div className="comb-detalle-hero-title">
+              <h2>
+                {esBidon(sel.nombre) ? '🪣' : sel.es_movil ? '🚚' : '🛢'} {sel.nombre}
+              </h2>
+            </div>
+            <div className="comb-detalle-hero-meta">
+              <span>Saldo: <strong className="mono">{num(sel.saldo_litros)} ltrs</strong></span>
+              <span>Valor: <strong className="mono" style={{ color: 'var(--success, #10b981)' }}>{money(sel.saldo_usd)}</strong></span>
+              <span>Tasa: <strong className="mono">{money(sel.tasa_usd_litro)} /ltrs</strong></span>
+              {Number(sel.capacidad_litros) > 0 && <span>Capacidad: <strong className="mono">{num(sel.capacidad_litros)} L</strong></span>}
+            </div>
           </div>
 
           <RegistroMovimientos
@@ -483,33 +702,105 @@ function TanqueCard({ r, canWrite, activo, onClick, onEdit }: {
   const capCalc = Number(r.tanque.capacidad_calculada_litros) || 0;
   const disp = Number(r.disponible) || 0;
   const pct = cap > 0 ? Math.max(0, Math.min(100, (disp / cap) * 100)) : 0;
+  const esBid = esBidon(r.tanque.nombre);
+  const esInactivo = r.tanque.estado !== 'activo';
   const clickable = !!onClick;
+
+  // Semáforo de reserva
+  let nivelClase = 'optimo';
+  let nivelLabel = `${num(pct)}%`;
+  if (disp <= 0 && !esBid) {
+    nivelClase = 'critico';
+    nivelLabel = 'Vacío (0%)';
+  } else if (pct < 12) {
+    nivelClase = 'critico';
+    nivelLabel = `${num(pct)}% · Reserva`;
+  } else if (pct < 35) {
+    nivelClase = 'medio';
+    nivelLabel = `${num(pct)}%`;
+  } else {
+    nivelClase = 'optimo';
+    nivelLabel = `${num(pct)}%`;
+  }
+
+  const valorUsd = disp * (Number(r.tanque.tasa_usd_litro) || 0);
+
   return (
-    <div role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined} onClick={onClick}
-      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick!(); } : undefined} className="card"
-      style={{ textAlign: 'left', cursor: clickable ? 'pointer' : 'default', borderColor: activo ? 'var(--primary)' : 'var(--border)', borderWidth: activo ? 2 : 1, opacity: r.tanque.estado === 'activo' ? 1 : 0.55 }}>
-      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.4rem' }}>
-        <span>{esBidon(r.tanque.nombre) ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'} {r.tanque.nombre}</span>
-        <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}>
-          {esBidon(r.tanque.nombre) && <span className="badge" title="Bidón para consumo en campo (sin saldo)">bidón</span>}
-          {r.tanque.es_movil && !esBidon(r.tanque.nombre) && <span className="badge" title="Tanque móvil">móvil</span>}
-          {r.tanque.estado !== 'activo' && <span className="badge">inactivo</span>}
-          {canWrite && onEdit && <button type="button" className="btn btn-sm btn-ghost" title="Editar tanque" onClick={(e) => { e.stopPropagation(); onEdit(); }}>✎</button>}
-        </span>
+    <div
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick!(); } : undefined}
+      className={`comb-tanque-card${activo ? ' activo' : ''}${esInactivo ? ' inactivo' : ''}`}
+      title={clickable ? 'Haz clic para ver el registro de movimientos de este tanque' : undefined}
+    >
+      <div className="comb-tanque-header">
+        <div className="comb-tanque-name-area">
+          <span className="comb-tanque-icon">
+            {esBid ? '🪣' : r.tanque.es_movil ? '🚚' : '🛢'}
+          </span>
+          <span className="comb-tanque-name" title={r.tanque.nombre}>
+            {r.tanque.nombre}
+          </span>
+        </div>
+
+        <div className="comb-tanque-badges">
+          {esBid && <span className="comb-tanque-badge bidon" title="Bidón para consumo en campo (sin saldo)">bidón</span>}
+          {r.tanque.es_movil && !esBid && <span className="comb-tanque-badge movil" title="Tanque móvil">móvil</span>}
+          {esInactivo && <span className="comb-tanque-badge inactivo">inactivo</span>}
+          {canWrite && onEdit && (
+            <button
+              type="button"
+              className="comb-tanque-edit-btn"
+              title="Editar configuración del tanque"
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            >
+              ✎
+            </button>
+          )}
+        </div>
       </div>
-      <div style={{ fontSize: '1.5rem', fontWeight: 800 }} className="mono">{num(disp)} <span style={{ fontSize: '.8rem', fontWeight: 500 }}>ltrs</span></div>
-      <div style={{ height: 7, borderRadius: 5, background: 'var(--surface-2)', margin: '.5rem 0', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: pct < 12 ? 'var(--danger)' : 'var(--primary)' }} />
-      </div>
-      <div className="muted" style={{ fontSize: '.76rem' }}>
-        {esBidon(r.tanque.nombre) ? (
-          <span>Salida directa · Sin saldo en sistema</span>
-        ) : (
-          <>Cap. {num(cap)} ltrs{capCalc > 0 ? <> · calc. <span className="mono">{num(capCalc)}</span></> : null} · Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/ltrs</>
+
+      <div className="comb-tanque-main-metric">
+        <div className="comb-tanque-litros">
+          {num(disp)}<span>ltrs</span>
+        </div>
+        {!esBid && (
+          <span className={`comb-tanque-pct-chip ${nivelClase}`}>
+            {nivelClase === 'critico' && '⚠ '}
+            {nivelLabel}
+          </span>
         )}
       </div>
-      <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-        ↓{num(r.entradas)} · ⛽{num(r.uso)} · ↔{num(r.traslados)} ltrs
+
+      {!esBid && (
+        <div className="comb-fluid-gauge" title={`Nivel de llenado: ${num(pct)}% (${num(disp)} / ${num(cap)} L)`}>
+          <div className={`comb-fluid-gauge-fill ${nivelClase}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+
+      <div className="comb-tanque-info-line">
+        {esBid ? (
+          <span>Salida directa · Sin saldo en sistema</span>
+        ) : (
+          <>
+            <span>Cap. <strong>{num(cap)}</strong> L{capCalc > 0 ? <> · calc. <strong className="mono">{num(capCalc)}</strong></> : null}</span>
+            <span>Tasa <strong className="mono">{money(r.tanque.tasa_usd_litro)}</strong>/L</span>
+          </>
+        )}
+      </div>
+
+      {!esBid && valorUsd > 0 && (
+        <div className="comb-tanque-info-line" style={{ marginTop: '-0.35rem' }}>
+          <span className="muted">Valor estimado:</span>
+          <strong className="mono" style={{ color: 'var(--success, #10b981)' }}>{money(valorUsd)}</strong>
+        </div>
+      )}
+
+      <div className="comb-tanque-footer-chips">
+        <span className="comb-mini-chip entrada" title="Entradas del mes">↓ {num(r.entradas)} L</span>
+        <span className="comb-mini-chip uso" title="Despachos / Consumo del mes">⛽ {num(r.uso)} L</span>
+        <span className="comb-mini-chip traslado" title="Traslados del mes">↔ {num(r.traslados)} L</span>
       </div>
     </div>
   );
@@ -598,7 +889,26 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
     acciones: true,
   }));
   const [menuColsOpen, setMenuColsOpen] = useState(false);
+  const [filtrosAvanzadosOpen, setFiltrosAvanzadosOpen] = useState(false);
   const numColsVisibles = useMemo(() => Object.values(colsVisibles).filter(Boolean).length, [colsVisibles]);
+
+  const conteosPorTipo = useMemo(() => {
+    const counts: Record<string, number> = { todos: movs.length, uso: 0, entrada: 0, traslado: 0, retorno: 0, merma: 0 };
+    movs.forEach((m) => {
+      if (counts[m.tipo] != null) counts[m.tipo]++;
+    });
+    return counts;
+  }, [movs]);
+
+  const numFiltrosAvanzados = useMemo(() => {
+    let n = 0;
+    if (fEquipo) n++;
+    if (fAutorizado) n++;
+    if (fUbicacion) n++;
+    if (fDesde) n++;
+    if (fHasta) n++;
+    return n;
+  }, [fEquipo, fAutorizado, fUbicacion, fDesde, fHasta]);
 
   // Orden de columnas reorganizable
   const [ordenColumnas, setOrdenColumnas] = useState<ColId[]>(() => COLUMNAS_TABLA.map((col) => col.id));
@@ -888,18 +1198,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
         return (
           <td key={colId} style={{ whiteSpace: 'nowrap' }}>
             {m.registrado_en_cuaderno ? (
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                fontSize: '.72rem',
-                fontWeight: 700,
-                color: '#34d399',
-                background: 'rgba(16, 185, 129, 0.12)',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-              }}>
+              <span className="comb-chip-cuaderno">
                 ✓ {m.cuaderno_litros != null ? `${num(m.cuaderno_litros)} L` : 'Sí'}
               </span>
             ) : m.registrado_en_cuaderno === false ? (
@@ -921,18 +1220,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
         return (
           <td key={colId} className="mono" style={{ whiteSpace: 'nowrap' }}>
             {m.saldo_drive != null ? (
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '3px',
-                fontSize: '.74rem',
-                fontWeight: 700,
-                color: '#38bdf8',
-                background: 'rgba(56, 189, 248, 0.1)',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                border: '1px solid rgba(56, 189, 248, 0.25)',
-              }}>
+              <span className="comb-chip-drive">
                 {num(m.saldo_drive)} L
               </span>
             ) : m.registrado_en_drive ? (
@@ -959,13 +1247,21 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
       case 'acciones':
         return (
           <td key={colId} style={{ whiteSpace: 'nowrap' }}>
-            <button className="btn btn-sm btn-ghost" title="Ver detalle" onClick={() => onVerDetalle(m)}>👁 Ver</button>
-            {(conteoFotos.get(m.id) ?? 0) > 0 && (
-              <button className="btn btn-sm btn-ghost" title="Ver las fotos cargadas de este movimiento" onClick={() => onVerDetalle(m)}>
-                📷 {conteoFotos.get(m.id)}
+            <div className="comb-row-actions">
+              <button className="comb-row-btn" title="Ver detalle completo" onClick={() => onVerDetalle(m)}>
+                👁 Ver
               </button>
-            )}
-            {canWrite && allowDelete && onBorrar && <button className="btn btn-sm btn-ghost" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>🗑</button>}
+              {(conteoFotos.get(m.id) ?? 0) > 0 && (
+                <button className="comb-row-btn" title="Ver fotos adjuntas" onClick={() => onVerDetalle(m)}>
+                  📷 {conteoFotos.get(m.id)}
+                </button>
+              )}
+              {canWrite && allowDelete && onBorrar && (
+                <button className="comb-row-btn danger" title="Eliminar (revierte saldo)" onClick={() => onBorrar(m)}>
+                  🗑
+                </button>
+              )}
+            </div>
           </td>
         );
       default:
@@ -974,218 +1270,381 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
   };
 
   return (
-    <>
+    <div className="comb-movs-container">
       {!!movs.length && (
-        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
-          <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            {titulo}
-            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar PDF del registro (con el filtro aplicado)"
-              onClick={() => void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'))}>↓ PDF</button>
-            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Descargar Excel del registro (con el filtro aplicado)"
-              onClick={() => void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(mensajeError(e, 'No se pudo generar el Excel'), 'error'))}>📊 Excel</button>
-            <button className="btn btn-sm btn-ghost" disabled={!movsFiltrados.length} title="Enviar el registro por correo (con el filtro aplicado)"
-              onClick={() => setCorreoOpen(true)}>✉ Correo</button>
-          </span>
-          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }}>
-              <input className="input" type="search" value={fTexto} onChange={(e) => setFTexto(e.target.value)}
-                placeholder="🔍 Buscar (equipo, autorizado, destino…)" style={{ width: 260, paddingRight: fTexto ? '1.6rem' : undefined }} />
-              {fTexto && (
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFTexto('')} title="Limpiar búsqueda"
-                  style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)', padding: '0 .3rem', lineHeight: 1 }}>✕</button>
-              )}
+        <>
+          {/* Fila Superior: Título + Botones de Exportación */}
+          <div className="comb-movs-top-bar">
+            <div className="comb-movs-title-group">
+              <span className="comb-movs-title-text">{titulo}</span>
             </div>
-            <select className="select" value={fTipo} onChange={(e) => setFTipo(e.target.value as 'todos' | TipoMovTanque)} style={{ width: 'auto' }}>
-              <option value="todos">Todo movimiento</option>
-              <option value="entrada">⬇ Entrada</option>
-              <option value="uso">⛽ Uso</option>
-              <option value="traslado">↔ Traslado</option>
-              <option value="retorno">↩ Retorno</option>
-              <option value="merma">🔻 Merma</option>
-            </select>
-            <SearchSelect value={fEquipo} onChange={setFEquipo} placeholder="🔍 Equipo…" style={{ width: 180 }}
-              options={[{ value: '', label: 'Todo equipo' }, ...opcs.equipos.map((v) => ({ value: v, label: v }))]} />
-            <SearchSelect value={fAutorizado} onChange={setFAutorizado} placeholder="🔍 Autorizado…" style={{ width: 180 }}
-              options={[{ value: '', label: 'Todo autorizado' }, ...opcs.autorizados.map((v) => ({ value: v, label: v }))]} />
-            <SearchSelect value={fUbicacion} onChange={setFUbicacion} placeholder="🔍 Destino…" style={{ width: 180 }}
-              options={[{ value: '', label: 'Todo destino' }, ...opcs.ubicaciones.map((v) => ({ value: v, label: v }))]} />
-            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-              Desde <input className="input" type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
-            </label>
-            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-              Hasta <input className="input" type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
-            </label>
-            <button className={`btn btn-sm ${ordenCampo === 'fecha' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('fecha')} title="Ordenar por fecha y hora">
-              Fecha {ordenCampo === 'fecha' ? (ordenDesc ? '↓ (nuevo→viejo)' : '↑ (viejo→nuevo)') : ''}
-            </button>
-            <button className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => ordenarPor('contFin')} title="Ordenar por el contador final del surtidor">
-              Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
-            </button>
-            <div style={{ position: 'relative' }}>
+            <div className="comb-export-btns">
               <button
                 type="button"
-                className={`btn btn-sm ${numColsVisibles < COLUMNAS_TABLA.length ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setMenuColsOpen((v) => !v)}
-                title="Elegir qué columnas ver u ocultar en la tabla"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
+                className="comb-export-btn"
+                disabled={!movsFiltrados.length}
+                title="Descargar PDF del registro (con filtros aplicados)"
+                onClick={() => void descargarMovimientosTanquePdf(sel, movsFiltrados, { filtro: hayFiltro ? 'filtrado' : undefined }).catch((e) => toast(mensajeError(e, 'No se pudo generar el PDF'), 'error'))}
               >
-                👁 Columnas {numColsVisibles < COLUMNAS_TABLA.length ? `(${numColsVisibles}/${COLUMNAS_TABLA.length})` : ''} ▾
+                ↓ PDF
               </button>
-              {menuColsOpen && (
-                <>
-                  <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
-                    onClick={() => setMenuColsOpen(false)}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 4px)',
-                      right: 0,
-                      width: '240px',
-                      maxHeight: '380px',
-                      overflowY: 'auto',
-                      background: '#0f172a',
-                      border: '1px solid #334155',
-                      borderRadius: '8px',
-                      boxShadow: '0 12px 28px rgba(0,0,0,0.6)',
-                      padding: '.6rem .75rem',
-                      zIndex: 999,
-                    }}
+              <button
+                type="button"
+                className="comb-export-btn"
+                disabled={!movsFiltrados.length}
+                title="Descargar Excel del registro (con filtros aplicados)"
+                onClick={() => void descargarMovimientosTanqueExcel(sel, movsFiltrados).catch((e) => toast(mensajeError(e, 'No se pudo generar el Excel'), 'error'))}
+              >
+                📊 Excel
+              </button>
+              <button
+                type="button"
+                className="comb-export-btn"
+                disabled={!movsFiltrados.length}
+                title="Enviar el registro por correo (con filtros aplicados)"
+                onClick={() => setCorreoOpen(true)}
+              >
+                ✉ Correo
+              </button>
+            </div>
+          </div>
+
+          {/* Fila de Segmented Pills por Tipo de Movimiento */}
+          <div className="comb-type-pills" role="tablist" aria-label="Filtrar por tipo de movimiento">
+            {[
+              { id: 'todos', label: 'Todos', icon: '📋' },
+              { id: 'uso', label: 'Uso / Despacho', icon: '⛽' },
+              { id: 'entrada', label: 'Entradas', icon: '⬇' },
+              { id: 'traslado', label: 'Traslados', icon: '↔' },
+              { id: 'retorno', label: 'Retornos', icon: '↩' },
+              { id: 'merma', label: 'Mermas', icon: '🔻' },
+            ].map((tp) => {
+              const activo = fTipo === tp.id;
+              const count = conteosPorTipo[tp.id] ?? 0;
+              return (
+                <button
+                  key={tp.id}
+                  type="button"
+                  className={`comb-type-pill${activo ? ' active' : ''}`}
+                  onClick={() => setFTipo(tp.id as 'todos' | TipoMovTanque)}
+                  role="tab"
+                  aria-selected={activo}
+                >
+                  <span>{tp.icon}</span>
+                  <span>{tp.label}</span>
+                  <span className="pill-badge">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Barra de Filtros Compacta */}
+          <div className="comb-filterbar-compact">
+            <div className="comb-filterbar-left">
+              {/* Buscador inteligente */}
+              <div className="comb-search-box">
+                <span className="comb-search-icon">🔍</span>
+                <input
+                  type="search"
+                  value={fTexto}
+                  onChange={(e) => setFTexto(e.target.value)}
+                  placeholder="Buscar por equipo, autorizado, destino, tipo..."
+                />
+                {fTexto && (
+                  <button
+                    type="button"
+                    className="comb-search-clear"
+                    onClick={() => setFTexto('')}
+                    title="Limpiar búsqueda"
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '.4rem' }}>
-                      <span style={{ fontWeight: 700, fontSize: '.78rem', color: '#f1f5f9' }}>Columnas y orden</span>
-                      <div style={{ display: 'flex', gap: '.3rem' }}>
-                        <button
-                          type="button"
-                          className="btn btn-xs btn-ghost"
-                          onClick={() => {
-                            const all = {} as Record<ColId, boolean>;
-                            COLUMNAS_TABLA.forEach((col) => { all[col.id] = true; });
-                            setColsVisibles(all);
-                          }}
-                          style={{ fontSize: '.7rem', padding: '1px 5px' }}
-                        >
-                          Todas
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-xs btn-ghost"
-                          onClick={() => {
-                            const minCols = {} as Record<ColId, boolean>;
-                            COLUMNAS_TABLA.forEach((col) => {
-                              minCols[col.id] = col.id === 'fecha' || col.id === 'equipo' || col.id === 'uso' || col.id === 'saldoLtrs' || col.id === 'acciones';
-                            });
-                            setColsVisibles(minCols);
-                          }}
-                          style={{ fontSize: '.7rem', padding: '1px 5px' }}
-                        >
-                          Mínimo
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-xs btn-ghost"
-                          onClick={() => setOrdenColumnas(COLUMNAS_TABLA.map((col) => col.id))}
-                          title="Restablecer orden predeterminado"
-                          style={{ fontSize: '.7rem', padding: '1px 5px', color: '#38bdf8' }}
-                        >
-                          ↺ Orden
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', maxHeight: '340px', overflowY: 'auto' }}>
-                      {ordenColumnas.map((colId, index) => {
-                        const colDef = COLUMNAS_TABLA.find((col) => col.id === colId) || { id: colId, label: colId };
-                        return (
-                          <div
-                            key={colId}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '.4rem',
-                              padding: '2px 4px',
-                              borderRadius: '4px',
-                              background: colsVisibles[colId] ? 'rgba(255,255,255,0.03)' : 'transparent',
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Botón Filtros Avanzados (con badge de cantidad activa) */}
+              <button
+                type="button"
+                className={`btn btn-sm ${numFiltrosAvanzados > 0 ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setFiltrosAvanzadosOpen((v) => !v)}
+                title="Filtros detallados por equipo, fechas y destino"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', fontWeight: 600 }}
+              >
+                <span>⚙ Filtros</span>
+                {numFiltrosAvanzados > 0 && (
+                  <span style={{
+                    background: '#f59e0b',
+                    color: '#000',
+                    fontSize: '.7rem',
+                    fontWeight: 800,
+                    padding: '1px 5px',
+                    borderRadius: '999px',
+                  }}>
+                    {numFiltrosAvanzados}
+                  </span>
+                )}
+                <span style={{ fontSize: '.7rem', opacity: 0.7 }}>{filtrosAvanzadosOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {hayFiltro && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={limpiarFiltros}
+                  title="Restablecer todos los filtros"
+                  style={{ color: 'var(--danger, #ef4444)' }}
+                >
+                  ✕ Limpiar
+                </button>
+              )}
+            </div>
+
+            <div className="comb-filterbar-right">
+              {/* Botones de orden */}
+              <button
+                type="button"
+                className={`btn btn-sm ${ordenCampo === 'fecha' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => ordenarPor('fecha')}
+                title="Ordenar cronológicamente"
+                style={{ fontSize: '.78rem' }}
+              >
+                Fecha {ordenCampo === 'fecha' ? (ordenDesc ? '↓' : '↑') : ''}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${ordenCampo === 'contFin' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => ordenarPor('contFin')}
+                title="Ordenar por lectura final del contador"
+                style={{ fontSize: '.78rem' }}
+              >
+                Cont. F {ordenCampo === 'contFin' ? (ordenDesc ? '↓' : '↑') : ''}
+              </button>
+
+              {/* Selector de Columnas */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${numColsVisibles < COLUMNAS_TABLA.length ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setMenuColsOpen((v) => !v)}
+                  title="Elegir qué columnas ver u ocultar en la tabla"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.78rem' }}
+                >
+                  👁 Columnas ({numColsVisibles}/{COLUMNAS_TABLA.length}) ▾
+                </button>
+                {menuColsOpen && (
+                  <>
+                    <div
+                      style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                      onClick={() => setMenuColsOpen(false)}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        right: 0,
+                        width: '240px',
+                        maxHeight: '380px',
+                        overflowY: 'auto',
+                        background: '#0f172a',
+                        border: '1px solid #334155',
+                        borderRadius: '8px',
+                        boxShadow: '0 12px 28px rgba(0,0,0,0.6)',
+                        padding: '.6rem .75rem',
+                        zIndex: 999,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '.4rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: '.78rem', color: '#f1f5f9' }}>Columnas y orden</span>
+                        <div style={{ display: 'flex', gap: '.3rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => {
+                              const all = {} as Record<ColId, boolean>;
+                              COLUMNAS_TABLA.forEach((col) => { all[col.id] = true; });
+                              setColsVisibles(all);
                             }}
+                            style={{ fontSize: '.7rem', padding: '1px 5px' }}
                           >
-                            <label
+                            Todas
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => {
+                              const minCols = {} as Record<ColId, boolean>;
+                              COLUMNAS_TABLA.forEach((col) => {
+                                minCols[col.id] = col.id === 'fecha' || col.id === 'equipo' || col.id === 'uso' || col.id === 'saldoLtrs' || col.id === 'acciones';
+                              });
+                              setColsVisibles(minCols);
+                            }}
+                            style={{ fontSize: '.7rem', padding: '1px 5px' }}
+                          >
+                            Mínimo
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            onClick={() => setOrdenColumnas(COLUMNAS_TABLA.map((col) => col.id))}
+                            title="Restablecer orden predeterminado"
+                            style={{ fontSize: '.7rem', padding: '1px 5px', color: '#38bdf8' }}
+                          >
+                            ↺ Orden
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', maxHeight: '340px', overflowY: 'auto' }}>
+                        {ordenColumnas.map((colId, index) => {
+                          const colDef = COLUMNAS_TABLA.find((col) => col.id === colId) || { id: colId, label: colId };
+                          return (
+                            <div
+                              key={colId}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '.5rem',
-                                fontSize: '.78rem',
-                                color: colsVisibles[colId] ? '#f8fafc' : '#64748b',
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                                flex: 1,
+                                justifyContent: 'space-between',
+                                gap: '.4rem',
+                                padding: '2px 4px',
+                                borderRadius: '4px',
+                                background: colsVisibles[colId] ? 'rgba(255,255,255,0.03)' : 'transparent',
                               }}
                             >
-                              <input
-                                type="checkbox"
-                                checked={colsVisibles[colId]}
-                                onChange={(e) => {
-                                  const checked = e.target.checked;
-                                  setColsVisibles((prev) => ({ ...prev, [colId]: checked }));
-                                }}
-                                style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
-                              />
-                              <span>{colDef.label}</span>
-                            </label>
-                            <div style={{ display: 'flex', gap: '2px' }}>
-                              <button
-                                type="button"
-                                disabled={index === 0}
-                                onClick={() => moverColumnaPaso(colId, -1)}
-                                title="Mover a la izquierda / antes"
+                              <label
                                 style={{
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: index === 0 ? '#475569' : '#94a3b8',
-                                  cursor: index === 0 ? 'default' : 'pointer',
-                                  fontSize: '.68rem',
-                                  padding: '1px 3px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '.5rem',
+                                  fontSize: '.78rem',
+                                  color: colsVisibles[colId] ? '#f8fafc' : '#64748b',
+                                  cursor: 'pointer',
+                                  userSelect: 'none',
+                                  flex: 1,
                                 }}
                               >
-                                ▲
-                              </button>
-                              <button
-                                type="button"
-                                disabled={index === ordenColumnas.length - 1}
-                                onClick={() => moverColumnaPaso(colId, 1)}
-                                title="Mover a la derecha / después"
-                                style={{
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: index === ordenColumnas.length - 1 ? '#475569' : '#94a3b8',
-                                  cursor: index === ordenColumnas.length - 1 ? 'default' : 'pointer',
-                                  fontSize: '.68rem',
-                                  padding: '1px 3px',
-                                }}
-                              >
-                                ▼
-                              </button>
+                                <input
+                                  type="checkbox"
+                                  checked={colsVisibles[colId]}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setColsVisibles((prev) => ({ ...prev, [colId]: checked }));
+                                  }}
+                                  style={{ cursor: 'pointer', accentColor: 'var(--primary)' }}
+                                />
+                                <span>{colDef.label}</span>
+                              </label>
+                              <div style={{ display: 'flex', gap: '2px' }}>
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => moverColumnaPaso(colId, -1)}
+                                  title="Mover a la izquierda / antes"
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: index === 0 ? '#475569' : '#94a3b8',
+                                    cursor: index === 0 ? 'default' : 'pointer',
+                                    fontSize: '.68rem',
+                                    padding: '1px 3px',
+                                  }}
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === ordenColumnas.length - 1}
+                                  onClick={() => moverColumnaPaso(colId, 1)}
+                                  title="Mover a la derecha / después"
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: index === ordenColumnas.length - 1 ? '#475569' : '#94a3b8',
+                                    cursor: index === ordenColumnas.length - 1 ? 'default' : 'pointer',
+                                    fontSize: '.68rem',
+                                    padding: '1px 3px',
+                                  }}
+                                >
+                                  ▼
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
+              </div>
+
+              <span className="muted mono" style={{ fontSize: '.78rem', marginLeft: '.25rem' }}>
+                {movsFiltrados.length}/{movs.length}
+              </span>
             </div>
-            {hayFiltro && <button className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>✕ Limpiar</button>}
-            <span className="muted" style={{ fontSize: '.8rem' }}>{movsFiltrados.length}/{movs.length}</span>
           </div>
-        </div>
+
+          {/* Panel Desplegable de Filtros Avanzados */}
+          {filtrosAvanzadosOpen && (
+            <div className="comb-filtros-avanzados-panel">
+              <div className="comb-filtro-field">
+                <span className="comb-filtro-label">Equipo receptor</span>
+                <SearchSelect
+                  value={fEquipo}
+                  onChange={setFEquipo}
+                  placeholder="🔍 Todo equipo…"
+                  options={[{ value: '', label: 'Todo equipo' }, ...opcs.equipos.map((v) => ({ value: v, label: v }))]}
+                />
+              </div>
+
+              <div className="comb-filtro-field">
+                <span className="comb-filtro-label">Autorizado por</span>
+                <SearchSelect
+                  value={fAutorizado}
+                  onChange={setFAutorizado}
+                  placeholder="🔍 Todo autorizado…"
+                  options={[{ value: '', label: 'Todo autorizado' }, ...opcs.autorizados.map((v) => ({ value: v, label: v }))]}
+                />
+              </div>
+
+              <div className="comb-filtro-field">
+                <span className="comb-filtro-label">Destino / Frente</span>
+                <SearchSelect
+                  value={fUbicacion}
+                  onChange={setFUbicacion}
+                  placeholder="🔍 Todo destino…"
+                  options={[{ value: '', label: 'Todo destino' }, ...opcs.ubicaciones.map((v) => ({ value: v, label: v }))]}
+                />
+              </div>
+
+              <div className="comb-filtro-field">
+                <span className="comb-filtro-label">Desde fecha</span>
+                <input
+                  className="input"
+                  type="date"
+                  value={fDesde}
+                  onChange={(e) => setFDesde(e.target.value)}
+                />
+              </div>
+
+              <div className="comb-filtro-field">
+                <span className="comb-filtro-label">Hasta fecha</span>
+                <input
+                  className="input"
+                  type="date"
+                  value={fHasta}
+                  onChange={(e) => setFHasta(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {loading ? <EmptyState message="Cargando…" icon="◔" /> : !movs.length ? (
+      {loading ? (
+        <EmptyState message="Cargando movimientos…" icon="◔" />
+      ) : !movs.length ? (
         <EmptyState message={emptyMsg ?? 'Sin movimientos.'} icon="🛢" />
       ) : (
-        <div className="table-wrap">
-
-          <table className="table" style={{ fontSize: '.8rem' }}>
+        <div className="comb-table-wrap">
+          <table className="comb-table">
             <thead>
               <tr>
                 {ordenColumnas.map((colId) => {
@@ -1196,7 +1655,11 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
             </thead>
             <tbody>
               {!movsFiltrados.length && (
-                <tr><td colSpan={Math.max(1, numColsVisibles)} className="muted" style={{ textAlign: 'center' }}>Ningún movimiento coincide con el filtro.</td></tr>
+                <tr>
+                  <td colSpan={Math.max(1, numColsVisibles)} className="muted" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+                    Ningún movimiento coincide con los filtros aplicados.
+                  </td>
+                </tr>
               )}
               {movsFiltrados.map((m) => (
                 <tr key={m.id}>
@@ -1223,7 +1686,7 @@ function RegistroMovimientos({ sel, movs, userEmail, canWrite, allowDelete, titu
           onClose={() => setCorreoOpen(false)}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -1270,9 +1733,10 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
   const movsMes = useMemo(() => movs.filter((m) => mesDe(m.fecha) === mes), [movs, mes]);
 
   return (
-    <Modal title="📚 Histórico de Movimientos" size="xl" onClose={onClose}
+    <Modal title="📚 Histórico de Movimientos" size="xl" className="comb-modal comb-modal-xl" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
-      {!tankId ? (
+      <div className="comb-modal-wrap">
+        {!tankId ? (
         <>
           <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Elige un tanque para ver sus movimientos de meses anteriores, agrupados por mes.</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
@@ -1336,6 +1800,7 @@ function HistoricoMovimientosModal({ tanques, reporte, userEmail, mesActual, rel
           ) : null}
         </>
       )}
+      </div>
     </Modal>
   );
 }
@@ -1533,384 +1998,415 @@ function MovimientoModal({ tanques, tanqueSel, catalogos, actor, actorName, onCl
     </>
   );
   return (
-    <Modal title="Nuevo movimiento de tanque" size="lg" onClose={onClose} footer={footer}>
-      <form id="tnk-mov" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Tanque</label>
-            <SearchSelect value={tanqueId} onChange={setTanqueId} placeholder="Buscar tanque…"
-              options={tanques.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
-            {origenVacio && <small style={{ color: 'var(--danger)' }}>{tanqueOrigen?.nombre} está sin litros: solo admite entradas y retornos.</small>}
-            {origenEsBidon && <small style={{ color: 'var(--primary)' }}>🪣 Los bidones funcionan como receptáculo de salida directa: se surten desde el Tanque 1 o Tanque 3.</small>}
-          </div>
-          <div className="form-row">
-            <label>Tipo de movimiento</label>
-            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovTanque)}>
-              <option value="entrada">{TIPO_MOV_LABEL.entrada}</option>
-              <option value="uso">{TIPO_MOV_LABEL.uso}</option>
-              <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
-              <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
-              <option value="merma">{TIPO_MOV_LABEL.merma}</option>
-            </select>
-          </div>
-        </div>
-        <div className="form-grid">
-          <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
-          {/* Selector de hora, no texto libre (28/09/2026, pedido del usuario). Escrita a
-              mano entraron horas como «6:42:08 M» —sin la A ni la P— que desordenaban el
-              libro. El campo habla en 24 h y se guarda en 12 h con AM/PM, que es como lo
-              muestra todo el sistema (ver horaMovimiento.ts). */}
-          <div className="form-row">
-            <label>Hora (opcional)</label>
-            <input className="input" type="time" step={1} name="mov-hora"
-              value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
-            <small className="muted">{hora ? `Se guarda como ${hora}` : 'Si se deja vacía, el movimiento va primero en el día.'}</small>
-          </div>
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Litros</label>
-            <input className="input mono" type="number" step="any" name="mov-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} required />
-            {errSaldo
-              ? <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>
-              : tanqueOrigen && saleDelTanque(tipo) && <small className="muted">Disponible en {tanqueOrigen.nombre}: {num(Math.max(0, Number(tanqueOrigen.saldo_litros) || 0))} L.</small>}
-          </div>
-          {tipo === 'entrada' && (
-            <div className="form-row">
-              <label>Costo por litro (USD)</label>
-              <input className="input mono" type="number" min={0} step="any" name="mov-costo" defaultValue={costo} onChange={(e) => setCosto(e.target.value)} />
-              <small className="muted">Recalcula la tasa promedio del tanque.</small>
+    <Modal title="⛽ Registrar Movimiento de Combustible" size="lg" className="comb-modal comb-modal-lg" onClose={onClose} footer={footer}>
+      <div className="comb-modal-wrap">
+        <form id="tnk-mov" onSubmit={submit} className="comb-modal-form">
+          {error && <div className="card comb-error-banner"><strong>Error:</strong> {error}</div>}
+
+          {/* SECCIÓN 1: OPERACIÓN Y TANQUE */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>⛽ Operación & Tanque</span>
             </div>
-          )}
-          {tipo === 'traslado' && (
-            <div className="form-row">
-              <label>Tanque destino *</label>
-              <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar destino…"
-                options={[
-                  { value: '', label: '— elige el tanque destino —' },
-                  { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
-                  ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: etiquetaTanqueDestino(t) })),
-                ]} />
-              {destinoEsBidon ? (
-                <small style={{ color: 'var(--primary)', fontWeight: 600, display: 'block', marginTop: '.25rem' }}>
-                  🪣 Al trasladar hacia <strong>{destinoSelTanque?.nombre}</strong> se registra como <strong>salida directa</strong> (el combustible se retira para consumo en campo y no queda con saldo en el bidón).
-                </small>
-              ) : (
-                <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
+            <div className="comb-form-grid-2">
+              <div className="form-row">
+                <label>Tanque de origen</label>
+                <SearchSelect value={tanqueId} onChange={setTanqueId} placeholder="Buscar tanque…"
+                  options={tanques.map((t) => ({ value: t.id, label: etiquetaTanque(t.nombre, t.saldo_litros) }))} />
+                {origenVacio && <small style={{ color: 'var(--danger)' }}>{tanqueOrigen?.nombre} está sin litros: solo admite entradas y retornos.</small>}
+                {origenEsBidon && <small style={{ color: 'var(--primary)' }}>🪣 Los bidones funcionan como receptáculo de salida directa: se surten desde el Tanque 1 o Tanque 3.</small>}
+              </div>
+              <div className="form-row">
+                <label>Tipo de movimiento</label>
+                <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovTanque)}>
+                  <option value="entrada">{TIPO_MOV_LABEL.entrada}</option>
+                  <option value="uso">{TIPO_MOV_LABEL.uso}</option>
+                  <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
+                  <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
+                  <option value="merma">{TIPO_MOV_LABEL.merma}</option>
+                </select>
+              </div>
+            </div>
+            <div className="comb-form-grid-2">
+              <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>
+              {/* Selector de hora, no texto libre (28/09/2026, pedido del usuario). */}
+              <div className="form-row">
+                <label>Hora (opcional)</label>
+                <input className="input" type="time" step={1} name="mov-hora"
+                  value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+                <small className="muted">{hora ? `Se guarda como ${hora}` : 'Si se deja vacía, el movimiento va primero en el día.'}</small>
+              </div>
+            </div>
+            <div className={tipo === 'entrada' || tipo === 'traslado' ? "comb-form-grid-2" : "form-row"}>
+              <div className="form-row">
+                <label>Litros</label>
+                <input className="input mono comb-litros-destacado" type="number" step="any" name="mov-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} required />
+                {errSaldo
+                  ? <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>
+                  : tanqueOrigen && saleDelTanque(tipo) && <small className="muted">Disponible en {tanqueOrigen.nombre}: {num(Math.max(0, Number(tanqueOrigen.saldo_litros) || 0))} L.</small>}
+              </div>
+              {tipo === 'entrada' && (
+                <div className="form-row">
+                  <label>Costo por litro (USD)</label>
+                  <input className="input mono" type="number" min={0} step="any" name="mov-costo" defaultValue={costo} onChange={(e) => setCosto(e.target.value)} />
+                  <small className="muted">Recalcula la tasa promedio del tanque.</small>
+                </div>
+              )}
+              {tipo === 'traslado' && (
+                <div className="form-row">
+                  <label>Tanque destino *</label>
+                  <SearchSelect value={destinoId} onChange={setDestinoId} placeholder="🔍 Buscar destino…"
+                    options={[
+                      { value: '', label: '— elige el tanque destino —' },
+                      { value: DESTINO_MGG, label: `🌐 ${DESTINO_MGG_LABEL} (otro sistema)` },
+                      ...tanques.filter((t) => t.id !== tanqueId).map((t) => ({ value: t.id, label: etiquetaTanqueDestino(t) })),
+                    ]} />
+                  {destinoEsBidon ? (
+                    <small style={{ color: 'var(--primary)', fontWeight: 600, display: 'block', marginTop: '.25rem' }}>
+                      🪣 Al trasladar hacia <strong>{destinoSelTanque?.nombre}</strong> se registra como <strong>salida directa</strong> (el combustible se retira para consumo en campo y no queda con saldo en el bidón).
+                    </small>
+                  ) : (
+                    <small className="muted">Si es a otro tanque, se acredita allí al costo del origen. <strong>{DESTINO_MGG_LABEL}</strong> envía el combustible al otro sistema (MGG lo confirma y entra a su TANQUE MGG).</small>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
-        {tanqueRecibe && (
-          <div className="card" style={{ padding: '.75rem .9rem', marginBottom: '.75rem', borderColor: recepcion.ok?.excede ? 'var(--danger)' : undefined }}>
-            <div className="form-grid">
-              <div className="form-row">
-                <label>Litros recibidos (medido) <span className="muted">· opcional</span></label>
-                <input className="input mono" type="number" min={0} step="any" name="mov-recibidos" value={recibidos}
-                  onChange={(e) => setRecibidos(e.target.value)} placeholder={tipo === 'entrada' ? 'lo que llegó al tanque' : `lo que llegó a ${tanqueRecibe.nombre}`} />
-                <small className="muted">
-                  {tipo === 'entrada' ? 'Los litros de arriba son los de la guía.' : 'Los litros de arriba son los que salieron del origen.'}{' '}
-                  Si llegó menos, la diferencia queda como merma de este movimiento. Vacío = llegó todo.
-                </small>
-              </div>
-              <div className="form-row">
-                <label>Merma</label>
-                <input className="input mono" readOnly
-                  value={recepcion.ok ? `${num(recepcion.ok.merma)} L · ${num(recepcion.ok.pct)}% de ${num(margenRecibe)}% permitido` : '—'}
-                  style={{ color: recepcion.ok?.excede ? 'var(--danger)' : recepcion.ok?.merma ? 'var(--warning)' : undefined, fontWeight: 700 }} />
-                <small className="muted">Margen de {tanqueRecibe.nombre}: {num(margenRecibe)}% (se cambia al editar el tanque).</small>
-              </div>
-            </div>
-            {recepcion.error && <small style={{ color: 'var(--danger)' }}>{recepcion.error}</small>}
-            {recepcion.ok?.excede && (
-              <div className="form-row" style={{ marginTop: '.5rem' }}>
-                <label>Motivo de la merma *</label>
-                <input className="input" name="mov-motivo-merma" value={motivoMerma} onChange={(e) => setMotivoMerma(e.target.value)}
-                  placeholder="Por qué se perdió más de lo permitido" />
-                <small style={{ color: 'var(--danger)' }}>
-                  Pasa el margen del tanque. {isAdmin ? 'Se avisa a administración al guardar.' : 'Solo un administrador puede guardarla.'}
-                </small>
+            {tanqueRecibe && (
+              <div className="card" style={{ padding: '.75rem .9rem', marginTop: '.4rem', borderColor: recepcion.ok?.excede ? 'var(--danger)' : undefined, background: 'rgba(0,0,0,0.25)' }}>
+                <div className="comb-form-grid-2">
+                  <div className="form-row">
+                    <label>Litros recibidos (medido) <span className="muted">· opcional</span></label>
+                    <input className="input mono" type="number" min={0} step="any" name="mov-recibidos" value={recibidos}
+                      onChange={(e) => setRecibidos(e.target.value)} placeholder={tipo === 'entrada' ? 'lo que llegó al tanque' : `lo que llegó a ${tanqueRecibe.nombre}`} />
+                    <small className="muted">
+                      {tipo === 'entrada' ? 'Los litros de arriba son los de la guía.' : 'Los litros de arriba son los que salieron del origen.'}{' '}
+                      Si llegó menos, la diferencia queda como merma de este movimiento. Vacío = llegó todo.
+                    </small>
+                  </div>
+                  <div className="form-row">
+                    <label>Merma</label>
+                    <input className="input mono" readOnly
+                      value={recepcion.ok ? `${num(recepcion.ok.merma)} L · ${num(recepcion.ok.pct)}% de ${num(margenRecibe)}% permitido` : '—'}
+                      style={{ color: recepcion.ok?.excede ? 'var(--danger)' : recepcion.ok?.merma ? 'var(--warning)' : undefined, fontWeight: 700 }} />
+                    <small className="muted">Margen de {tanqueRecibe.nombre}: {num(margenRecibe)}% (se cambia al editar el tanque).</small>
+                  </div>
+                </div>
+                {recepcion.error && <small style={{ color: 'var(--danger)' }}>{recepcion.error}</small>}
+                {recepcion.ok?.excede && (
+                  <div className="form-row" style={{ marginTop: '.5rem' }}>
+                    <label>Motivo de la merma *</label>
+                    <input className="input" name="mov-motivo-merma" value={motivoMerma} onChange={(e) => setMotivoMerma(e.target.value)}
+                      placeholder="Por qué se perdió más de lo permitido" />
+                    <small style={{ color: 'var(--danger)' }}>
+                      Pasa el margen del tanque. {isAdmin ? 'Se avisa a administración al guardar.' : 'Solo un administrador puede guardarla.'}
+                    </small>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Equipo</label>
-            <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
-              options={equiposOptions} />
-          </div>
-          <div className="form-row">
-            <label>Autorizado por</label>
-            <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…"
-              options={[{ value: '', label: '— elige quién autorizó —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Destino</label>
-          <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…"
-            options={[{ value: '', label: '— elige el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
-          <small className="muted">¿Falta un destino? Agrégalo en 🗂 Catálogos → Ubicaciones.</small>
-        </div>
-        <div className="form-row"><label>Observación</label><input className="input" name="mov-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" /></div>
 
-        {/* Medidores del equipo — parte del movimiento (no opcional). El HI autocarga con el último HF del equipo. */}
-        <div className="card" style={{ marginTop: '.75rem' }}>
-          <div className="card-title">🕒 Medidores del equipo</div>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Horómetro inicial (HI)</label>
-              <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} readOnly={hiAuto}
-                placeholder="auto: último del equipo" style={hiAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
-              <small className="muted">{hiAuto ? 'Traído del último final del equipo (no se modifica).' : 'Trae el último horómetro final del equipo; si no hay, ingresalo.'}</small>
+          {/* SECCIÓN 2: ASIGNACIÓN Y DESTINO */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>🚜 Asignación & Destino</span>
             </div>
-            <div className="form-row">
-              <label>Horómetro final (HF)</label>
-              <input className="input mono" type="number" step="any" name="mov-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} />
+            <div className="comb-form-grid-2">
+              <div className="form-row">
+                <label>Equipo beneficiario</label>
+                <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…"
+                  options={equiposOptions} />
+              </div>
+              <div className="form-row">
+                <label>Autorizado por</label>
+                <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…"
+                  options={[{ value: '', label: '— elige quién autorizó —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
+              </div>
             </div>
-          </div>
-          <div className="form-row">
-            <label>Horas utilizadas (HRS = HF − HI)</label>
-            <input className="input mono" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula automáticamente"
-              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-          </div>
-          <div className="form-row">
-            <label>Kilometraje (odómetro, km)</label>
-            <input className="input mono" type="number" step="any" value={km} onChange={(e) => setKm(e.target.value)}
-              placeholder="lectura del odómetro del vehículo" />
-            <small className="muted">Para vehículos: la lectura del odómetro. Alimenta la alerta de «Próximos a mantenimiento» de Control de Maquinaria.</small>
-          </div>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Contador global inicial</label>
-              <input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} readOnly={ciAuto}
-                placeholder="auto: último del tanque" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
-              <small className="muted">{ciAuto ? (tipo === 'traslado' ? 'Traído del último contador final del tanque ORIGEN (se reflejará en el destino).' : 'Traído del último contador final de este tanque (no se modifica).') : 'No hay contador previo en este tanque; ingresalo.'}</small>
-            </div>
-            <div className="form-row">
-              <label>Contador global final</label>
-              <input className="input mono" type="number" step="any" name="mov-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)}
-                placeholder={cfPropuesto != null ? `${cfPropuesto} (se pone solo)` : undefined} />
-              {pasaPorSurtidor(tipo) && (
-                <small className="muted">
-                  {cf === '' && cfPropuesto != null
-                    ? <>Si lo dejas vacío se guarda <strong>{num(cfPropuesto)}</strong> (inicial + litros). </>
-                    : null}
-                  Es donde arranca el siguiente movimiento del tanque.
-                </small>
-              )}
+            <div className="comb-form-grid-2">
+              <div className="form-row">
+                <label>Destino</label>
+                <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…"
+                  options={[{ value: '', label: '— elige el destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
+                <small className="muted">¿Falta un destino? Agrégalo en 🗂 Catálogos → Ubicaciones.</small>
+              </div>
+              <div className="form-row">
+                <label>Observación</label>
+                <input className="input" name="mov-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="SUMINISTRO COMBUSTIBLE…" />
+              </div>
             </div>
           </div>
-          <div className="form-row">
-            <label>Litros usados (según contador = final − inicial)</label>
-            <input className="input mono" value={litrosContador == null ? '' : num(litrosContador)} readOnly placeholder="se calcula automáticamente"
-              style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-          </div>
-        </div>
 
-        {/* Merma implícita sugerida por movimiento con lista de respaldo (pedido 30/10/2026) */}
-        {tipo === 'merma' && resumenMerma && (
-          <div style={{
-            background: 'linear-gradient(145deg, #182230 0%, #0f172a 100%)',
-            border: '1.5px solid rgba(255, 138, 0, 0.45)',
-            borderRadius: '12px',
-            padding: '1rem',
-            marginTop: '1rem',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem' }}>
-              <div>
-                <div style={{ fontSize: '.76rem', textTransform: 'uppercase', fontWeight: 700, color: '#FF8A00', letterSpacing: '0.04em' }}>
-                  💡 Merma Implícita Sugerida
+          {/* SECCIÓN 3: TELEMETRÍA Y MEDIDORES */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>🕒 Telemetría & Medidores del Equipo</span>
+            </div>
+            <div className="comb-telemetria-container">
+              <div className="comb-subcard">
+                <div className="comb-subcard-title">
+                  <span>⏱ Horómetros y Odómetro</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', marginTop: '3px' }}>
-                  <span style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffedd5', fontFamily: 'monospace' }}>
-                    {num(resumenMerma.totalSugerido)} L
-                  </span>
-                  <span style={{ fontSize: '.82rem', color: '#94a3b8' }}>
-                    sobre {num(resumenMerma.totalLitrosBase)} L en {resumenMerma.cantidadMovimientos} movimientos
-                  </span>
+                <div className="comb-form-grid-2">
+                  <div className="form-row">
+                    <label>Horómetro inicial (HI)</label>
+                    <input className="input mono" type="number" step="any" value={hi} onChange={(e) => setHi(e.target.value)} readOnly={hiAuto}
+                      placeholder="auto: último" style={hiAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+                    <small className="muted">{hiAuto ? '🔒 Traído del último HF (fijo).' : 'Último del equipo o manual.'}</small>
+                  </div>
+                  <div className="form-row">
+                    <label>Horómetro final (HF)</label>
+                    <input className="input mono" type="number" step="any" name="mov-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} />
+                  </div>
+                </div>
+                <div className="comb-calculado-box">
+                  <span className="comb-calculado-label">Horas utilizadas (HF − HI)</span>
+                  <span className="comb-calculado-val">{hrs == null ? '—' : `${num(hrs)} hrs`}</span>
+                </div>
+                <div className="form-row">
+                  <label>Kilometraje (odómetro, km)</label>
+                  <input className="input mono" type="number" step="any" value={km} onChange={(e) => setKm(e.target.value)}
+                    placeholder="lectura del odómetro" />
+                  <small className="muted">Para vehículos: lectura del odómetro (mantenimiento).</small>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', background: '#0b1120', padding: '.25rem .5rem', borderRadius: '6px', border: '1px solid #334155' }}>
-                  <span style={{ fontSize: '.75rem', color: '#94a3b8' }}>Margen:</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    min="0"
-                    max="100"
-                    value={pctMermaInput}
-                    onChange={(e) => setPctMermaInput(e.target.value)}
-                    onBlur={() => {
-                      if (pctMermaInput.trim() === '') {
-                        const t = tanques.find((x) => x.id === tanqueId);
-                        setPctMermaInput(String(t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT));
-                      }
-                    }}
-                    style={{ width: '56px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
-                  />
-                  <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
+              <div className="comb-subcard">
+                <div className="comb-subcard-title">
+                  <span>⛽ Contador del Surtidor</span>
+                </div>
+                <div className="comb-form-grid-2">
+                  <div className="form-row">
+                    <label>Contador inicial</label>
+                    <input className="input mono" type="number" step="any" value={ci} onChange={(e) => setCi(e.target.value)} readOnly={ciAuto}
+                      placeholder="auto: tanque" style={ciAuto ? { background: 'rgba(255,255,255,.04)', cursor: 'not-allowed' } : undefined} />
+                    <small className="muted">{ciAuto ? '🔒 Último del tanque (fijo).' : 'Ingreso inicial.'}</small>
+                  </div>
+                  <div className="form-row">
+                    <label>Contador final</label>
+                    <input className="input mono" type="number" step="any" name="mov-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)}
+                      placeholder={cfPropuesto != null ? `${cfPropuesto} (sugerido)` : undefined} />
+                  </div>
+                </div>
+                <div className="comb-calculado-box">
+                  <span className="comb-calculado-label">Litros según contador (CF − CI)</span>
+                  <span className="comb-calculado-val">{litrosContador == null ? '—' : `${num(litrosContador)} L`}</span>
+                </div>
+                {pasaPorSurtidor(tipo) && (
+                  <small className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
+                    {cf === '' && cfPropuesto != null
+                      ? <>Vacío = se guarda <strong>{num(cfPropuesto)}</strong> (inicial + litros). </>
+                      : null}
+                    Es donde arrancará el próximo movimiento del tanque.
+                  </small>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Merma implícita sugerida por movimiento con lista de respaldo (pedido 30/10/2026) */}
+          {tipo === 'merma' && resumenMerma && (
+            <div style={{
+              background: 'linear-gradient(145deg, #182230 0%, #0f172a 100%)',
+              border: '1.5px solid rgba(255, 138, 0, 0.45)',
+              borderRadius: '12px',
+              padding: '1rem',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem' }}>
+                <div>
+                  <div style={{ fontSize: '.76rem', textTransform: 'uppercase', fontWeight: 700, color: '#FF8A00', letterSpacing: '0.04em' }}>
+                    💡 Merma Implícita Sugerida
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', marginTop: '3px' }}>
+                    <span style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffedd5', fontFamily: 'monospace' }}>
+                      {num(resumenMerma.totalSugerido)} L
+                    </span>
+                    <span style={{ fontSize: '.82rem', color: '#94a3b8' }}>
+                      sobre {num(resumenMerma.totalLitrosBase)} L en {resumenMerma.cantidadMovimientos} movimientos
+                    </span>
+                  </div>
                 </div>
 
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', background: '#0b1120', padding: '.25rem .5rem', borderRadius: '6px', border: '1px solid #334155' }}>
+                    <span style={{ fontSize: '.75rem', color: '#94a3b8' }}>Margen:</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      min="0"
+                      max="100"
+                      value={pctMermaInput}
+                      onChange={(e) => setPctMermaInput(e.target.value)}
+                      onBlur={() => {
+                        if (pctMermaInput.trim() === '') {
+                          const t = tanques.find((x) => x.id === tanqueId);
+                          setPctMermaInput(String(t?.merma_implicita_pct ?? DEFAULT_MERMA_IMPLICITA_PCT));
+                        }
+                      }}
+                      style={{ width: '56px', background: 'transparent', border: 'none', color: '#FF8A00', fontWeight: 700, fontSize: '.88rem', textAlign: 'right', outline: 'none' }}
+                    />
+                    <span style={{ fontSize: '.78rem', color: '#FF8A00', fontWeight: 700 }}>%</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-warning btn-sm"
+                    onClick={() => {
+                      setLitros(String(resumenMerma.totalSugerido));
+                      setObservacion(generarObservacionMermaImplicita(resumenMerma));
+                    }}
+                    style={{ background: '#FF8A00', color: '#182230', fontWeight: 700, border: 'none' }}
+                    title="Aplica este volumen sugerido y redacta la justificación en la observación"
+                  >
+                    ⚡ Usar sugerida ({num(resumenMerma.totalSugerido)} L)
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '.6rem' }}>
                 <button
                   type="button"
-                  className="btn btn-warning btn-sm"
-                  onClick={() => {
-                    setLitros(String(resumenMerma.totalSugerido));
-                    setObservacion(generarObservacionMermaImplicita(resumenMerma));
+                  onClick={() => setVerRespaldoMovs((v) => !v)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#38bdf8',
+                    cursor: 'pointer',
+                    fontSize: '.82rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    padding: 0,
+                    fontWeight: 600,
                   }}
-                  style={{ background: '#FF8A00', color: '#182230', fontWeight: 700, border: 'none' }}
-                  title="Aplica este volumen sugerido y redacta la justificación en la observación"
                 >
-                  ⚡ Usar sugerida ({num(resumenMerma.totalSugerido)} L)
+                  {verRespaldoMovs ? '▾ Ocultar respaldo de movimientos' : `▸ Ver respaldo: ${resumenMerma.cantidadMovimientos} movimientos causantes`}
+                  {resumenMerma.fechaUltimaMermaPrevia && (
+                    <span style={{ color: '#94a3b8', fontWeight: 400 }}>
+                      (desde último corte: {resumenMerma.fechaUltimaMermaPrevia})
+                    </span>
+                  )}
                 </button>
+
+                {verRespaldoMovs && (
+                  <div style={{ marginTop: '.6rem', maxHeight: 220, overflowY: 'auto', border: '1px solid #1e293b', borderRadius: '8px', background: '#0b1120' }}>
+                    <table className="table" style={{ fontSize: '.78rem', width: '100%' }}>
+                      <thead>
+                        <tr style={{ background: '#0f172a' }}>
+                          <th>Fecha / Hora</th>
+                          <th>Tipo / Equipo</th>
+                          <th style={{ textAlign: 'right' }}>Litros</th>
+                          <th style={{ textAlign: 'right' }}>% Implícito</th>
+                          <th style={{ textAlign: 'right' }}>Merma</th>
+                          <th style={{ textAlign: 'right' }}>Acumulado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!resumenMerma.items.length && (
+                          <tr><td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: '1rem' }}>No hay movimientos registrados desde la última merma.</td></tr>
+                        )}
+                        {resumenMerma.items.map((it) => (
+                          <tr key={it.id}>
+                            <td>{it.fecha} {it.hora ? `· ${it.hora}` : ''}</td>
+                            <td>
+                              <strong>{it.tipo === 'traslado' ? '🔁 Traslado' : '⛽ Surtido'}</strong>
+                              {it.equipo ? ` → ${it.equipo}` : ''}
+                            </td>
+                            <td className="mono" style={{ textAlign: 'right' }}>{num(it.litros)} L</td>
+                            <td className="mono" style={{ textAlign: 'right', color: '#94a3b8' }}>{it.pctAplicado}%</td>
+                            <td className="mono" style={{ textAlign: 'right', color: '#FF8A00', fontWeight: 700 }}>+{num(it.mermaLitros)} L</td>
+                            <td className="mono" style={{ textAlign: 'right', color: '#f8fafc' }}>{num(it.acumulado)} L</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
+          )}
 
-            <div style={{ marginTop: '.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '.6rem' }}>
-              <button
-                type="button"
-                onClick={() => setVerRespaldoMovs((v) => !v)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#38bdf8',
-                  cursor: 'pointer',
-                  fontSize: '.82rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '.35rem',
-                  padding: 0,
-                  fontWeight: 600,
-                }}
-              >
-                {verRespaldoMovs ? '▾ Ocultar respaldo de movimientos' : `▸ Ver respaldo: ${resumenMerma.cantidadMovimientos} movimientos causantes`}
-                {resumenMerma.fechaUltimaMermaPrevia && (
-                  <span style={{ color: '#94a3b8', fontWeight: 400 }}>
-                    (desde último corte: {resumenMerma.fechaUltimaMermaPrevia})
-                  </span>
-                )}
-              </button>
-
-              {verRespaldoMovs && (
-                <div style={{ marginTop: '.6rem', maxHeight: 220, overflowY: 'auto', border: '1px solid #1e293b', borderRadius: '8px', background: '#0b1120' }}>
-                  <table className="table" style={{ fontSize: '.78rem', width: '100%' }}>
-                    <thead>
-                      <tr style={{ background: '#0f172a' }}>
-                        <th>Fecha / Hora</th>
-                        <th>Tipo / Equipo</th>
-                        <th style={{ textAlign: 'right' }}>Litros</th>
-                        <th style={{ textAlign: 'right' }}>% Implícito</th>
-                        <th style={{ textAlign: 'right' }}>Merma</th>
-                        <th style={{ textAlign: 'right' }}>Acumulado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!resumenMerma.items.length && (
-                        <tr><td colSpan={6} style={{ textAlign: 'center', color: '#94a3b8', padding: '1rem' }}>No hay movimientos registrados desde la última merma.</td></tr>
-                      )}
-                      {resumenMerma.items.map((it) => (
-                        <tr key={it.id}>
-                          <td>{it.fecha} {it.hora ? `· ${it.hora}` : ''}</td>
-                          <td>
-                            <strong>{it.tipo === 'traslado' ? '🔁 Traslado' : '⛽ Surtido'}</strong>
-                            {it.equipo ? ` → ${it.equipo}` : ''}
-                          </td>
-                          <td className="mono" style={{ textAlign: 'right' }}>{num(it.litros)} L</td>
-                          <td className="mono" style={{ textAlign: 'right', color: '#94a3b8' }}>{it.pctAplicado}%</td>
-                          <td className="mono" style={{ textAlign: 'right', color: '#FF8A00', fontWeight: 700 }}>+{num(it.mermaLitros)} L</td>
-                          <td className="mono" style={{ textAlign: 'right', color: '#f8fafc' }}>{num(it.acumulado)} L</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {/* SECCIÓN 4: CONTROL DE AUDITORÍA Y CONCILIACIÓN */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>📋 Conciliación Cuaderno y Drive</span>
+            </div>
+            <div className="comb-concilia-grid">
+              <div className={`comb-concilia-card cuaderno ${registradoEnCuaderno ? 'active' : ''}`}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                  <input
+                    id="mov-cuaderno"
+                    type="checkbox"
+                    checked={registradoEnCuaderno}
+                    onChange={(e) => {
+                      const v = e.target.checked;
+                      setRegistradoEnCuaderno(v);
+                      if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                        setCuadernoLitros(litros || '');
+                      }
+                    }}
+                    style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 700, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+                    📖 Registro en Cuaderno Físico
+                  </label>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+                {registradoEnCuaderno && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.3rem' }}>
+                    <label htmlFor="mov-cuaderno-litros" style={{ fontSize: '.78rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
+                      Litros anotados:
+                    </label>
+                    <input
+                      id="mov-cuaderno-litros"
+                      className="input mono"
+                      type="number"
+                      step="any"
+                      value={cuadernoLitros}
+                      onChange={(e) => setCuadernoLitros(e.target.value)}
+                      placeholder={litros || '0'}
+                      style={{ fontWeight: 700, flex: 1 }}
+                    />
+                  </div>
+                )}
+              </div>
 
-        {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
-        <div className="form-row" style={{ marginTop: '.75rem', padding: '.4rem 0' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <input
-              id="mov-cuaderno"
-              type="checkbox"
-              checked={registradoEnCuaderno}
-              onChange={(e) => {
-                const v = e.target.checked;
-                setRegistradoEnCuaderno(v);
-                if (v && (!cuadernoLitros || cuadernoLitros === '')) {
-                  setCuadernoLitros(litros || '');
-                }
-              }}
-              style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
-            />
-            <label htmlFor="mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
-              📖 Registro Cuaderno
-            </label>
-            <span style={{ fontSize: '.8rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
-              ({registradoEnCuaderno ? 'Registrado' : 'No registrado'})
-            </span>
-          </div>
-          {registradoEnCuaderno && (
-            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
-              <label htmlFor="mov-cuaderno-litros" style={{ fontSize: '.8rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
-                Litros en cuaderno:
-              </label>
-              <input
-                id="mov-cuaderno-litros"
-                className="input mono"
-                type="number"
-                step="any"
-                value={cuadernoLitros}
-                onChange={(e) => setCuadernoLitros(e.target.value)}
-                placeholder={litros || '0'}
-                style={{ fontWeight: 700 }}
-              />
+              <div className={`comb-concilia-card drive ${registradoEnDrive ? 'active' : ''}`}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                  <input
+                    id="mov-drive"
+                    type="checkbox"
+                    checked={registradoEnDrive}
+                    onChange={(e) => setRegistradoEnDrive(e.target.checked)}
+                    style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 700, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
+                    📊 Registro en Google Drive
+                  </label>
+                </div>
+                {registradoEnDrive && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.3rem' }}>
+                    <label htmlFor="mov-drive-saldo" style={{ fontSize: '.78rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
+                      Saldo reportado (L):
+                    </label>
+                    <input
+                      id="mov-drive-saldo"
+                      className="input mono"
+                      type="number"
+                      step="any"
+                      value={saldoDrive}
+                      onChange={(e) => setSaldoDrive(e.target.value)}
+                      placeholder="Saldo en litros"
+                      style={{ fontWeight: 700, flex: 1 }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-
-        <div style={{ marginTop: '.75rem', padding: '.6rem .75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <input
-              id="mov-drive"
-              type="checkbox"
-              checked={registradoEnDrive}
-              onChange={(e) => setRegistradoEnDrive(e.target.checked)}
-              style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
-            />
-            <label htmlFor="mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
-              📊 Registro Drive
-            </label>
-            <span style={{ fontSize: '.8rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
-              ({registradoEnDrive ? 'Registrado' : 'No registrado'})
-            </span>
           </div>
-          {registradoEnDrive && (
-            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
-              <label htmlFor="mov-drive-saldo" style={{ fontSize: '.8rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
-                Saldo en Drive (L):
-              </label>
-              <input
-                id="mov-drive-saldo"
-                className="input mono"
-                type="number"
-                step="any"
-                value={saldoDrive}
-                onChange={(e) => setSaldoDrive(e.target.value)}
-                placeholder="Saldo en litros"
-                style={{ fontWeight: 700 }}
-              />
-            </div>
-          )}
-        </div>
-      </form>
+        </form>
+      </div>
     </Modal>
   );
 }
@@ -2015,182 +2511,189 @@ function DetalleMovimientoModal({ mov, tanque, catalogos, canWrite, actor, onClo
   );
 
   return (
-    <Modal title="Detalle del movimiento" size="md" onClose={onClose} footer={footer}>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+    <Modal title="🔍 Detalle del Movimiento" size="md" className="comb-modal comb-modal-md" onClose={onClose} footer={footer}>
+      <div className="comb-modal-wrap">
+        {error && <div className="card comb-error-banner"><strong>Error:</strong> {error}</div>}
 
-      <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
-      <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
-      {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={<Quien nombre={mov.actor_name} correo={mov.created_by} vacio="—" />} />}
+        <Fila k="Tanque" v={tanque?.nombre ?? '—'} />
+        <Fila k="Saldo del tanque (L · $)" v={`${num(mov.saldo_litros)} L · ${money(mov.saldo_usd)}`} />
+        {(mov.created_by || mov.actor_name) && <Fila k="Registrado por" v={<Quien nombre={mov.actor_name} correo={mov.created_by} vacio="—" />} />}
 
-      {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen aquí). */}
-      <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} miniaturas />
+        {/* Las fotos que sacó el surtidor desde el teléfono (o las que se agreguen aquí). */}
+        <AdjuntosSalida repo={adjuntosCombustible} modulo={MODULO_ADJUNTO_TANQUE} refId={mov.id} actor={actor} soloLectura={!canWrite} miniaturas />
 
-      {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
-      <div className="card-title" style={{ marginTop: '1rem' }}>✎ Datos editables</div>
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Tipo de movimiento</label>
-          <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovTanque)} disabled={!canWrite}>
-            <option value="entrada">{TIPO_MOV_LABEL.entrada}</option>
-            <option value="uso">{TIPO_MOV_LABEL.uso}</option>
-            <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
-            <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
-            <option value="merma">{TIPO_MOV_LABEL.merma}</option>
-          </select>
-        </div>
-        <div className="form-row"><label>Litros</label><input className="input mono" type="number" step="any" name="det-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} />
-          {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}</div>
-      </div>
-      <div className="form-grid">
-        <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="any" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row">
-          <label>Monto $ (= litros × tasa)</label>
-          <input className="input mono" value={montoCalc == null ? '' : money(montoCalc)} readOnly placeholder="se calcula automáticamente"
-            style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-        </div>
-      </div>
-      <div className="form-grid">
-        <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row">
-          <label>Hora</label>
-          <input className="input" type="time" step={1} name="det-hora" disabled={!canWrite}
-            value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
-          <small className="muted">{hora ? `Se guarda como ${hora}` : 'Sin hora: el movimiento va primero en el día.'}</small>
-        </div>
-      </div>
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Equipo</label>
-          <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…" disabled={!canWrite}
-            options={equiposOptions} />
-        </div>
-        <div className="form-row">
-          <label>Autorizado por</label>
-          <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…" disabled={!canWrite}
-            options={[{ value: '', label: '— sin autorizado —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
-        </div>
-      </div>
-      <div className="form-row">
-        <label>Destino</label>
-        <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…" disabled={!canWrite}
-          options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
-      </div>
-      <div className="form-row"><label>Observación</label><input className="input" name="det-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} disabled={!canWrite} /></div>
-
-      <div className="card-title" style={{ marginTop: '1rem' }}>🕒 Medidores</div>
-      <div className="form-grid">
-        <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" name="det-hi" defaultValue={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" name="det-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Kilometraje (km)</label><input className="input mono" type="number" step="any" name="det-km" defaultValue={km} onChange={(e) => setKm(e.target.value)} disabled={!canWrite} /></div>
-      </div>
-      <div className="form-row">
-        <label>Horas utilizadas (HRS = HF − HI)</label>
-        <input className="input mono" value={hrs == null ? '' : num(hrs)} readOnly placeholder="se calcula automáticamente"
-          style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-      </div>
-      <div className="form-grid">
-        <div className="form-row"><label>Contador inicial (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
-        <div className="form-row"><label>Contador final (lo que marcaba el aparato)</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
-        {/* A este tanque le cambiaron el contador: se escribe lo que marca el aparato y
-            se muestra, aparte, el acumulado del sistema. Son dos numeros distintos. */}
-        {hayArrastre && (
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-            <span className="muted hint" style={{ fontSize: '.74rem' }}>
-              A este tanque se le cambio el contador. Escriba lo que marca el aparato.
-              Acumulado del sistema en este movimiento:{' '}
-              <strong className="mono">
-                {mov.contador_global_ini != null ? num(mov.contador_global_ini) : '\u2014'}
-                {' \u2192 '}
-                {mov.contador_global_fin != null ? num(mov.contador_global_fin) : '\u2014'}
-              </strong>
-            </span>
+        {/* Datos editables (TODO). Al cambiar tipo/litros/tasa se recalcula el saldo del tanque. */}
+        <div className="comb-form-section">
+          <div className="comb-form-section-title">
+            <span>✎ Datos del Movimiento</span>
           </div>
-        )}
-      </div>
-      <div className="form-row">
-        <label>Litros usados (según contador = final − inicial)</label>
-        <input className="input mono" value={litrosContador == null ? '' : num(litrosContador)} readOnly placeholder="se calcula automáticamente"
-          style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
-      </div>
-
-      {/* Control de Registro Cuaderno (pedido 30/10/2026) */}
-      <div className="form-row" style={{ marginTop: '.75rem', padding: '.4rem 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-          <input
-            id="det-mov-cuaderno"
-            type="checkbox"
-            checked={registradoEnCuaderno}
-            onChange={(e) => {
-              const v = e.target.checked;
-              setRegistradoEnCuaderno(v);
-              if (v && (!cuadernoLitros || cuadernoLitros === '')) {
-                setCuadernoLitros(litros || String(mov.litros));
-              }
-            }}
-            disabled={!canWrite}
-            style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
-          />
-          <label htmlFor="det-mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
-            📖 Registro Cuaderno
-          </label>
-          <span style={{ fontSize: '.8rem', color: registradoEnCuaderno ? '#6ee7b7' : '#94a3b8' }}>
-            ({registradoEnCuaderno ? 'Registrado' : 'No registrado'})
-          </span>
-        </div>
-        {registradoEnCuaderno && (
-          <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
-            <label htmlFor="det-mov-cuaderno-litros" style={{ fontSize: '.8rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
-              Litros en cuaderno:
-            </label>
-            <input
-              id="det-mov-cuaderno-litros"
-              className="input mono"
-              type="number"
-              step="any"
-              value={cuadernoLitros}
-              onChange={(e) => setCuadernoLitros(e.target.value)}
-              disabled={!canWrite}
-              placeholder={litros || String(mov.litros)}
-              style={{ fontWeight: 700 }}
-            />
-          </div>
-        )}
-
-        <div style={{ marginTop: '.75rem', padding: '.6rem .75rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-            <input
-              id="det-mov-drive"
-              type="checkbox"
-              checked={registradoEnDrive}
-              onChange={(e) => setRegistradoEnDrive(e.target.checked)}
-              disabled={!canWrite}
-              style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
-            />
-            <label htmlFor="det-mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 600, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
-              📊 Registro Drive
-            </label>
-            <span style={{ fontSize: '.8rem', color: registradoEnDrive ? '#7dd3fc' : '#94a3b8' }}>
-              ({registradoEnDrive ? 'Registrado' : 'No registrado'})
-            </span>
-          </div>
-          {registradoEnDrive && (
-            <div style={{ marginTop: '.5rem', display: 'flex', alignItems: 'center', gap: '.5rem', maxWidth: '300px' }}>
-              <label htmlFor="det-mov-drive-saldo" style={{ fontSize: '.8rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
-                Saldo en Drive (L):
-              </label>
-              <input
-                id="det-mov-drive-saldo"
-                className="input mono"
-                type="number"
-                step="any"
-                value={saldoDrive}
-                onChange={(e) => setSaldoDrive(e.target.value)}
-                disabled={!canWrite}
-                placeholder="Saldo en litros"
-                style={{ fontWeight: 700 }}
-              />
+          <div className="comb-form-grid-2">
+            <div className="form-row">
+              <label>Tipo de movimiento</label>
+              <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoMovTanque)} disabled={!canWrite}>
+                <option value="entrada">{TIPO_MOV_LABEL.entrada}</option>
+                <option value="uso">{TIPO_MOV_LABEL.uso}</option>
+                <option value="traslado">{TIPO_MOV_LABEL.traslado}</option>
+                <option value="retorno">{TIPO_MOV_LABEL.retorno}</option>
+                <option value="merma">{TIPO_MOV_LABEL.merma}</option>
+              </select>
             </div>
-          )}
+            <div className="form-row"><label>Litros</label><input className="input mono comb-litros-destacado" type="number" step="any" name="det-litros" defaultValue={litros} onChange={(e) => setLitros(e.target.value)} disabled={!canWrite} />
+              {errSaldo && <small style={{ color: 'var(--danger)', fontWeight: 700 }}>{errSaldo}</small>}</div>
+          </div>
+          <div className="comb-form-grid-2">
+            <div className="form-row"><label>Tasa $/L</label><input className="input mono" type="number" step="any" name="det-tasa" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row">
+              <label>Monto $ (= litros × tasa)</label>
+              <input className="input mono" value={montoCalc == null ? '' : money(montoCalc)} readOnly placeholder="se calcula automáticamente"
+                style={{ background: 'rgba(255,165,0,.12)', borderColor: 'var(--warning)', fontWeight: 700 }} />
+            </div>
+          </div>
+          <div className="comb-form-grid-2">
+            <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row">
+              <label>Hora</label>
+              <input className="input" type="time" step={1} name="det-hora" disabled={!canWrite}
+                value={horaAInput(hora)} onChange={(e) => setHora(horaDesdeInput(e.target.value))} />
+              <small className="muted">{hora ? `Se guarda como ${hora}` : 'Sin hora: el movimiento va primero en el día.'}</small>
+            </div>
+          </div>
+          <div className="comb-form-grid-2">
+            <div className="form-row">
+              <label>Equipo</label>
+              <SearchSelect value={equipo} onChange={setEquipo} placeholder="🔍 Buscar equipo…" disabled={!canWrite}
+                options={equiposOptions} />
+            </div>
+            <div className="form-row">
+              <label>Autorizado por</label>
+              <SearchSelect value={autorizado} onChange={setAutorizado} placeholder="🔍 Buscar autorizado…" disabled={!canWrite}
+                options={[{ value: '', label: '— sin autorizado —' }, ...opts('autorizado').map((c) => ({ value: c.valor, label: c.valor }))]} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>Destino</label>
+            <SearchSelect value={ubicacion} onChange={setUbicacion} placeholder="🔍 Buscar destino…" disabled={!canWrite}
+              options={[{ value: '', label: '— sin destino —' }, ...opts('ubicacion').map((c) => ({ value: c.valor, label: c.valor }))]} />
+          </div>
+          <div className="form-row"><label>Observación</label><input className="input" name="det-observacion" defaultValue={observacion} onChange={(e) => setObservacion(e.target.value)} disabled={!canWrite} /></div>
+        </div>
+
+        <div className="comb-form-section">
+          <div className="comb-form-section-title">
+            <span>🕒 Medidores & Telemetría</span>
+          </div>
+          <div className="comb-form-grid-3">
+            <div className="form-row"><label>Horómetro inicial (HI)</label><input className="input mono" type="number" step="any" name="det-hi" defaultValue={hi} onChange={(e) => setHi(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Horómetro final (HF)</label><input className="input mono" type="number" step="any" name="det-hf" defaultValue={hf} onChange={(e) => setHf(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Kilometraje (km)</label><input className="input mono" type="number" step="any" name="det-km" defaultValue={km} onChange={(e) => setKm(e.target.value)} disabled={!canWrite} /></div>
+          </div>
+          <div className="comb-calculado-box">
+            <span className="comb-calculado-label">Horas utilizadas (HRS = HF − HI)</span>
+            <span className="comb-calculado-val">{hrs == null ? '—' : `${num(hrs)} hrs`}</span>
+          </div>
+          <div className="comb-form-grid-2">
+            <div className="form-row"><label>Contador inicial</label><input className="input mono" type="number" step="any" name="det-ci" defaultValue={ci} onChange={(e) => setCi(e.target.value)} disabled={!canWrite} /></div>
+            <div className="form-row"><label>Contador final</label><input className="input mono" type="number" step="any" name="det-cf" defaultValue={cf} onChange={(e) => setCf(e.target.value)} disabled={!canWrite} /></div>
+            {hayArrastre && (
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <span className="muted hint" style={{ fontSize: '.74rem' }}>
+                  A este tanque se le cambió el contador. Escriba lo que marca el aparato.
+                  Acumulado del sistema en este movimiento:{' '}
+                  <strong className="mono">
+                    {mov.contador_global_ini != null ? num(mov.contador_global_ini) : '—'}
+                    {' → '}
+                    {mov.contador_global_fin != null ? num(mov.contador_global_fin) : '—'}
+                  </strong>
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="comb-calculado-box">
+            <span className="comb-calculado-label">Litros usados (Contador = final − inicial)</span>
+            <span className="comb-calculado-val">{litrosContador == null ? '—' : `${num(litrosContador)} L`}</span>
+          </div>
+        </div>
+
+        {/* Control de Registro Cuaderno & Drive */}
+        <div className="comb-form-section">
+          <div className="comb-form-section-title">
+            <span>📋 Conciliación Cuaderno y Drive</span>
+          </div>
+          <div className="comb-concilia-grid">
+            <div className={`comb-concilia-card cuaderno ${registradoEnCuaderno ? 'active' : ''}`}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                <input
+                  id="det-mov-cuaderno"
+                  type="checkbox"
+                  checked={registradoEnCuaderno}
+                  onChange={(e) => {
+                    const v = e.target.checked;
+                    setRegistradoEnCuaderno(v);
+                    if (v && (!cuadernoLitros || cuadernoLitros === '')) {
+                      setCuadernoLitros(litros || String(mov.litros));
+                    }
+                  }}
+                  disabled={!canWrite}
+                  style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }}
+                />
+                <label htmlFor="det-mov-cuaderno" style={{ margin: 0, cursor: 'pointer', fontWeight: 700, color: registradoEnCuaderno ? '#34d399' : '#f8fafc' }}>
+                  📖 Registro Cuaderno
+                </label>
+              </div>
+              {registradoEnCuaderno && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.3rem' }}>
+                  <label htmlFor="det-mov-cuaderno-litros" style={{ fontSize: '.78rem', color: '#6ee7b7', margin: 0, whiteSpace: 'nowrap' }}>
+                    Litros:
+                  </label>
+                  <input
+                    id="det-mov-cuaderno-litros"
+                    className="input mono"
+                    type="number"
+                    step="any"
+                    value={cuadernoLitros}
+                    onChange={(e) => setCuadernoLitros(e.target.value)}
+                    disabled={!canWrite}
+                    placeholder={litros || String(mov.litros)}
+                    style={{ fontWeight: 700, flex: 1 }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className={`comb-concilia-card drive ${registradoEnDrive ? 'active' : ''}`}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+                <input
+                  id="det-mov-drive"
+                  type="checkbox"
+                  checked={registradoEnDrive}
+                  onChange={(e) => setRegistradoEnDrive(e.target.checked)}
+                  disabled={!canWrite}
+                  style={{ width: '18px', height: '18px', accentColor: '#38bdf8', cursor: 'pointer' }}
+                />
+                <label htmlFor="det-mov-drive" style={{ margin: 0, cursor: 'pointer', fontWeight: 700, color: registradoEnDrive ? '#38bdf8' : '#f8fafc' }}>
+                  📊 Registro Drive
+                </label>
+              </div>
+              {registradoEnDrive && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: '.3rem' }}>
+                  <label htmlFor="det-mov-drive-saldo" style={{ fontSize: '.78rem', color: '#7dd3fc', margin: 0, whiteSpace: 'nowrap' }}>
+                    Saldo (L):
+                  </label>
+                  <input
+                    id="det-mov-drive-saldo"
+                    className="input mono"
+                    type="number"
+                    step="any"
+                    value={saldoDrive}
+                    onChange={(e) => setSaldoDrive(e.target.value)}
+                    disabled={!canWrite}
+                    placeholder="Saldo en litros"
+                    style={{ fontWeight: 700, flex: 1 }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </Modal>
@@ -2272,79 +2775,99 @@ function TanqueModal({ catalogos, actor, tanque, onClose, onSaved, onRequestDele
     </>
   );
   return (
-    <Modal title={editando ? `Editar ${tanque?.nombre}` : 'Nuevo tanque'} size="md" onClose={onClose} footer={footer}>
-      <form id="tnk-new" onSubmit={submit}>
-        <div className="form-grid">
-          <div className="form-row"><label>Nombre</label><input className="input" name="tnk-nombre" defaultValue={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tanque #4" /></div>
-          <div className="form-row">
-            <label>Tipo (para la cubicación)</label>
-            <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoTanque)}>
-              <option value="cilindrico_horizontal">Cilíndrico horizontal (acostado)</option>
-              <option value="rectangular">Rectangular / prismático</option>
-            </select>
+    <Modal title={editando ? `⚙ Editar ${tanque?.nombre}` : '➕ Nuevo Tanque de Combustible'} size="md" className="comb-modal comb-modal-md" onClose={onClose} footer={footer}>
+      <div className="comb-modal-wrap">
+        <form id="tnk-new" onSubmit={submit} className="comb-modal-form">
+          {/* SECCIÓN 1: IDENTIFICACIÓN */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>🏷 Identificación & Tipo</span>
+            </div>
+            <div className="comb-form-grid-2">
+              <div className="form-row"><label>Nombre del tanque</label><input className="input" name="tnk-nombre" defaultValue={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tanque #4" /></div>
+              <div className="form-row">
+                <label>Geometría de cubicación</label>
+                <select className="select" value={tipo} onChange={(e) => setTipo(e.target.value as TipoTanque)}>
+                  <option value="cilindrico_horizontal">Cilíndrico horizontal (acostado)</option>
+                  <option value="rectangular">Rectangular / prismático</option>
+                </select>
+              </div>
+            </div>
+            <label className="form-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '.5rem', margin: 0, cursor: 'pointer' }}>
+              <input type="checkbox" checked={esMovil} onChange={(e) => setEsMovil(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+              <span style={{ fontSize: '.85rem', fontWeight: 600 }}>🚚 Tanque móvil (camión de lubricación)</span>
+            </label>
           </div>
-        </div>
-        <label className="form-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '.5rem' }}>
-          <input type="checkbox" checked={esMovil} onChange={(e) => setEsMovil(e.target.checked)} />
-          <span>🚚 Tanque móvil (camión de lubricación)</span>
-        </label>
 
-        {/* Dimensiones según el tipo */}
-        {tipo === 'cilindrico_horizontal' ? (
-          <div className="form-grid">
-            <div className="form-row"><label>Radio R (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-radio" defaultValue={radio} onChange={(e) => setRadio(e.target.value)} placeholder="1.1875" /></div>
-            <div className="form-row"><label>Largo L (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-cil" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="8.17" /></div>
+          {/* SECCIÓN 2: DIMENSIONES & CAPACIDAD */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>📐 Dimensiones & Capacidad</span>
+            </div>
+            {tipo === 'cilindrico_horizontal' ? (
+              <div className="comb-form-grid-2">
+                <div className="form-row"><label>Radio R (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-radio" defaultValue={radio} onChange={(e) => setRadio(e.target.value)} placeholder="1.1875" /></div>
+                <div className="form-row"><label>Largo L (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-cil" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="8.17" /></div>
+              </div>
+            ) : (
+              <div className="comb-form-grid-3">
+                <div className="form-row"><label>Largo (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-rect" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="1.99" /></div>
+                <div className="form-row"><label>Ancho (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-ancho" defaultValue={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0.99" /></div>
+                <div className="form-row"><label>Alto / altura total (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-alto" defaultValue={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0.99" /></div>
+              </div>
+            )}
+            <div className="comb-form-grid-2">
+              <div className="form-row">
+                <label>Capacidad rotulada (L)</label>
+                <input className="input mono" type="number" min={0} step="any" name="tnk-capacidad" defaultValue={capacidad} onChange={(e) => setCapacidad(e.target.value)} placeholder="35000" />
+                <small className="muted">Tope operativo físico.</small>
+              </div>
+              <div className="form-row">
+                <label>Capacidad calculada (L)</label>
+                <input className="input mono" value={capCalc > 0 ? num(capCalc) : '—'} readOnly title="Calculada por fórmula con las dimensiones" style={{ color: '#fbbf24', fontWeight: 700 }} />
+                <small className="muted">Por fórmula geométrica.</small>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="form-grid">
-            <div className="form-row"><label>Largo (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-largo-rect" defaultValue={largo} onChange={(e) => setLargo(e.target.value)} placeholder="1.99" /></div>
-            <div className="form-row"><label>Ancho (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-ancho" defaultValue={ancho} onChange={(e) => setAncho(e.target.value)} placeholder="0.99" /></div>
-            <div className="form-row"><label>Alto / altura total (m)</label><input className="input mono" type="number" min={0} step="any" name="tnk-alto" defaultValue={alto} onChange={(e) => setAlto(e.target.value)} placeholder="0.99" /></div>
-          </div>
-        )}
 
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Capacidad rotulada (L)</label>
-            <input className="input mono" type="number" min={0} step="any" name="tnk-capacidad" defaultValue={capacidad} onChange={(e) => setCapacidad(e.target.value)} placeholder="35000" />
-            <small className="muted">Tope operativo (el del rótulo físico).</small>
+          {/* SECCIÓN 3: SALDO, COSTOS & MERMAS */}
+          <div className="comb-form-section">
+            <div className="comb-form-section-title">
+              <span>💵 Parámetros Contables & Mermas</span>
+            </div>
+            {!editando ? (
+              <div className="comb-form-grid-2">
+                <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-saldo" defaultValue={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
+                <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-tasa-new" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
+              </div>
+            ) : (
+              <div className="form-row">
+                <label>Tasa (USD/L)</label>
+                <input className="input mono" type="number" min={0} step="any" name="tnk-tasa-edit" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} />
+                <small className="muted">Modifica la tasa promedio del tanque; recalcula el saldo en USD.</small>
+              </div>
+            )}
+            <div className="form-row">
+              <label>Ubicación</label>
+              <input className="input" list="cat-ubic-new" name="tnk-ubicacion" defaultValue={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Mina Golden touch" />
+              <datalist id="cat-ubic-new">{catalogos.filter((c) => c.tipo === 'ubicacion' && c.activo).map((c) => <option key={c.id} value={c.valor} />)}</datalist>
+            </div>
+            <div className="comb-form-grid-2">
+              <div className="form-row">
+                <label>Margen merma recepción (%)</label>
+                <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-margen" value={margen} onChange={(e) => setMargen(e.target.value)} />
+                <small className="muted">Margen permitido al recibir.</small>
+              </div>
+              <div className="form-row">
+                <label>Merma implícita sugerida (%)</label>
+                <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-merma-implicita"
+                  value={mermaImplicita} onChange={(e) => setMermaImplicita(e.target.value)} />
+                <small className="muted">Porcentaje técnico sugerido (0.5%).</small>
+              </div>
+            </div>
           </div>
-          <div className="form-row">
-            <label>Capacidad calculada (L)</label>
-            <input className="input mono" value={capCalc > 0 ? num(capCalc) : '—'} readOnly title="Calculada por fórmula con las dimensiones" />
-            <small className="muted">Por fórmula, a la altura total.</small>
-          </div>
-        </div>
-
-        {!editando ? (
-          <div className="form-grid">
-            <div className="form-row"><label>Saldo inicial (L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-saldo" defaultValue={saldo} onChange={(e) => setSaldo(e.target.value)} /></div>
-            <div className="form-row"><label>Tasa inicial (USD/L)</label><input className="input mono" type="number" min={0} step="any" name="tnk-tasa-new" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} /></div>
-          </div>
-        ) : (
-          <div className="form-row">
-            <label>Tasa (USD/L)</label>
-            <input className="input mono" type="number" min={0} step="any" name="tnk-tasa-edit" defaultValue={tasa} onChange={(e) => setTasa(e.target.value)} />
-            <small className="muted">Modifica la tasa promedio del tanque; recalcula el saldo en $ (saldo L × tasa).</small>
-          </div>
-        )}
-        <div className="form-row">
-          <label>Ubicación</label>
-          <input className="input" list="cat-ubic-new" name="tnk-ubicacion" defaultValue={ubicacion} onChange={(e) => setUbicacion(e.target.value)} placeholder="Mina Golden touch" />
-          <datalist id="cat-ubic-new">{catalogos.filter((c) => c.tipo === 'ubicacion' && c.activo).map((c) => <option key={c.id} value={c.valor} />)}</datalist>
-        </div>
-        <div className="form-row">
-          <label>Margen de merma al recibir (%)</label>
-          <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-margen" value={margen} onChange={(e) => setMargen(e.target.value)} />
-          <small className="muted">En una entrada o un traslado a este tanque, si llega menos de lo enviado la diferencia es merma. Hasta este % se guarda normal; más, pide motivo y solo un administrador la guarda.</small>
-        </div>
-        <div className="form-row">
-          <label>Margen de merma implícita sugerida por movimiento (%)</label>
-          <input className="input mono" type="number" min={0} max={100} step="any" name="tnk-merma-implicita"
-            value={mermaImplicita} onChange={(e) => setMermaImplicita(e.target.value)} />
-          <small className="muted">Porcentaje técnico sugerido al registrar una merma en este tanque (por defecto 0.5%). Respalda el cálculo con la lista de despachos.</small>
-        </div>
-      </form>
+        </form>
+      </div>
     </Modal>
   );
 }
@@ -2536,12 +3059,14 @@ function CatalogosModal({
 
   return (
     <Modal
-      title="Catálogos y Permisos de Combustible"
+      title="🗂 Catálogos y Permisos de Combustible"
       size="xl"
+      className="comb-modal comb-modal-xl"
       onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}
     >
-      <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
+      <div className="comb-modal-wrap">
+        <div className="view-toggle" role="tablist" style={{ marginBottom: '.75rem' }}>
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
             {t.label}
@@ -2900,8 +3425,9 @@ function CatalogosModal({
       {/* Modal para configurar tanques autorizados de un equipo */}
       {tanqueEditItem && (
         <Modal
-          title={`Tanques autorizados · ${tanqueEditItem.valor}`}
+          title={`🛡 Tanques autorizados · ${tanqueEditItem.valor}`}
           size="md"
+          className="comb-modal comb-modal-md"
           onClose={() => setTanqueEditItem(null)}
           footer={
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5rem', width: '100%' }}>
@@ -2912,7 +3438,8 @@ function CatalogosModal({
             </div>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '.25rem 0' }}>
+          <div className="comb-modal-wrap">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '.25rem 0' }}>
             <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
               Define desde qué tanques puede abastecerse <strong>{tanqueEditItem.valor}</strong>. Al surtir desde un tanque no seleccionado, la máquina quedará excluida de la lista.
             </p>
@@ -2989,6 +3516,7 @@ function CatalogosModal({
               )}
             </div>
           </div>
+          </div>
         </Modal>
       )}
 
@@ -3002,6 +3530,7 @@ function CatalogosModal({
           onConfirm={() => { const id = borrarItem.id; setBorrarItem(null); void borrar(id); }}
         />
       )}
+      </div>
     </Modal>
   );
 }
@@ -3120,8 +3649,9 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
   }
 
   return (
-    <Modal title="Conciliación semanal · Tanques" size="xl" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      <div className="card" style={{ marginBottom: '1rem' }}>
+    <Modal title="⚖ Conciliación Semanal · Tanques" size="xl" className="comb-modal comb-modal-xl" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="comb-modal-wrap">
+        <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '.6rem' }}>
           <button className="btn btn-sm btn-ghost" onClick={() => moverSemana(-1)}>← Semana ant.</button>
           <label className="muted" style={{ fontSize: '.8rem' }}>Desde <input className="input" type="date" value={desde} onChange={(e) => setRango((r) => ({ ...r, desde: e.target.value }))} style={{ width: 'auto' }} /></label>
@@ -3272,6 +3802,7 @@ function ConciliacionModal({ tanques, actor, defaultEmail, onClose }: { tanques:
           onClose={() => setCorreoOpen(false)}
         />
       )}
+      </div>
     </Modal>
   );
 }
@@ -3317,8 +3848,9 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
   }
 
   return (
-    <Modal title={`Cubicación · ${tanque.nombre}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {!geomOk && (
+    <Modal title={`📐 Cubicación · ${tanque.nombre}`} size="lg" className="comb-modal comb-modal-lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div className="comb-modal-wrap">
+        {!geomOk && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '1rem' }}>
           ⚠️ Este tanque no tiene dimensiones cargadas. Edita el tanque ({tanque.tipo === 'cilindrico_horizontal' ? 'radio y largo' : 'largo y ancho'}) para poder cubicar.
         </div>
@@ -3355,6 +3887,7 @@ function CubicacionModal({ tanque, actor, onClose, onSaved }: {
             ))}
           </tbody>
         </table>
+      </div>
       </div>
     </Modal>
   );
@@ -3422,7 +3955,9 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
 
   return (
     <Modal
-      title="💰 CAJA · consumo semanal de combustible → caja de Peramanal"
+      title="💰 CAJA · Consumo semanal de combustible → Caja de Peramanal"
+      size="lg"
+      className="comb-modal comb-modal-lg"
       onClose={onClose}
       footer={
         <>
@@ -3433,7 +3968,8 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
         </>
       }
     >
-      <p className="muted" style={{ fontSize: '.86rem', marginTop: 0 }}>
+      <div className="comb-modal-wrap">
+        <p className="muted" style={{ fontSize: '.86rem', marginTop: 0 }}>
         Carga en la caja de Peramanal <strong>abierta</strong> el consumo de GT de la semana
         (movimientos de tanque tipo <strong>uso</strong>, a su costo por tasa PMP). Se registran
         <strong> dos movimientos</strong> por la misma cantidad: el gasto
@@ -3491,6 +4027,7 @@ function ConsumoSemanalModal({ onClose, onPosted }: { onClose: () => void; onPos
         ) : (
           <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>No hay consumo de GT (tipo «uso») en ese rango. No se cargaría nada.</div>
         )}
+      </div>
       </div>
     </Modal>
   );

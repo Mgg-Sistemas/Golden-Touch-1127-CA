@@ -461,7 +461,8 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
   return (
     <Modal
       title="📄 Descargar Reporte de Combustible"
-      size="lg"
+      size="md"
+      className="comb-modal comb-modal-md"
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>

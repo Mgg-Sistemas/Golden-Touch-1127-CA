@@ -351,6 +351,7 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
     <Modal
       title="📄 Reporte Dinámico de Existencias y Movimientos de Combustible"
       size="xl"
+      className="comb-modal comb-modal-xl"
       onClose={onClose}
       footer={footer}
     >

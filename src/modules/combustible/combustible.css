@@ -1,0 +1,1316 @@
+/* ============================================================
+   Golden Touch · Módulo de Combustible
+   Diseño ejecutivo para la consola de control PC
+   ============================================================ */
+
+.comb-root {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+}
+
+/* ────────── 1. Barra Superior y Toolbar Ejecutiva ────────── */
+.comb-head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.25rem 0;
+}
+
+.comb-title-area {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.comb-title-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-md);
+  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.12));
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.15);
+  flex-shrink: 0;
+}
+
+.comb-title-text h1 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.comb-title-text p {
+  margin: 0.15rem 0 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.comb-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* Toolbar de navegación y acciones secundarias */
+.comb-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.85rem;
+  background: var(--surface, #111827);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-lg, 12px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+
+.comb-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.comb-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.comb-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-md, 8px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(245, 158, 11, 0.1);
+  padding: 0.4rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  animation: combMenuPop 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes combMenuPop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.comb-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm, 6px);
+  color: var(--text, #f1f5f9);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.comb-dropdown-item:hover {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+}
+
+.comb-dropdown-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: none;
+}
+
+.comb-dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+/* ────────── 2. Banners de Resumen de Grupo (Cockpit) ────────── */
+.comb-grupo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.comb-resumen-banner {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: var(--r-xl, 14px);
+  padding: 1.25rem 1.5rem;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.comb-resumen-banner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 280px;
+  height: 100%;
+  background: radial-gradient(circle at 100% 50%, rgba(245, 158, 11, 0.06), transparent 70%);
+  pointer-events: none;
+}
+
+.comb-resumen-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.comb-resumen-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #f59e0b;
+}
+
+.comb-resumen-title svg {
+  color: #f59e0b;
+}
+
+.comb-resumen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted, #94a3b8);
+}
+
+.comb-resumen-stats-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2rem;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .comb-resumen-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+}
+
+.comb-stat-volumen {
+  display: flex;
+  flex-direction: column;
+}
+
+.comb-stat-volumen-num {
+  font-family: var(--font-mono, monospace);
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #f8fafc;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.comb-stat-volumen-num span {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-left: 0.35rem;
+}
+
+.comb-stat-volumen-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+  margin-top: 0.2rem;
+}
+
+.comb-stat-capacidad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 200px;
+}
+
+.comb-stat-capacidad-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.comb-stat-capacidad-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.comb-stat-capacidad-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  transition: width 0.4s ease;
+}
+
+.comb-stat-valores {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.comb-stat-valor-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.comb-stat-valor-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+  margin-bottom: 0.15rem;
+}
+
+.comb-stat-valor-usd {
+  font-family: var(--font-mono, monospace);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #10b981;
+}
+
+.comb-stat-valor-tasa {
+  font-family: var(--font-mono, monospace);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.comb-stat-valor-tasa span {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted, #94a3b8);
+}
+
+/* ────────── 3. Grid de Tarjetas de Tanque ────────── */
+.comb-tanques-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.comb-tanque-card {
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-lg, 12px);
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s ease,
+              box-shadow 0.2s ease,
+              background 0.2s ease;
+  user-select: none;
+}
+
+.comb-tanque-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 16px rgba(245, 158, 11, 0.12);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.04), var(--surface, #1e293b));
+}
+
+.comb-tanque-card.activo {
+  border-color: #f59e0b;
+  border-width: 2px;
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.08), var(--surface, #1e293b));
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25), 0 8px 25px rgba(0, 0, 0, 0.4);
+}
+
+.comb-tanque-card.inactivo {
+  opacity: 0.55;
+}
+
+.comb-tanque-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.comb-tanque-name-area {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.comb-tanque-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.comb-tanque-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.comb-tanque-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.comb-tanque-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.comb-tanque-badge.movil {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.comb-tanque-badge.bidon {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.comb-tanque-badge.inactivo {
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #94a3b8;
+}
+
+.comb-tanque-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+}
+
+.comb-tanque-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f59e0b;
+}
+
+/* Nivel y volumen */
+.comb-tanque-main-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.comb-tanque-litros {
+  font-family: var(--font-mono, monospace);
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text, #f8fafc);
+  line-height: 1;
+}
+
+.comb-tanque-litros span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-left: 0.25rem;
+}
+
+.comb-tanque-pct-chip {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.comb-tanque-pct-chip.optimo {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.comb-tanque-pct-chip.medio {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+}
+
+.comb-tanque-pct-chip.critico {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  animation: combCriticoPulse 2s infinite ease-in-out;
+}
+
+@keyframes combCriticoPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+/* Medidor Cilíndrico de Nivel (Fluid Gauge) */
+.comb-fluid-gauge {
+  width: 100%;
+  height: 9px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.comb-fluid-gauge-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.comb-fluid-gauge-fill.optimo {
+  background: linear-gradient(90deg, #059669, #10b981);
+}
+
+.comb-fluid-gauge-fill.medio {
+  background: linear-gradient(90deg, #d97706, #f59e0b);
+}
+
+.comb-fluid-gauge-fill.critico {
+  background: linear-gradient(90deg, #dc2626, #ef4444);
+}
+
+.comb-tanque-info-line {
+  font-size: 0.74rem;
+  color: var(--text-muted, #94a3b8);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.comb-tanque-info-line strong {
+  color: var(--text, #f1f5f9);
+}
+
+.comb-tanque-footer-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.7rem;
+}
+
+.comb-mini-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
+.comb-mini-chip.entrada {
+  background: rgba(16, 185, 129, 0.08);
+  color: #34d399;
+}
+
+.comb-mini-chip.uso {
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+}
+
+.comb-mini-chip.traslado {
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+}
+
+/* ────────── 4. Cabecera de Detalle de Tanque ────────── */
+.comb-detalle-back-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.comb-btn-volver {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--r-md, 8px);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  color: var(--text, #f8fafc);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.comb-btn-volver:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.comb-detalle-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1.25rem;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--r-lg, 12px);
+  margin-bottom: 1rem;
+}
+
+.comb-detalle-hero-title h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text, #f8fafc);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.comb-detalle-hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--text-muted, #94a3b8);
+}
+
+.comb-detalle-hero-meta strong {
+  color: var(--text, #f8fafc);
+}
+
+/* ────────── 5. Registro de Movimientos & Libro Mayor ────────── */
+.comb-movs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.comb-movs-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0;
+}
+
+.comb-movs-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.comb-movs-title-text {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text, #f8fafc);
+  letter-spacing: -0.01em;
+}
+
+.comb-export-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.comb-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--r-sm, 6px);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.comb-export-btn:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.comb-export-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Pills segmentados por tipo de movimiento */
+.comb-type-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  overflow-x: auto;
+  padding: 0.2rem 0;
+}
+
+.comb-type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.comb-type-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text, #f8fafc);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.comb-type-pill.active {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+  font-weight: 700;
+}
+
+.comb-type-pill .pill-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Barra de filtros compacta */
+.comb-filterbar-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.8rem;
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-md, 10px);
+}
+
+.comb-filterbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.comb-search-box {
+  position: relative;
+  min-width: 260px;
+  max-width: 380px;
+  flex: 1;
+}
+
+.comb-search-box input {
+  width: 100%;
+  padding-left: 2rem;
+  padding-right: 1.8rem;
+  height: 36px;
+  font-size: 0.82rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-sm, 6px);
+  color: var(--text, #f8fafc);
+  transition: all 0.15s ease;
+}
+
+.comb-search-box input:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+  outline: none;
+}
+
+.comb-search-icon {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.comb-search-clear {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.comb-search-clear:hover {
+  color: var(--text, #f8fafc);
+}
+
+.comb-filterbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+/* Panel colapsable de filtros avanzados */
+.comb-filtros-avanzados-panel {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--r-md, 10px);
+  padding: 0.9rem 1.1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.85rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: combFiltrosOpen 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes combFiltrosOpen {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.comb-filtro-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.comb-filtro-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+}
+
+/* ────────── 6. Tabla Ejecutiva del Libro Mayor ────────── */
+.comb-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-md, 10px);
+  background: #0f172a;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  scrollbar-width: thin;
+}
+
+.comb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.comb-table th {
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.comb-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #f1f5f9;
+  vertical-align: middle;
+}
+
+.comb-table tbody tr {
+  transition: background 0.12s ease;
+}
+
+.comb-table tbody tr:hover {
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.comb-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.comb-table tbody tr:nth-child(even):hover {
+  background: rgba(245, 158, 11, 0.06);
+}
+
+/* Chips de Conciliación */
+.comb-chip-cuaderno {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  white-space: nowrap;
+}
+
+.comb-chip-drive {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  white-space: nowrap;
+}
+
+.comb-chip-diferencia {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.comb-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.comb-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.comb-row-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+.comb-row-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+/* ============================================================
+   7. Modales de Combustible en PC: Proporcionales y Centrados
+   (No forzados a pantalla completa)
+   ============================================================ */
+
+/* En PC / Escritorio (min-width: 641px), los modales no van a pantalla completa */
+@media (min-width: 641px) {
+  body .modal-backdrop:has(.comb-modal),
+  body .modal-backdrop:has(.comb-modal-wrap),
+  body .modal-backdrop[class*="comb-modal"] {
+    padding: 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  body .modal-backdrop .modal.comb-modal,
+  body .modal-backdrop .modal:has(.comb-modal),
+  body .modal-backdrop .modal:has(.comb-modal-wrap) {
+    width: min(780px, calc(100vw - 3rem)) !important;
+    max-width: 780px !important;
+    height: auto !important;
+    max-height: min(92vh, 880px) !important;
+    border-radius: var(--r-xl, 14px) !important;
+    border: 1px solid rgba(245, 158, 11, 0.35) !important;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    margin: auto !important;
+    background: linear-gradient(145deg, #182230 0%, #0f172a 100%) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    animation: combModalPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  body.dock-activo .modal.comb-modal,
+  body.dock-activo .modal:has(.comb-modal),
+  body.dock-activo .modal:has(.comb-modal-wrap) {
+    height: auto !important;
+    max-height: calc(100vh - 52px - 2.5rem) !important;
+  }
+
+  /* Variantes de tamaño proporcional */
+  body .modal-backdrop .modal.comb-modal-sm,
+  body .modal-backdrop .modal:has(.comb-modal-sm) {
+    width: min(500px, calc(100vw - 3rem)) !important;
+    max-width: 500px !important;
+  }
+
+  body .modal-backdrop .modal.comb-modal-md,
+  body .modal-backdrop .modal:has(.comb-modal-md) {
+    width: min(640px, calc(100vw - 3rem)) !important;
+    max-width: 640px !important;
+  }
+
+  body .modal-backdrop .modal.comb-modal-lg,
+  body .modal-backdrop .modal:has(.comb-modal-lg) {
+    width: min(840px, calc(100vw - 3rem)) !important;
+    max-width: 840px !important;
+  }
+
+  body .modal-backdrop .modal.comb-modal-xl,
+  body .modal-backdrop .modal:has(.comb-modal-xl) {
+    width: min(1140px, calc(100vw - 3rem)) !important;
+    max-width: 1140px !important;
+  }
+}
+
+@keyframes combModalPop {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Cabecera y Pie de los Modales de Combustible */
+body .modal:has(.comb-modal) .modal-header,
+body .modal.comb-modal .modal-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1.05rem 1.4rem;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(8px);
+  flex-shrink: 0;
+}
+
+body .modal:has(.comb-modal) .modal-header h3,
+body .modal.comb-modal .modal-header h3 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text, #f8fafc);
+  letter-spacing: -0.01em;
+}
+
+body .modal:has(.comb-modal) .modal-body,
+body .modal.comb-modal .modal-body {
+  padding: 1.25rem 1.4rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+}
+
+body .modal:has(.comb-modal) .modal-footer,
+body .modal.comb-modal .modal-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.85rem 1.4rem;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(8px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+/* Contenedor del contenido del modal */
+.comb-modal-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  width: 100%;
+}
+
+.comb-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  width: 100%;
+}
+
+/* Secciones estructuradas / Paneles del formulario */
+.comb-form-section {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-md, 10px);
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.comb-form-section.highlight {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.04), rgba(15, 23, 42, 0.4));
+}
+
+.comb-form-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #f59e0b;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.comb-form-section-title span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Grids estructurados para formularios */
+.comb-form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.comb-form-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .comb-form-grid-2,
+  .comb-form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Campo principal de Litros */
+.comb-litros-destacado {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 1.35rem !important;
+  font-weight: 800 !important;
+  color: #fbbf24 !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1.5px solid rgba(245, 158, 11, 0.4) !important;
+  padding: 0.4rem 0.75rem !important;
+}
+
+.comb-litros-destacado:focus {
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25) !important;
+}
+
+/* Sub-panel de Telemetría */
+.comb-telemetria-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+@media (max-width: 720px) {
+  .comb-telemetria-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.comb-subcard {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--r-sm, 8px);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.comb-subcard-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #94a3b8);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.comb-calculado-box {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--r-sm, 6px);
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.comb-calculado-label {
+  font-size: 0.76rem;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 600;
+}
+
+.comb-calculado-val {
+  font-family: var(--font-mono, monospace);
+  font-size: 1rem;
+  font-weight: 800;
+  color: #fbbf24;
+}
+
+/* Tarjetas de Conciliación Dual */
+.comb-concilia-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .comb-concilia-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.comb-concilia-card {
+  border-radius: var(--r-md, 8px);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: all 0.15s ease;
+}
+
+.comb-concilia-card.cuaderno {
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.comb-concilia-card.cuaderno.active {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
+.comb-concilia-card.drive {
+  background: rgba(56, 189, 248, 0.06);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.comb-concilia-card.drive.active {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
+.comb-error-banner {
+  border-color: var(--danger, #ef4444) !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  padding: 0.75rem 1rem !important;
+  border-radius: var(--r-md, 8px) !important;
+  color: #fca5a5 !important;
+  font-size: 0.85rem !important;
+}
