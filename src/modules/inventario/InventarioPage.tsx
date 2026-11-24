@@ -34,7 +34,9 @@ import {
   renombrarUnidad,
   eliminarUnidad,
   contarProductosPorUnidad,
+  buscarProductosParecidos,
   type ProductoInput,
+  type ProductoParecido,
 } from './inventario.repository';
 import { contarProduccionEnProceso } from '@/modules/produccion/produccion.repository';
 import { resumenContratos } from '@/modules/produccion/contratos.repository';
@@ -47,6 +49,8 @@ import {
 import { DEFAULT_POLICY, decorate, type ProductoDecorado } from './restock';
 import { ProductosTable } from './ProductosTable';
 import { ProductoForm } from './ProductoForm';
+import { ProductoDuplicadoModal } from './ProductoDuplicadoModal';
+import { movimientoSumarStockDuplicado, requiereValidacionDuplicados } from './duplicadosDeposito';
 import { ProductoDetail } from './ProductoDetail';
 import { PapeleraInventarioModal } from './PapeleraInventarioModal';
 import { MovimientoForm } from './MovimientoForm';
@@ -128,6 +132,7 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
 type ModalState =
   | { kind: 'none' }
   | { kind: 'crear' }
+  | { kind: 'duplicado'; data: ProductoInput; parecidos: ProductoParecido[] }
   | { kind: 'editar'; producto: Producto }
   | { kind: 'detalle'; producto: Producto }
   | { kind: 'movimiento'; producto: Producto }
@@ -183,6 +188,7 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
   const [error, setError] = useState<string | null>(null);
   const [ui, setUi] = useState<UiState>(INITIAL_UI);
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const [procesandoDuplicado, setProcesandoDuplicado] = useState(false);
   // GT-INT-11 · Casiterita enviada a MGG. Se carga siempre (no solo al abrir el modal)
   // para poder avisar en la barra cuando alguna quedó sin llegar: el material ya salió
   // del inventario, así que enterarse tarde es justamente el problema.
@@ -365,29 +371,44 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
     });
   }, []);
 
+  async function crearProductoConfirmado(data: ProductoInput) {
+    const dup = await findBySku(data.sku);
+    if (dup) throw new Error('Ya existe un producto con ese SKU.');
+    const stockInicial = data.stock;
+    // El botón es dinámico: el producto entra al depósito que se está viendo.
+    data = { ...data, almacen: dep.almacen };
+    const created = await createProducto({ ...data, stock: 0 });
+    if (stockInicial > 0) {
+      await registrarMovimiento({
+        producto_id: created.id,
+        tipo: 'creacion',
+        delta: stockInicial,
+        almacen: data.almacen,
+        actor: productoActor,
+        actor_name: actorName,
+        detalle: `Stock inicial al dar de alta el producto · ${dep.nombre}`,
+        // Costo inicial: fija la línea base del PMP del inventario y queda en la traza.
+        precio_unitario: data.precio,
+      });
+    }
+    notify(`Producto creado en ${dep.nombre}: ${data.sku} · ${data.nombre}`, 'success', { link: dep.hash });
+    await reload();
+  }
+
   async function handleCreateOrUpdate(data: ProductoInput) {
     if (modal.kind === 'crear') {
-      const dup = await findBySku(data.sku);
-      if (dup) throw new Error('Ya existe un producto con ese SKU.');
-      const stockInicial = data.stock;
       // El botón es dinámico: el producto entra al depósito que se está viendo.
       data = { ...data, almacen: dep.almacen };
-      const created = await createProducto({ ...data, stock: 0 });
-      if (stockInicial > 0) {
-        await registrarMovimiento({
-          producto_id: created.id,
-          tipo: 'creacion',
-          delta: stockInicial,
-          almacen: data.almacen,
-          actor: productoActor,
-          actor_name: actorName,
-          detalle: `Stock inicial al dar de alta el producto · ${dep.nombre}`,
-          // Costo inicial: fija la línea base del PMP del inventario y queda en la traza.
-          precio_unitario: data.precio,
-        });
+      // En los depósitos propios, antes de crear se pregunta si ya existe.
+      // Si el usuario dice que sí, solo entra el stock al producto parecido.
+      if (requiereValidacionDuplicados(dep.almacen)) {
+        const parecidos = await buscarProductosParecidos(data.nombre, data.categoria, { almacen: dep.almacen });
+        if (parecidos.length) {
+          setModal({ kind: 'duplicado', data, parecidos });
+          return;
+        }
       }
-      notify(`Producto creado en ${dep.nombre}: ${data.sku} · ${data.nombre}`, 'success', { link: dep.hash });
-      await reload();
+      await crearProductoConfirmado(data);
       return;
     }
     if (modal.kind === 'editar') {
@@ -400,6 +421,42 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
       await updateProducto(previo.id, rest);
       notify(`Producto actualizado: ${data.sku} · ${data.nombre}`, 'success', { link: dep.hash });
       await reload();
+    }
+  }
+
+  async function handleDuplicadoSumar(p: ProductoParecido) {
+    if (modal.kind !== 'duplicado') return;
+    const { data } = modal;
+    setProcesandoDuplicado(true);
+    try {
+      if (data.stock > 0) {
+        await registrarMovimiento(movimientoSumarStockDuplicado({
+          productoId: p.id,
+          almacen: dep.almacen,
+          cantidad: data.stock,
+          actor: productoActor,
+          actorName,
+          detalle: `«${data.nombre}» confirmado como ${p.sku} · ${dep.nombre}. No se creó un duplicado.`,
+        }));
+      }
+      notify(`Stock sumado a ${p.sku} · ${p.nombre} en ${dep.nombre} (${data.stock} ${data.unidad}).`, 'success', { link: dep.hash });
+      setModal({ kind: 'none' });
+      await reload();
+    } finally {
+      setProcesandoDuplicado(false);
+    }
+  }
+
+  async function handleDuplicadoCrearIgual() {
+    if (modal.kind !== 'duplicado') return;
+    const data = modal.data;
+    setProcesandoDuplicado(true);
+    try {
+      // El usuario confirmó que NO es el mismo: alta normal con su stock.
+      await crearProductoConfirmado(data);
+      setModal({ kind: 'none' });
+    } finally {
+      setProcesandoDuplicado(false);
     }
   }
 
@@ -708,6 +765,20 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
           productos={productos}
           onClose={() => setModal({ kind: 'none' })}
           onSubmit={handleCreateOrUpdate}
+        />
+      )}
+      {modal.kind === 'duplicado' && (
+        <ProductoDuplicadoModal
+          nombreNuevo={modal.data.nombre}
+          categoriaNueva={modal.data.categoria}
+          unidadNueva={modal.data.unidad}
+          cantidad={modal.data.stock}
+          almacen={dep.almacen}
+          parecidos={modal.parecidos}
+          onSumarStock={(p) => void handleDuplicadoSumar(p)}
+          onCrearIgual={() => void handleDuplicadoCrearIgual()}
+          onClose={() => setModal({ kind: 'none' })}
+          procesando={procesandoDuplicado}
         />
       )}
       {modal.kind === 'editar' && (

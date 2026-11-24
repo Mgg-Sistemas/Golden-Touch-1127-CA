@@ -7,6 +7,7 @@ import { supabase } from '@/shared/lib/supabase';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
 import { ALMACEN_MINA, esDelDeposito, type Deposito } from './depositos';
+import { filtrarParecidosDelDeposito } from './duplicadosDeposito';
 
 export interface ProductoInput {
   sku: string;
@@ -591,21 +592,30 @@ export interface ProductoParecido {
 export async function buscarProductosParecidos(
   nombre: string,
   categoria?: string | null,
+  opciones?: { almacen?: string | null },
 ): Promise<ProductoParecido[]> {
   const n = (nombre ?? '').trim();
   // Con menos de 3 letras cualquier cosa se parece a todo: no vale la pena
   // molestar al usuario con una lista de ruido.
   if (n.length < 3) return [];
+  const almacen = opciones?.almacen?.trim() || null;
   const { data, error } = await supabase.rpc('productos_parecidos', {
     p_nombre: n,
     p_categoria: categoria ?? null,
-    p_limite: 6,
+    // Pedimos de más cuando filtramos por depósito: el RPC ordena por parecido
+    // y el filtro local puede descartar los primeros (que son del General).
+    p_limite: almacen ? 20 : 6,
   });
   // Si la consulta falla NO se bloquea la creación: esto es una ayuda, no un
   // control. Un aviso que no se pudo calcular no puede impedir trabajar.
   if (error) return [];
-  // Lo de la Mina no se ofrece: este aviso es de Pedidos, que compra para el General.
-  return ((data ?? []) as ProductoParecido[]).filter((r) => r.almacen !== ALMACEN_MINA).map((r) => ({
+  const filas = (data ?? []) as ProductoParecido[];
+  // Con almacen: aviso dentro de un depósito propio (Mina/Reutilizables/Dañados).
+  // Sin él: comportamiento histórico de Pedidos, que compra para el General.
+  const candidatos = almacen
+    ? filtrarParecidosDelDeposito(filas, almacen)
+    : filas.filter((r) => r.almacen !== ALMACEN_MINA);
+  return candidatos.slice(0, 6).map((r) => ({
     ...r,
     stock: Number(r.stock) || 0,
     parecido: Number(r.parecido) || 0,

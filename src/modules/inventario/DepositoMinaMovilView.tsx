@@ -31,8 +31,13 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
 import type { Almacen, Producto } from '@/shared/lib/types';
-import { createProducto, findBySku, getCategorias, getUnidades, listProductos, nextSku } from './inventario.repository';
+import {
+  createProducto, findBySku, getCategorias, getUnidades, listProductos, nextSku,
+  buscarProductosParecidos, type ProductoParecido,
+} from './inventario.repository';
 import { registrarMovimiento } from './movimientos.repository';
+import { ProductoDuplicadoModal } from './ProductoDuplicadoModal';
+import { movimientoSumarStockDuplicado, requiereValidacionDuplicados } from './duplicadosDeposito';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
 import {
   ALMACEN_DANADOS,
@@ -646,18 +651,14 @@ function FormNuevo({ dep, categorias, unidades, actor, actorName, onCancel, onSa
   const [ubicacion, setUbicacion] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<{ titulo: string; texto: string } | null>(null);
+  const [parecidos, setParecidos] = useState<ProductoParecido[] | null>(null);
 
-  async function guardar(e: FormEvent) {
-    e.preventDefault();
-    const n = nombre.trim().toUpperCase();
-    const cant = Number(cantidad.replace(',', '.')) || 0;
-    const precio = Math.max(0, Number(costo.replace(',', '.')) || 0);
-    if (!n) return toast('Escribe el nombre del producto.', 'error');
-    if (!esCategoriaReal(categoria)) return toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error');
-    if (!unidad) return toast('Elige la unidad (kg, und, saco…).', 'error');
-    if (cant < 0) return toast('La cantidad no puede ser negativa.', 'error');
+  async function crearAhora() {
     setGuardando(true);
     try {
+      const n = nombre.trim().toUpperCase();
+      const cant = Number(cantidad.replace(',', '.')) || 0;
+      const precio = Math.max(0, Number(costo.replace(',', '.')) || 0);
       const sku = await nextSku(categoria);
       if (await findBySku(sku)) throw new Error('El código del producto chocó con otro. Toca «Guardar» de nuevo.');
       const ubic = ubicacion.trim().toUpperCase() || null;
@@ -679,6 +680,55 @@ function FormNuevo({ dep, categorias, unidades, actor, actorName, onCancel, onSa
       });
     } catch (err) {
       toast(errMsg(err, 'No se pudo guardar'), 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    const n = nombre.trim().toUpperCase();
+    const cant = Number(cantidad.replace(',', '.')) || 0;
+    if (!n) return toast('Escribe el nombre del producto.', 'error');
+    if (!esCategoriaReal(categoria)) return toast(MENSAJE_CATEGORIA_OBLIGATORIA, 'error');
+    if (!unidad) return toast('Elige la unidad (kg, und, saco…).', 'error');
+    if (cant < 0) return toast('La cantidad no puede ser negativa.', 'error');
+    // En Mina, Reutilizables e Items Dañados se pregunta antes de crear:
+    // si ya está, el usuario decide si se le suma el stock o es otro producto.
+    if (requiereValidacionDuplicados(dep.almacen)) {
+      const similares = await buscarProductosParecidos(n, categoria, { almacen: dep.almacen });
+      if (similares.length) {
+        setParecidos(similares);
+        return;
+      }
+    }
+    await crearAhora();
+  }
+
+  async function sumarAExistente(p: ProductoParecido) {
+    setParecidos(null);
+    const cant = Number(cantidad.replace(',', '.')) || 0;
+    setGuardando(true);
+    try {
+      const mov = cant > 0 ? await registrarMovimiento(movimientoSumarStockDuplicado({
+        productoId: p.id,
+        almacen: dep.almacen,
+        cantidad: cant,
+        actor,
+        actorName,
+        detalle: `«${nombre.trim().toUpperCase()}» confirmado como ${p.sku} · ${dep.nombre}. No se creó un duplicado (teléfono)`,
+      })) : null;
+      setAviso({
+        titulo: `Stock sumado en ${dep.nombre}: ${p.sku}`,
+        texto: mensajeEntrada({
+          deposito: dep.nombre, sku: p.sku, nombre: p.nombre, unidad: p.unidad,
+          cantidad: cant,
+          queda: mov ? (Number(mov.stock_despues) || 0) : (Number(p.stock) || 0),
+          nota: `Se confirmó que es el mismo producto; no se creó uno nuevo`,
+        }, actorName ?? actor, mov?.at),
+      });
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo sumar el stock'), 'error');
     } finally {
       setGuardando(false);
     }
@@ -730,6 +780,20 @@ function FormNuevo({ dep, categorias, unidades, actor, actorName, onCancel, onSa
       </div>
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>{guardando ? 'Guardando…' : '✓ Guardar producto'}</button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>Cancelar</button>
+      {parecidos && (
+        <ProductoDuplicadoModal
+          nombreNuevo={nombre.trim().toUpperCase()}
+          categoriaNueva={categoria}
+          unidadNueva={unidad}
+          cantidad={Number(cantidad.replace(',', '.')) || 0}
+          almacen={dep.almacen}
+          parecidos={parecidos}
+          onSumarStock={(p) => void sumarAExistente(p)}
+          onCrearIgual={() => { setParecidos(null); void crearAhora(); }}
+          onClose={() => setParecidos(null)}
+          procesando={guardando}
+        />
+      )}
     </form>
   );
 }
