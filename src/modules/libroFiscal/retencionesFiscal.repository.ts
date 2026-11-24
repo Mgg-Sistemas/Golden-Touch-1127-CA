@@ -787,6 +787,58 @@ export async function marcarDeclarada(id: string, declarada: boolean, actor: str
   exigirFilas(data);
 }
 
+export interface DatosCorreccionRetencion {
+  base: number;
+  monto: number;
+  impuestoCausado?: number | null;
+  ivaMonto?: number | null;
+  ivaAlicuota?: number | null;
+  baseBs?: number | null;
+  montoBs?: number | null;
+}
+
+/**
+ * Corrige la base gravable y montos de una retención emitida erróneamente sobre el total con IVA.
+ * Actualiza la línea y, si existe documento_id, también la cabecera en retencion_documentos.
+ */
+export async function corregirBaseRetencion(id: string, datos: DatosCorreccionRetencion): Promise<void> {
+  const ahora = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    base: datos.base,
+    monto: datos.monto,
+    impuesto_causado: datos.impuestoCausado ?? datos.monto,
+    updated_at: ahora,
+  };
+  if (datos.ivaMonto !== undefined) patch.iva_monto = datos.ivaMonto;
+  if (datos.ivaAlicuota !== undefined) patch.iva_alicuota = datos.ivaAlicuota;
+  if (datos.baseBs !== undefined) patch.base_bs = datos.baseBs;
+  if (datos.montoBs !== undefined) patch.monto_bs = datos.montoBs;
+
+  const { data, error } = await supabase.from(T_RETENCIONES)
+    .update(patch)
+    .eq('id', id)
+    .neq('estado', 'anulada')
+    .select('id, documento_id');
+
+  if (error) throw error;
+  exigirFilas(data);
+
+  const docId = data[0]?.documento_id;
+  if (docId && datos.ivaMonto != null) {
+    try {
+      await supabase.from('retencion_documentos')
+        .update({
+          iva_monto: datos.ivaMonto,
+          iva_alicuota: datos.ivaAlicuota ?? 16,
+          updated_at: ahora,
+        })
+        .eq('id', docId);
+    } catch {
+      // Ignorar si retencion_documentos no existe o falla
+    }
+  }
+}
+
 /** Adjunta el comprobante: el que firma el proveedor, o el que entregó el cliente. */
 /** `tipo` dice qué documento es (factura, comprobante firmado…): queda delante del nombre, sin cambiar la base. */
 export async function adjuntarComprobante(id: string, file: File, tipo?: string): Promise<void> {

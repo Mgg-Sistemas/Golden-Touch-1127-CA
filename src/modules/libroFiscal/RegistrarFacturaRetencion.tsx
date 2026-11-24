@@ -35,7 +35,7 @@ import { configDeFecha } from './parametros.repository';
 import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
-import { leerMonto, numeroATexto } from './validarCarga';
+import { leerMonto, numeroATexto, validarArchivoFacturaObligatorio } from './validarCarga';
 import { montoEscrito, municipioDeLinea, sujetoDeLineas } from './lineasRegistro';
 import { SeLeyo } from './SeLeyo';
 import { rotuloImpuesto } from './rotulos';
@@ -58,6 +58,9 @@ import { usePuedePracticarEmpresa } from './practicaEmpresa';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { mensajeRetencion, datosMensajeDeRetenciones } from '@/modules/retenciones/mensajeRetencion';
 import { montoPagadoDeOrden, type MontoPagado } from '@/modules/retenciones/pagoOrden.repository';
+import { supabase } from '@/shared/lib/supabase';
+import { listRetencionesPendientes, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
+import { listFacturasBuzon, actualizarEstatusFacturaBuzon, type FacturaExternaBuzon } from '@/modules/retenciones/facturasBuzon.repository';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
@@ -200,6 +203,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [fechaRetencion, setFechaRetencion] = useState(hoyIso());
   const [fechaEntrega, setFechaEntrega] = useState(hoyIso());
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
+  const [ivaFacturaStr, setIvaFacturaStr] = useState(s.iva != null ? numeroATexto(s.iva) : '');
   // D2b: ¿practica esta empresa el impuesto? NO-GT lee la RPC (L6) por empresa y fecha;
   // GT/single sigue con puedePracticar(config). Una sola fuente, también en el registro.
   const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, facturaFecha);
@@ -220,9 +224,123 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
   const [archivoFacturaUrl, setArchivoFacturaUrl] = useState<string | null>(null);
+  const [adjuntoExistente, setAdjuntoExistente] = useState<{ nombre: string; bucket: string; path: string } | null>(null);
+
+  const soporteActivo = s.adjunto ?? adjuntoExistente;
+
+  const [modoOrigen, setModoOrigen] = useState<'oc' | 'buzon' | 'manual'>(() => {
+    if (s.docKind === 'compra_directa' || s.docKind === 'servicio_directo') return 'manual';
+    if (s.docKind === 'oc' || s.docId) return 'oc';
+    return 'oc';
+  });
+  const [ordenesPendientes, setOrdenesPendientes] = useState<RetencionItem[]>([]);
+  const [ordenSeleccionadaId, setOrdenSeleccionadaId] = useState<string>(s.docKind === 'oc' && s.docId ? s.docId : '');
+  const [buzonPendientes, setBuzonPendientes] = useState<FacturaExternaBuzon[]>([]);
+  const [buzonSeleccionadaId, setBuzonSeleccionadaId] = useState<string>('');
+
+  useEffect(() => {
+    let activo = true;
+    if (direccion === 'practicada') {
+      listRetencionesPendientes()
+        .then((items) => { if (activo) setOrdenesPendientes(items); })
+        .catch(() => {});
+      listFacturasBuzon({ estatus: 'recibida' })
+        .then((items) => { if (activo) setBuzonPendientes(items); })
+        .catch(() => {});
+    }
+    return () => { activo = false; };
+  }, [direccion]);
+
+  const ordenesPendientesFiltradas = useMemo(() => {
+    if (!proveedorId) return ordenesPendientes;
+    return ordenesPendientes.filter((it) => it.orden.proveedor_id === proveedorId);
+  }, [ordenesPendientes, proveedorId]);
+
+  function elegirOrden(id: string) {
+    marcarSucio();
+    setOrdenSeleccionadaId(id);
+    const item = ordenesPendientes.find((x) => x.orden.id === id);
+    if (!item) return;
+    const o = item.orden;
+    if (o.proveedor_id) {
+      setProveedorId(o.proveedor_id);
+      const prov = proveedores.find((p) => p.id === o.proveedor_id);
+      if (prov) {
+        setContraparte(prov.razon_social);
+        setRif(prov.rif ?? '');
+      } else {
+        setContraparte(item.proveedorNombre || '');
+      }
+    } else {
+      setContraparte(item.proveedorNombre || '');
+    }
+    setMoneda(o.total_moneda === 'Bs' ? 'Bs' : 'USD');
+    setFacturaTotal(numeroATexto(o.total ?? 0));
+    setIvaFacturaStr(numeroATexto(o.iva_monto ?? 0));
+    const baseCalc = Math.max(0, (o.total ?? 0) - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0));
+    const tipoSugerido = puedePracticarEmpresa('islr', config) ? 'islr' : 'iva';
+    setLineas([nuevaLinea({
+      tipo: tipoSugerido,
+      sujeto: sugerirSujetoPorRif(o.proveedor_id ? proveedores.find((p) => p.id === o.proveedor_id)?.rif ?? '' : '')?.sujeto ?? 'pj_domiciliada',
+      baseStr: numeroATexto(baseCalc),
+      ivaStr: numeroATexto(o.iva_monto ?? 0),
+    })]);
+    if (o.factura_recepcion_path) {
+      setAdjuntoExistente({
+        nombre: o.factura_recepcion_nombre || `Factura ${o.oc_codigo || o.codigo}`,
+        bucket: 'comprobantes',
+        path: o.factura_recepcion_path,
+      });
+    }
+  }
+
+  function elegirFacturaBuzon(id: string) {
+    marcarSucio();
+    setBuzonSeleccionadaId(id);
+    const f = buzonPendientes.find((x) => x.id === id);
+    if (!f) return;
+    setContraparte(f.proveedorNombre || '');
+    setRif(f.proveedorRif || '');
+    if (f.proveedorRif) {
+      const prov = proveedores.find((p) => (p.rif ?? '').trim().toUpperCase() === f.proveedorRif.trim().toUpperCase());
+      if (prov) setProveedorId(prov.id);
+    }
+    if (f.facturaNumero) setFacturaNro(f.facturaNumero);
+    if (f.facturaControl) setFacturaControl(f.facturaControl);
+    if (f.facturaFecha) setFacturaFecha(f.facturaFecha);
+    setMoneda(f.moneda || 'Bs');
+    setFacturaTotal(numeroATexto(f.montoTotal ?? 0));
+    const { base: bBuzon, iva: iBuzon } = desglosarIvaDeTotal(f.montoTotal ?? 0, 0, aliIvaPct);
+    setIvaFacturaStr(numeroATexto(iBuzon));
+    const tipoBuzon = puedePracticarEmpresa('islr', config) ? 'islr' : 'iva';
+    setLineas([nuevaLinea({
+      tipo: tipoBuzon,
+      sujeto: sugerirSujetoPorRif(f.proveedorRif ?? '')?.sujeto ?? 'pj_domiciliada',
+      baseStr: numeroATexto(bBuzon),
+      ivaStr: numeroATexto(iBuzon),
+    })]);
+    if (f.adjuntos?.[0]) {
+      const a = f.adjuntos[0];
+      setAdjuntoExistente({
+        nombre: a.nombre || a.nombreOriginal || 'Soporte Buzón',
+        bucket: 'retenciones-facturas-externas',
+        path: a.path,
+      });
+    }
+  }
 
   const onElegirArchivo = (f: File | null) => {
     marcarSucio();
+    if (f) {
+      const esValido = f.type === 'application/pdf'
+        || f.type.startsWith('image/')
+        || /\.(pdf|png|jpe?g|webp)$/i.test(f.name);
+      if (!esValido) {
+        setError('El archivo de la factura debe ser un PDF o una imagen (JPG, PNG, WebP).');
+        return;
+      }
+    }
+    setError(null);
     setArchivoFactura(f);
     if (archivoFacturaUrl) {
       try { URL.revokeObjectURL(archivoFacturaUrl); } catch { /* ignorar */ }
@@ -334,6 +452,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
   const esManual = direccion === 'recibida';
   const tasa = nDec(tasaStr);
+
+  // La alícuota del IVA sale de Parámetros (config.ivaAlicuota); si no hay, 16 por defecto.
+  const aliIvaPct = Number(config.ivaAlicuota) > 0 ? Number(config.ivaAlicuota) : 16;
+  const divisorIvaTxt = (1 + aliIvaPct / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalFacturaNum = nDec(facturaTotal);
+  const exentoNum = nDec(exentoStr);
+  const ivaFacturaNum = nDec(ivaFacturaStr);
+  const baseNetaGravable = Math.max(0, Math.round((totalFacturaNum - ivaFacturaNum - exentoNum) * 100) / 100);
 
   const tiposLineas = lineas.map((l) => l.tipo).join(',');
   useEffect(() => {
@@ -463,13 +589,15 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const conceptosDeLinea = (l: LineaUI) => conceptos.filter((c) => c.tipo === l.tipo && (c.sujeto === l.sujeto || c.sujeto === 'todos'));
 
   // Una practicada sin OC, CS ni compra directa queda «fuera del sistema»: se dice y se anota de dónde viene.
-  const sinDocumento = direccion === 'practicada' && !s.docId && !documento;
+  const tieneDocVinculado = Boolean(documento || s.docId || (modoOrigen === 'oc' && ordenSeleccionadaId));
+  const sinDocumento = direccion === 'practicada' && !tieneDocVinculado;
   const rifMal = rif.trim() !== '' && !rifValido(rif);
   // D43: el mensaje dice cuál RIF y dónde se corrige (practicada: en la ficha del proveedor).
   const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const ilegibles = [
     ...(moneda !== 'Bs' && leerMonto(tasaStr) == null ? ['Tasa'] : []),
-    ...(leerMonto(facturaTotal) == null ? ['Base imponible'] : []),
+    ...(leerMonto(facturaTotal) == null ? ['Total de la factura'] : []),
+    ...(ivaFacturaStr.trim() !== '' && leerMonto(ivaFacturaStr) == null ? ['IVA de la factura'] : []),
     ...(exentoStr.trim() !== '' && leerMonto(exentoStr) == null ? ['Monto exento'] : []),
     ...(sinDerechoStr.trim() !== '' && leerMonto(sinDerechoStr) == null ? ['Sin derecho a crédito IVA'] : []),
     ...lineas.flatMap((l) => ([
@@ -505,6 +633,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (moneda !== 'Bs' && !(tasa > 0)) return 'Indica la tasa para llevar los montos a bolívares.';
     if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
     if (!lineas.length) return 'Agrega al menos una línea de impuesto.';
+    // Exigencia obligatoria: Sin archivo físico de factura (PDF o imagen) no hay retención
+    const tieneSoporte = Boolean(soporteActivo || s.adjuntoId);
+    const errorArchivo = validarArchivoFacturaObligatorio(tieneSoporte, archivoFactura);
+    if (errorArchivo) return errorArchivo;
     // Regla: No se debe registrar una retención del mismo tipo para 1 Factura
     const tiposEnFormulario = new Set<TipoImpuesto>();
     for (const l of lineas) {
@@ -519,6 +651,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     const sujeto = sujetoDeLineas(lineas);
     if (sujeto.error) return sujeto.error;
+    // Protección fiscal Decreto 1.808: si hay IVA en la factura, la base de ISLR/ISAE no puede ser igual al total con IVA
+    if (ivaFacturaNum > 0 && direccion === 'practicada') {
+      for (const l of lineas) {
+        if ((l.tipo === 'islr' || l.tipo === 'municipal') && totalFacturaNum > 0 && Math.abs(nDec(l.baseStr) - totalFacturaNum) < 0.01) {
+          return `${labelImpuesto(l.tipo)}: La base imponible coincide con el total de la factura (${facturaTotal}). Debe excluir el IVA (${ivaFacturaStr}) quedando en Bs ${numeroATexto(baseNetaGravable)} (Decreto 1.808). Usa el botón "⚡ 16% IVA" o ajusta la base.`;
+        }
+      }
+    }
     for (const l of lineas) {
       if (direccion === 'practicada') {
         const m = motivoNoPuedePracticar(l.tipo, config);
@@ -545,6 +685,30 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   function aplicarDocumento(f: FacturaResumen) {
     marcarSucio();
     setDocumento(f); setDireccion('practicada');
+    if (f.documentoId) {
+      void Promise.resolve(
+        supabase.from('retenciones')
+          .select('comprobante_path, comprobante_nombre')
+          .eq('documento_id', f.documentoId)
+          .not('comprobante_path', 'is', null)
+          .limit(1)
+      )
+        .then(({ data }) => {
+          const primero = data?.[0];
+          if (primero?.comprobante_path) {
+            setAdjuntoExistente({
+              nombre: primero.comprobante_nombre || `Factura ${f.facturaNro || ''}`,
+              bucket: 'comprobantes',
+              path: primero.comprobante_path,
+            });
+          } else {
+            setAdjuntoExistente(null);
+          }
+        })
+        .catch(() => { setAdjuntoExistente(null); });
+    } else {
+      setAdjuntoExistente(null);
+    }
     if (f.tipoDocumento && (f.tipoDocumento === 'factura' || f.tipoDocumento === 'nota_credito' || f.tipoDocumento === 'nota_debito')) {
       setTipoDocumento(f.tipoDocumento as TipoDocumento);
     }
@@ -554,6 +718,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     setFacturaNro(f.facturaNro ?? ''); setFacturaControl(f.facturaControl ?? ''); setFacturaFecha(f.facturaFecha ?? '');
     setMoneda(f.moneda || 'Bs'); if (f.tasa) setTasaStr(numeroATexto(f.tasa));
     setFacturaTotal(numeroATexto(f.facturaTotal ?? 0));
+    if (f.ivaMonto != null) setIvaFacturaStr(numeroATexto(f.ivaMonto));
     if (f.exento != null) setExentoStr(numeroATexto(f.exento));
     const base = f.facturaTotal != null ? Math.max(0, f.facturaTotal - (f.ivaMonto ?? 0) - (f.exento ?? 0)) : 0;
     const tipos = pendientesComoTipos(f);
@@ -562,7 +727,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       tipo: t, sujeto, baseStr: numeroATexto(base), ivaStr: numeroATexto(f.ivaMonto ?? 0),
     })));
   }
-  function soltarDocumento() { marcarSucio(); setDocumento(null); }
+  function soltarDocumento() { marcarSucio(); setDocumento(null); setAdjuntoExistente(null); }
 
   useEffect(() => {
     let vivo = true;
@@ -572,40 +737,43 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Desde «Facturas registradas»: se abre ya sobre esa factura.
   useEffect(() => { if (s.documento) aplicarDocumento(s.documento); }, [s.documento]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // La alícuota del IVA sale de Parámetros (config.ivaAlicuota); si no hay, 16 por defecto.
-  const aliIvaPct = Number(config.ivaAlicuota) > 0 ? Number(config.ivaAlicuota) : 16;
-  const divisorIvaTxt = (1 + aliIvaPct / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  const desglosarIvaIncluido = () => {
+  const aplicarIva16 = () => {
     const tot = nDec(facturaTotal);
+    const ex = nDec(exentoStr);
     if (tot <= 0) {
-      toast('Escribe primero el monto total de la factura para calcular el desglose.', 'warning');
+      toast('Escribe primero el monto total de la factura para calcular el IVA.', 'warning');
       return;
     }
     marcarSucio();
-    const { base, iva } = desglosarIvaDeTotal(tot, nDec(exentoStr), aliIvaPct);
+    const { base, iva } = desglosarIvaDeTotal(tot, ex, aliIvaPct);
+    setIvaFacturaStr(numeroATexto(iva));
     setLineas((xs) => {
-      const tieneIva = xs.some((l) => l.tipo === 'iva');
-      const actualizadas = xs.map((l) => {
+      return xs.map((l) => {
         if (l.tipo === 'iva') {
           return { ...l, baseStr: numeroATexto(base), ivaStr: numeroATexto(iva) };
         }
         return { ...l, baseStr: numeroATexto(base) };
       });
-      if (!tieneIva) {
-        return [
-          nuevaLinea({
-            tipo: 'iva',
-            sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
-            baseStr: numeroATexto(base),
-            ivaStr: numeroATexto(iva),
-          }),
-          ...actualizadas,
-        ];
-      }
-      return actualizadas;
     });
-    toast(`Desglose aplicado: Base ${numeroATexto(base)} + IVA ${numeroATexto(iva)} = ${numeroATexto(tot)}`, 'info');
+    toast(`Desglose aplicado: Base Bs ${numeroATexto(base)} + IVA Bs ${numeroATexto(iva)} = Total Bs ${numeroATexto(tot)}`, 'info');
+  };
+
+  const aplicarSinIva = () => {
+    marcarSucio();
+    setIvaFacturaStr('0');
+    const tot = nDec(facturaTotal);
+    const ex = nDec(exentoStr);
+    const base = Math.max(0, tot - ex);
+    setLineas((xs) => xs.map((l) => ({
+      ...l,
+      baseStr: numeroATexto(base),
+      ...(l.tipo === 'iva' ? { ivaStr: '0' } : {}),
+    })));
+    toast('Factura sin IVA: la base gravable es el total menos exento.', 'info');
+  };
+
+  const desglosarIvaIncluido = () => {
+    aplicarIva16();
   };
 
   async function emitir() {
@@ -615,19 +783,37 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     try {
       const periodo = periodoDe(facturaFecha);
       const exentoNum = exentoStr.trim() ? nDec(exentoStr) : null;
+      const finalDocKind = modoOrigen === 'oc' && ordenSeleccionadaId
+        ? 'oc'
+        : modoOrigen === 'buzon' && buzonSeleccionadaId
+          ? 'manual'
+          : s.docKind ?? 'manual';
+
+      const finalDocId = modoOrigen === 'oc' && ordenSeleccionadaId
+        ? ordenSeleccionadaId
+        : modoOrigen === 'manual'
+          ? s.docId ?? null
+          : null;
+
+      const notaFinal = modoOrigen === 'buzon' && buzonSeleccionadaId
+        ? [nota.trim(), `Procedente de Buzón Móvil (ID: ${buzonSeleccionadaId})`].filter(Boolean).join(' · ')
+        : nota.trim() || null;
+
       const facturaNueva: FacturaNueva = {
         direccion,
         tipoDocumento,
         facturaAfectadaNro: tipoDocumento !== 'factura' ? facturaAfectadaNro.trim() || null : null,
-        docKind: s.docKind ?? 'manual', docId: s.docId ?? null, adjuntoId: s.adjuntoId ?? null,
+        docKind: finalDocKind, docId: finalDocId, adjuntoId: s.adjuntoId ?? null,
         contraparteId: direccion === 'practicada' ? proveedorId || null : null, contraparteRif: rif.trim() || null, contraparteNombre: contraparte.trim() || null,
         // El sujeto del ISLR es del proveedor: va en la cabecera (antes llegaba null).
         contraparteSujeto: sujetoDeLineas(lineas).sujeto,
         facturaNro: facturaNro.trim() || null, facturaControl: facturaControl.trim() || null,
         facturaFecha, facturaTotal: facturaTotal.trim() ? nDec(facturaTotal) : null,
         exento: exentoNum,
+        ivaAlicuota: ivaFacturaStr.trim() && nDec(ivaFacturaStr) > 0 ? aliIvaPct : null,
+        ivaMonto: ivaFacturaStr.trim() ? nDec(ivaFacturaStr) : (lineas.find((x) => x.tipo === 'iva') ? nDec(lineas.find((x) => x.tipo === 'iva')!.ivaStr) : null),
         moneda, tasa: moneda === 'Bs' ? null : tasa, periodo,
-        nota: nota.trim() || null, valorUt: config.valorUt, empresaId, actor, actorName,
+        nota: notaFinal, valorUt: config.valorUt, empresaId, actor, actorName,
       };
       const lineasNuevas: LineaFacturaNueva[] = lineas.map((l) => {
         const calc = calculoDe(l);
@@ -681,6 +867,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         }
       }
       notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
+      if (finalDocKind === 'oc' && finalDocId) {
+        void supabase.from('ordenes').update({
+          retencion_finalizada: true,
+          retencion_finalizada_por: actorName || actor,
+          retencion_finalizada_en: new Date().toISOString(),
+        }).eq('id', finalDocId);
+      }
+      if (modoOrigen === 'buzon' && buzonSeleccionadaId) {
+        void actualizarEstatusFacturaBuzon(buzonSeleccionadaId, 'retenida').catch(() => {});
+      }
       // No se cierra aún: se muestra el éxito con «Compartir por WhatsApp».
       setResultado(res);
       setSaving(false);
@@ -719,7 +915,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }
 
   return (
-    <Modal title={documento ? '🧾 Retener sobre una factura registrada' : '🧾 Registrar retención por factura'} size="xl" onClose={pedirCierre}
+    <Modal
+      title={documento ? '🧾 Retener sobre una factura registrada' : '🧾 Registrar retención por factura'}
+      size="xl"
+      className="modal-retencion-centrado"
+      style={{
+        width: 'min(1100px, calc(100vw - 2rem))',
+        maxWidth: 'min(1100px, calc(100vw - 2rem))',
+        height: 'auto',
+        maxHeight: '94vh',
+        borderRadius: '14px',
+        border: '1px solid var(--border)',
+        margin: 'auto',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+      }}
+      onClose={pedirCierre}
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
@@ -730,20 +940,124 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       )}>
       {dialogo}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      {s.adjunto ? (
-        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', borderColor: 'var(--primary)' }}>
-          <span>📄 Factura cargada por Compras: <strong>{s.adjunto.nombre}</strong></span>
+
+      {/* ── 1. Origen y Vinculación con OC / Buzón ── */}
+      {direccion === 'practicada' && !documento && (
+        <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', borderColor: 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <label style={{ margin: 0, fontWeight: 700, fontSize: '.88rem' }}>
+              ¿De dónde proviene esta factura?
+            </label>
+            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoOrigen === 'oc' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { marcarSucio(); setModoOrigen('oc'); }}
+              >
+                📄 Orden de Compra (OC) {ordenesPendientes.length > 0 && `(${ordenesPendientes.length})`}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoOrigen === 'buzon' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { marcarSucio(); setModoOrigen('buzon'); }}
+              >
+                📱 Buzón Móvil {buzonPendientes.length > 0 && `(${buzonPendientes.length})`}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoOrigen === 'manual' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => { marcarSucio(); setModoOrigen('manual'); setOrdenSeleccionadaId(''); setBuzonSeleccionadaId(''); }}
+              >
+                🏷️ Compra sin OC (Gasto directo)
+              </button>
+            </div>
+          </div>
+
+          {modoOrigen === 'oc' && (
+            <div style={{ marginTop: '.35rem' }}>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                Selecciona la Orden de Compra (OC) pendiente por retener:
+              </label>
+              <select
+                className="select"
+                value={ordenSeleccionadaId}
+                onChange={(e) => elegirOrden(e.target.value)}
+                style={{ width: '100%', borderColor: ordenSeleccionadaId ? 'var(--success, #22c55e)' : undefined }}
+              >
+                <option value="">— Seleccionar Orden de Compra pendiente ({ordenesPendientesFiltradas.length}) —</option>
+                {ordenesPendientesFiltradas.map(({ orden: o, proveedorNombre }) => (
+                  <option key={o.id} value={o.id}>
+                    {o.oc_codigo || o.codigo} · {proveedorNombre} · {money(o.total, o.total_moneda === 'Bs' ? 'Bs' : 'USD')}
+                    {o.factura_recepcion_path ? ' (📎 Factura adjunta)' : ''}
+                  </option>
+                ))}
+              </select>
+              {ordenSeleccionadaId ? (
+                <small className="hint" style={{ color: 'var(--success, #22c55e)', display: 'block', marginTop: '.25rem' }}>
+                  ✓ Vinculada a {ordenesPendientes.find((x) => x.orden.id === ordenSeleccionadaId)?.orden.oc_codigo || 'la OC'}. Al registrar, los montos y el estado de la OC se actualizarán automáticamente.
+                </small>
+              ) : (
+                <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+                  Al seleccionar la orden, se cargarán el proveedor, el monto y el archivo de respaldo si Compras ya lo subió.
+                </small>
+              )}
+            </div>
+          )}
+
+          {modoOrigen === 'buzon' && (
+            <div style={{ marginTop: '.35rem' }}>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                Selecciona la factura recibida en el Buzón Móvil:
+              </label>
+              <select
+                className="select"
+                value={buzonSeleccionadaId}
+                onChange={(e) => elegirFacturaBuzon(e.target.value)}
+                style={{ width: '100%', borderColor: buzonSeleccionadaId ? 'var(--success, #22c55e)' : undefined }}
+              >
+                <option value="">— Seleccionar factura del buzón ({buzonPendientes.length}) —</option>
+                {buzonPendientes.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.facturaNumero ? `Factura ${b.facturaNumero}` : 'Sin N°'} · {b.proveedorNombre} · {money(b.montoTotal, b.moneda)} ({b.empresaNombre || 'GT'})
+                  </option>
+                ))}
+              </select>
+              {buzonSeleccionadaId && (
+                <small className="hint" style={{ color: 'var(--success, #22c55e)', display: 'block', marginTop: '.25rem' }}>
+                  ✓ Soporte y datos importados del Buzón Móvil. Al emitir, quedará marcada como «Retenida».
+                </small>
+              )}
+            </div>
+          )}
+
+          {modoOrigen === 'manual' && (
+            <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+              Gasto directo o compra sin orden previa en el sistema. Quedará en el libro registrada como «Fuera del sistema».
+            </small>
+          )}
+        </div>
+      )}
+
+      {/* ── 2. Soporte Digital Obligatorio ── */}
+      {soporteActivo ? (
+        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', borderColor: 'var(--success, #22c55e)' }}>
+          <span>📄 Factura respaldada en el sistema: <strong>{soporteActivo.nombre}</strong></span>
           <button type="button" className="btn btn-sm btn-ghost"
-            onClick={() => { const a = s.adjunto; if (a) urlFacturaDeOrigen(a).then((u) => previewArchivo(u, a.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
+            onClick={() => { urlFacturaDeOrigen(soporteActivo).then((u) => previewArchivo(u, soporteActivo.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
             👁 Ver factura
           </button>
           <small className="muted">Enlazada automáticamente al expediente fiscal de la compra.</small>
         </div>
       ) : (
-        <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', borderColor: archivoFactura ? 'var(--primary)' : 'var(--border)' }}>
+        <div className="card" style={{
+          marginBottom: '.75rem',
+          background: archivoFactura ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.04)',
+          borderColor: archivoFactura ? 'var(--success, #22c55e)' : 'var(--danger, #ef4444)',
+          borderWidth: '1.5px',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.35rem' }}>
-            <label style={{ margin: 0, fontWeight: 600, fontSize: '.85rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              📎 Documento de respaldo (Factura en PDF o imagen)
+            <label style={{ margin: 0, fontWeight: 700, fontSize: '.88rem', display: 'flex', alignItems: 'center', gap: '.4rem', color: archivoFactura ? 'var(--text-normal)' : 'var(--danger, #ef4444)' }}>
+              📎 Factura de respaldo (PDF o imagen) <span style={{ color: 'var(--danger, #ef4444)' }}>* OBLIGATORIO</span>
             </label>
             {archivoFactura && (
               <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
@@ -773,17 +1087,18 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               className="input"
               type="file"
               accept="application/pdf,image/*"
-              style={{ flex: 1 }}
+              style={{ flex: 1, borderColor: archivoFactura ? undefined : 'var(--danger, #ef4444)' }}
               onChange={(e) => onElegirArchivo(e.target.files?.[0] ?? null)}
             />
           </div>
-          <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+          <small className="hint" style={{ display: 'block', marginTop: '.25rem', color: archivoFactura ? 'var(--text-muted)' : 'var(--danger, #ef4444)' }}>
             {archivoFactura
               ? `Archivo listo: ${archivoFactura.name} (${(archivoFactura.size / 1024).toFixed(1)} KB). Puedes pulsar "Ver factura cargada" para revisar montos y números mientras registras.`
-              : 'Adjunta la imagen o PDF de la factura fiscal para revisarla en pantalla y dejar el respaldo digital auditable (📎) en el Libro Fiscal.'}
+              : '⚠️ Es obligatorio adjuntar el archivo de la factura en PDF o imagen para respaldar legal y fiscalmente la retención.'}
           </small>
         </div>
       )}
+
       {documento && (
         <div className="card" style={{ borderColor: 'var(--primary)', marginBottom: '.75rem' }}>
           <small>
@@ -794,7 +1109,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </small>
         </div>
       )}
-      {sinDocumento && !documento && !avisoSinDocDescartado && (
+
+      {sinDocumento && !documento && !avisoSinDocDescartado && modoOrigen === 'manual' && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', position: 'relative', paddingRight: '2rem' }}>
           <button
             type="button"
@@ -828,7 +1144,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         <label>¿Quién retuvo?</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {DIRECCIONES.map((d) => {
-            // Se ofrece la dirección si algún impuesto activo la admite (sin fichas, las dos).
             const ningunImpuesto = !!fichasImpuesto
               && !soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null).some((t) => admiteDireccion(fichasImpuesto.get(t.key), d.key));
             return (
@@ -845,94 +1160,99 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       </div>
       )}
 
-      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-        <div className="form-row" style={{ flex: '2 1 240px' }}>
-          <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
-          {direccion === 'practicada' ? (
-            <SearchSelect value={proveedorId} onChange={elegirProveedor} options={opcionesProveedor}
-              placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId || !!documento} />
-          ) : (
-            <input className="input" value={contraparte} onChange={(e) => { marcarSucio(); setContraparte(e.target.value); }} placeholder="Razón social" />
-          )}
-        </div>
-        <div className="form-row" style={{ flex: '1 1 150px' }}>
-          <label>RIF</label>
-          <input className="input mono" value={rif} onChange={(e) => { marcarSucio(); setRif(e.target.value); }} placeholder="J-XXXXXXXX-X"
-            readOnly={direccion === 'practicada' && !!proveedorId} />
-          {textoRif && (
-            <small className="hint" style={{ color: 'var(--danger)' }}>
-              {textoRif.hint}
-              {direccion === 'practicada' && proveedorId && verProveedores && <> <a href={`#${rutaFichaProveedor(proveedorId)}`}>Abrir la ficha</a></>}
-            </small>
-          )}
-        </div>
-        <div className="form-row" style={{ flex: '0 1 110px' }}>
-          <label>Moneda de la factura</label>
-          <select className="select" value={moneda} disabled={!!documento} onChange={(e) => { marcarSucio(); setMoneda(e.target.value); }}>
-            <option value="Bs">Bs</option>
-            <option value="USD">$</option>
-          </select>
-        </div>
-        {moneda !== 'Bs' && (
-          <div className="form-row" style={{ flex: '0 1 140px' }}>
-            <label>Tasa (Bs por $)</label>
-            <input className="input mono" value={tasaStr} onChange={(e) => { marcarSucio(); setTasaStr(e.target.value); }} inputMode="decimal" />
-            <SeLeyo texto={tasaStr} decimales={4} />
+      {/* ── 3. Proveedor y Moneda ── */}
+      <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+          <div className="form-row" style={{ flex: '2 1 240px' }}>
+            <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
+            {direccion === 'practicada' ? (
+              <SearchSelect value={proveedorId} onChange={elegirProveedor} options={opcionesProveedor}
+                placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId || !!documento} />
+            ) : (
+              <input className="input" value={contraparte} onChange={(e) => { marcarSucio(); setContraparte(e.target.value); }} placeholder="Razón social" />
+            )}
           </div>
-        )}
-        {tasaBcv && <small className="hint muted" style={{ alignSelf: 'center', flex: '1 1 100%' }}>{tasaBcv.nota}</small>}
+          <div className="form-row" style={{ flex: '1 1 150px' }}>
+            <label>RIF</label>
+            <input className="input mono" value={rif} onChange={(e) => { marcarSucio(); setRif(e.target.value); }} placeholder="J-XXXXXXXX-X"
+              readOnly={direccion === 'practicada' && !!proveedorId} />
+            {textoRif && (
+              <small className="hint" style={{ color: 'var(--danger)' }}>
+                {textoRif.hint}
+                {direccion === 'practicada' && proveedorId && verProveedores && <> <a href={`#${rutaFichaProveedor(proveedorId)}`}>Abrir la ficha</a></>}
+              </small>
+            )}
+          </div>
+          <div className="form-row" style={{ flex: '0 1 110px' }}>
+            <label>Moneda factura</label>
+            <select className="select" value={moneda} disabled={!!documento} onChange={(e) => { marcarSucio(); setMoneda(e.target.value); }}>
+              <option value="Bs">Bs</option>
+              <option value="USD">$</option>
+            </select>
+          </div>
+          {moneda !== 'Bs' && (
+            <div className="form-row" style={{ flex: '0 1 140px' }}>
+              <label>Tasa (Bs por $)</label>
+              <input className="input mono" value={tasaStr} onChange={(e) => { marcarSucio(); setTasaStr(e.target.value); }} inputMode="decimal" />
+              <SeLeyo texto={tasaStr} decimales={4} />
+            </div>
+          )}
+          {tasaBcv && <small className="hint muted" style={{ alignSelf: 'center', flex: '1 1 100%' }}>{tasaBcv.nota}</small>}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-        <div className="form-row" style={{ flex: '1 1 150px' }}>
-          <label>Tipo de documento</label>
-          <select className="select" value={tipoDocumento} disabled={!!documento}
-            onChange={(e) => { marcarSucio(); setTipoDocumento(e.target.value as TipoDocumento); }}>
-            <option value="factura">Factura</option>
-            <option value="nota_credito">Nota de crédito</option>
-            <option value="nota_debito">Nota de débito</option>
-          </select>
-        </div>
-        <div className="form-row" style={{ flex: '1 1 140px' }}>
-          <label>{tipoDocumento === 'factura' ? 'N° de factura' : tipoDocumento === 'nota_credito' ? 'N° Nota de crédito' : 'N° Nota de débito'}</label>
-          {conR10 && direccion === 'practicada' && tipoDocumento === 'factura' ? (
-            <BuscadorFactura valor={facturaNro} onTexto={(t) => { marcarSucio(); setFacturaNro(t); }} proveedorId={proveedorId || null}
-              onElegir={aplicarDocumento} elegida={documento} onSoltar={s.documento ? undefined : soltarDocumento} />
-          ) : (
-            <input className="input mono" value={facturaNro} onChange={(e) => { marcarSucio(); setFacturaNro(e.target.value); }} placeholder="Número fiscal (no el código de la OC)" maxLength={30} />
-          )}
-          {conR10 && direccion === 'practicada' && tipoDocumento === 'factura' && !documento && <small className="hint muted">Si ya está registrada, elígela de la lista para retener sobre ella.</small>}
-        </div>
-        {tipoDocumento !== 'factura' && (
-          <div className="form-row" style={{ flex: '1 1 150px' }}>
-            <label>N° Factura afectada <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input className="input mono" value={facturaAfectadaNro} readOnly={!!documento}
-              onChange={(e) => { marcarSucio(); setFacturaAfectadaNro(e.target.value); }} placeholder="Factura que modifica" maxLength={30} />
-            <small className="hint muted">Requerido por PA 071, Art. 15.</small>
+      {/* ── 4. Datos del Documento e Importes ── */}
+      <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)' }}>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+          <div className="form-row" style={{ flex: '1 1 140px' }}>
+            <label>Tipo de documento</label>
+            <select className="select" value={tipoDocumento} disabled={!!documento}
+              onChange={(e) => { marcarSucio(); setTipoDocumento(e.target.value as TipoDocumento); }}>
+              <option value="factura">Factura</option>
+              <option value="nota_credito">Nota de crédito</option>
+              <option value="nota_debito">Nota de débito</option>
+            </select>
           </div>
-        )}
-        <div className="form-row" style={{ flex: '1 1 120px' }}>
-          <label>N° de control</label>
-          <input className="input mono" value={facturaControl} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaControl(e.target.value); }} maxLength={30} />
+          <div className="form-row" style={{ flex: '1 1 140px' }}>
+            <label>{tipoDocumento === 'factura' ? 'N° de factura' : tipoDocumento === 'nota_credito' ? 'N° Nota de crédito' : 'N° Nota de débito'}</label>
+            {conR10 && direccion === 'practicada' && tipoDocumento === 'factura' ? (
+              <BuscadorFactura valor={facturaNro} onTexto={(t) => { marcarSucio(); setFacturaNro(t); }} proveedorId={proveedorId || null}
+                onElegir={aplicarDocumento} elegida={documento} onSoltar={s.documento ? undefined : soltarDocumento} />
+            ) : (
+              <input className="input mono" value={facturaNro} onChange={(e) => { marcarSucio(); setFacturaNro(e.target.value); }} placeholder="Número fiscal" maxLength={30} />
+            )}
+          </div>
+          {tipoDocumento !== 'factura' && (
+            <div className="form-row" style={{ flex: '1 1 150px' }}>
+              <label>N° Factura afectada <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <input className="input mono" value={facturaAfectadaNro} readOnly={!!documento}
+                onChange={(e) => { marcarSucio(); setFacturaAfectadaNro(e.target.value); }} placeholder="Factura que modifica" maxLength={30} />
+              <small className="hint muted">Requerido por PA 071, Art. 15.</small>
+            </div>
+          )}
+          <div className="form-row" style={{ flex: '1 1 120px' }}>
+            <label>N° de control</label>
+            <input className="input mono" value={facturaControl} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaControl(e.target.value); }} maxLength={30} />
+          </div>
+          <div className="form-row" style={{ flex: '1 1 140px' }}>
+            <label>Fecha {tipoDocumento === 'factura' ? 'de la factura' : 'del documento'}</label>
+            <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaFecha(e.target.value); }} />
+            {avisoFecha
+              ? <small className="hint" style={{ color: 'var(--danger)' }}>{avisoFecha}</small>
+              : <small className="hint muted">Define período, quincena y tasa.</small>}
+          </div>
+          <div className="form-row" style={{ flex: '1 1 140px' }}>
+            <label>Fecha de la retención</label>
+            <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
+            <small className="hint muted">Emisión del comprobante.</small>
+          </div>
+          <div className="form-row" style={{ flex: '1 1 140px' }}>
+            <label>Fecha recibido (opcional)</label>
+            <input className="input" type="date" value={fechaEntrega} min={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaEntrega(e.target.value); }} />
+            {entregaTardia && <small className="hint" style={{ color: 'var(--warning)' }}>{entregaTardia}</small>}
+          </div>
         </div>
-        <div className="form-row" style={{ flex: '1 1 140px' }}>
-          <label>Fecha {tipoDocumento === 'factura' ? 'de la factura' : 'del documento'}</label>
-          <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaFecha(e.target.value); }} />
-          {avisoFecha
-            ? <small className="hint" style={{ color: 'var(--danger)' }}>{avisoFecha}</small>
-            : <small className="hint muted">Define el período, la quincena y la tasa.</small>}
-        </div>
-        <div className="form-row" style={{ flex: '1 1 140px' }}>
-          <label>Fecha de la retención</label>
-          <input className="input" type="date" value={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaRetencion(e.target.value); }} />
-          <small className="hint muted">Emisión del comprobante.</small>
-        </div>
-        <div className="form-row" style={{ flex: '1 1 140px' }}>
-          <label>Fecha recibido / entrega (opcional)</label>
-          <input className="input" type="date" value={fechaEntrega} min={fechaRetencion} max={hoyIso()} onChange={(e) => { marcarSucio(); setFechaEntrega(e.target.value); }} />
-          <small className="hint muted">Puede quedar vacía. Si se informa: Art. 16 de la 0054 (IVA) · Art. 18.3 de la 0093.</small>
-          {entregaTardia && <small className="hint" style={{ color: 'var(--warning)' }}>{entregaTardia}</small>}
-        </div>
+
         {periodoCerrado && (
           <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', margin: '.3rem 0', padding: '.5rem .8rem', width: '100%' }}>
             <strong>🔒 Período Fiscal Cerrado ({nombrePeriodo(periodoCerrado)})</strong>
@@ -942,24 +1262,117 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
             </p>
           </div>
         )}
-        <div className="form-row" style={{ flex: '1 1 130px' }}>
-          {/* C-d (líder): es solo el RÓTULO. El campo interno sigue siendo `facturaTotal`
-              (el total de la factura) y alimenta el desglose de IVA incluido como total;
-              la líder pide que el usuario lo lea como «Base imponible». Semántica sin cambios. */}
-          <label>Base imponible</label>
-          <input className="input mono" value={facturaTotal} readOnly={!!documento} onChange={(e) => { marcarSucio(); setFacturaTotal(e.target.value); }} inputMode="decimal" />
-          <SeLeyo texto={facturaTotal} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 130px' }}>
-          <label>Monto exento</label>
-          <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
-          <SeLeyo texto={exentoStr} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 150px' }}>
-          <label>Sin derecho a crédito IVA</label>
-          <input className="input mono" value={sinDerechoStr} onChange={(e) => { marcarSucio(); setSinDerechoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
-          <SeLeyo texto={sinDerechoStr} />
-          <small className="hint muted">Dato interno; separado de exento.</small>
+
+        {/* Fila de Importes con rótulos claros y desglose de IVA */}
+        <div style={{ paddingTop: '.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+            <div className="form-row" style={{ flex: '2 1 180px' }}>
+              <label style={{ fontWeight: 700, color: 'var(--text-normal)' }}>
+                Total de la factura <span style={{ color: 'var(--danger)' }}>*</span>
+              </label>
+              <input
+                className="input mono"
+                value={facturaTotal}
+                readOnly={!!documento}
+                onChange={(e) => {
+                  marcarSucio();
+                  setFacturaTotal(e.target.value);
+                }}
+                inputMode="decimal"
+                placeholder="0,00"
+              />
+              <SeLeyo texto={facturaTotal} />
+              <small className="hint muted">Monto total bruto a pagar (con IVA y exento incluidos).</small>
+            </div>
+
+            <div className="form-row" style={{ flex: '2 1 200px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.2rem' }}>
+                <label style={{ margin: 0, fontWeight: 600 }}>IVA de la factura ({aliIvaPct}%)</label>
+                <div style={{ display: 'flex', gap: '.25rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '1px 6px', color: 'var(--primary)', border: '1px dashed var(--primary)' }}
+                    title="Desglosar automáticamente 16% de IVA sobre el total"
+                    onClick={aplicarIva16}
+                  >
+                    ⚡ 16% IVA
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '1px 6px' }}
+                    title="Factura exenta o sin IVA"
+                    onClick={aplicarSinIva}
+                  >
+                    0% Sin IVA
+                  </button>
+                </div>
+              </div>
+              <input
+                className="input mono"
+                value={ivaFacturaStr}
+                readOnly={!!documento}
+                onChange={(e) => {
+                  marcarSucio();
+                  setIvaFacturaStr(e.target.value);
+                }}
+                inputMode="decimal"
+                placeholder="0,00"
+              />
+              <SeLeyo texto={ivaFacturaStr} />
+              <small className="hint muted">Monto del IVA impreso en la factura física/digital.</small>
+            </div>
+
+            <div className="form-row" style={{ flex: '1 1 130px' }}>
+              <label>Monto exento</label>
+              <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+              <SeLeyo texto={exentoStr} />
+            </div>
+
+            <div className="form-row" style={{ flex: '1 1 150px' }}>
+              <label>Sin derecho a crédito IVA</label>
+              <input className="input mono" value={sinDerechoStr} onChange={(e) => { marcarSucio(); setSinDerechoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+              <SeLeyo texto={sinDerechoStr} />
+              <small className="hint muted">Dato interno; no deducible.</small>
+            </div>
+          </div>
+
+          {/* Tarjeta de resumen de base gravable */}
+          {totalFacturaNum > 0 && (
+            <div
+              style={{
+                marginTop: '.5rem',
+                padding: '.55rem .75rem',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '.5rem',
+              }}
+            >
+              <div style={{ fontSize: '.84rem' }}>
+                <span className="muted">Total: </span>
+                <strong className="mono">{money(totalFacturaNum, moneda)}</strong>
+                <span className="muted"> − IVA: </span>
+                <strong className="mono">{money(ivaFacturaNum, moneda)}</strong>
+                {exentoNum > 0 && (
+                  <>
+                    <span className="muted"> − Exento: </span>
+                    <strong className="mono">{money(exentoNum, moneda)}</strong>
+                  </>
+                )}
+                <span style={{ color: 'var(--primary)', fontWeight: 700 }}> = Base gravable: </span>
+                <strong className="mono" style={{ color: 'var(--primary)', fontSize: '.95rem' }}>{money(baseNetaGravable, moneda)}</strong>
+              </div>
+              <small className="muted" style={{ fontSize: '.75rem' }}>
+                ⚖️ ISLR e ISAE retienen sobre la <strong>Base Gravable ({money(baseNetaGravable, moneda)})</strong>, sin incluir IVA (Decreto 1.808).
+              </small>
+            </div>
+          )}
         </div>
       </div>
 
@@ -998,14 +1411,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   if (!puedeAgregar) return;
                   marcarSucio();
                   const proximoTipo = tiposDisponibles[0].key;
-                  const lineaIva = lineas.find((x) => x.tipo === 'iva');
-                  const baseDeIva = lineaIva && nDec(lineaIva.baseStr) > 0 ? lineaIva.baseStr : null;
-                  const baseCalculada = Math.max(0, nDec(facturaTotal) - nDec(exentoStr) - (lineaIva ? nDec(lineaIva.ivaStr) : 0));
-                  const baseSugerida = baseDeIva ?? (baseCalculada > 0 ? numeroATexto(baseCalculada) : (lineas[0]?.baseStr || '0'));
+                  const baseSugerida = baseNetaGravable > 0 ? numeroATexto(baseNetaGravable) : (lineas[0]?.baseStr || '0');
                   setLineas((xs) => [...xs, nuevaLinea({
                     tipo: proximoTipo,
                     sujeto: sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada',
                     baseStr: baseSugerida,
+                    ivaStr: ivaFacturaStr || '0',
                   })]);
                 }}
               >
@@ -1092,7 +1503,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                         toast(`Esta factura ya tiene una línea de ${labelImpuesto(nuevoTipo)}. Una factura admite una sola retención por impuesto.`, 'warning');
                         return;
                       }
-                      setLinea(l.id, { tipo: nuevoTipo });
+                      const baseActual = nDec(l.baseStr);
+                      const baseAjustada = (nuevoTipo === 'islr' || nuevoTipo === 'municipal')
+                        && (baseActual === totalFacturaNum || baseActual === 0)
+                        && baseNetaGravable > 0
+                        ? numeroATexto(baseNetaGravable)
+                        : l.baseStr;
+                      setLinea(l.id, { tipo: nuevoTipo, baseStr: baseAjustada });
                     }}
                   >
                     {tiposDeLinea(impuestosActivos, fichasImpuesto, direccion, l.tipo).map((t) => {
@@ -1122,10 +1539,31 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                     </select>
                   </div>
                 )}
-                <div className="form-row" style={{ margin: 0, flex: '1 1 120px' }}>
-                  <label>Base imponible</label>
+                <div className="form-row" style={{ margin: 0, flex: '1 1 150px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ margin: 0 }}>
+                      {l.tipo === 'islr'
+                        ? 'Base gravable ISLR (sin IVA)'
+                        : l.tipo === 'municipal'
+                          ? 'Base gravable ISAE (sin IVA)'
+                          : l.tipo === 'iva'
+                            ? 'Base imponible IVA'
+                            : 'Monto del pago'}
+                    </label>
+                  </div>
                   <input className="input mono" value={l.baseStr} onChange={(e) => setLinea(l.id, { baseStr: e.target.value })} inputMode="decimal" />
                   <SeLeyo texto={l.baseStr} />
+                  {(l.tipo === 'islr' || l.tipo === 'municipal') && baseNetaGravable > 0 && Math.abs(nDec(l.baseStr) - baseNetaGravable) > 0.01 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.7rem', padding: '1px 4px', color: 'var(--primary)', marginTop: '2px', textAlign: 'left' }}
+                      onClick={() => setLinea(l.id, { baseStr: numeroATexto(baseNetaGravable) })}
+                      title="Usar la base gravable neta de la factura (descontando IVA)"
+                    >
+                      💡 Usar base sin IVA (Bs {numeroATexto(baseNetaGravable)})
+                    </button>
+                  )}
                 </div>
                 {l.tipo === 'iva' && (
                   <div className="form-row" style={{ margin: 0, flex: '1 1 110px' }}>

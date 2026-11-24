@@ -52,7 +52,7 @@ import type { EstadoOrden } from '@/shared/lib/types';
 import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
   CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, desglosarIvaDeTotal, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
@@ -60,14 +60,14 @@ import {
   type EstadoRetencion, type FichaFiscalEmpresa, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import {
-  activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
+  activarConcepto, adjuntarComprobante, anularRetencion, corregirBaseRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt, tipoDeGt,
   urlComprobante,
   PORCENTAJES_IVA,
   consultarCorrelativoEstimado,
   type AlicuotasLocales, type CorrelativoEstimado, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
-import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
+import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarArchivoFacturaObligatorio, validarDocumentoRespaldo } from './validarCarga';
 import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnFechaEntrega, faltaEnBaseImponible, avisoEntregaIvaTardia, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
@@ -185,6 +185,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [loading, setLoading] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
+  const [corregir, setCorregir] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // Con V2R o fallback nativo: una factura con varias líneas de impuesto en un solo registro.
@@ -204,7 +205,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [focoActual, setFocoActual] = useState<FocoLibro | null>(foco);
   const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
+  const [retenerSobreAdjunto, setRetenerSobreAdjunto] = useState<{ nombre: string; bucket: string; path: string } | null>(null);
   const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
+  const [decisionRetener, setDecisionRetener] = useState(false);
 
   // Un «Ver en libro» desde la cola debe sentirse contextual: se precarga la
   // búsqueda, se amplía el rango y, si la factura aún está pendiente, se abre
@@ -822,16 +825,10 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
           </button>
         )}
         {conR10 && <button className="btn btn-ghost" onClick={() => setVerFacturas(true)}>Facturas registradas</button>}
-        {canWrite && conFacturaVarias && (
-          <button className="btn btn-primary" onClick={() => setFacturaVarias(true)}
-            title="Registrar una factura y practicar simultáneamente todas sus retenciones (IVA, ISLR, etc.)">
-            + Registrar factura con retenciones
-          </button>
-        )}
         {canWrite && (
-          <button className="btn btn-ghost" onClick={() => setRegistrar({})}
-            title="Cargar una retención suelta, sin factura ni orden de compra">
-            + Retención suelta
+          <button className="btn btn-primary" onClick={() => setDecisionRetener(true)}
+            title="Practicar retención sobre una factura de compra o registrar comprobante">
+            + Retener factura
           </button>
         )}
       </div>
@@ -935,6 +932,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                     <button type="button" className="lfv8-mini registrar"
                                       onClick={() => {
                                         const rExistente = [...f.retenciones.values()][0];
+                                        const retencionConArchivo = [...f.retenciones.values()].find((rv) => !!rv.comprobantePath);
+                                        const retenerAdjunto = retencionConArchivo?.comprobantePath ? {
+                                          nombre: retencionConArchivo.comprobanteNombre || `Factura ${f.num}`,
+                                          bucket: 'comprobantes',
+                                          path: retencionConArchivo.comprobantePath,
+                                        } : null;
                                         if (conFacturaVarias && f.documentoId) {
                                           const retenidoMap: FacturaResumen['retenido'] = {};
                                           for (const [k, rv] of f.retenciones.entries()) {
@@ -970,6 +973,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                             pendientes: [tipoAGt(t.key as TipoImpuesto), ...pendientesGt.filter((x) => x !== tipoAGt(t.key as TipoImpuesto))],
                                             retenible: true,
                                           });
+                                          setRetenerSobreAdjunto(retenerAdjunto);
                                           setFacturaVarias(true);
                                           return;
                                         }
@@ -1017,6 +1021,19 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                 <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante generado">📄</button>
                                 {r.comprobantePath && (
                                   <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver documento de respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
+                                )}
+                                {canWrite && !r.anulada && est !== 'declarada' && (r.tipo === 'islr' || r.tipo === 'municipal') && (
+                                  <button
+                                    type="button"
+                                    className="lfv8-mini"
+                                    onClick={() => setCorregir(r)}
+                                    title={r.facturaTotal && Math.abs(r.baseImponible - r.facturaTotal) < 0.05
+                                      ? '⚠️ Base imponible incluye IVA. Clic para corregir sin IVA según Decreto 1.808'
+                                      : 'Ajustar o recalcular base imponible'}
+                                    style={r.facturaTotal && Math.abs(r.baseImponible - r.facturaTotal) < 0.05 ? { color: 'var(--brand, #ff8a00)', fontWeight: 'bold' } : undefined}
+                                  >
+                                    ⚡
+                                  </button>
                                 )}
                                 {canWrite && !r.anulada && (
                                   <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
@@ -1331,6 +1348,76 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         </Modal>
       )}
 
+      {corregir && (() => {
+        const total = corregir.facturaTotal || corregir.baseImponible;
+        const aliPct = corregir.alicuota || 16;
+        const ex = corregir.exento || 0;
+        const { base: baseSinIva, iva: ivaCalculado } = desglosarIvaDeTotal(total, ex, aliPct);
+        const pctRet = corregir.porcentaje || 2;
+        const nuevoCausado = Math.round((baseSinIva * pctRet / 100) * 100) / 100;
+        const sustraendo = corregir.sustraendo || 0;
+        const nuevoMonto = Math.max(0, nuevoCausado - sustraendo);
+
+        return (
+          <Modal
+            title={`⚡ Corregir base gravable · Comprobante ${corregir.numeroComprobante || ''}`}
+            compact
+            onClose={() => setCorregir(null)}
+            footer={(
+              <>
+                <button type="button" className="btn btn-ghost" onClick={() => setCorregir(null)}>Cancelar</button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      await corregirBaseRetencion(corregir.id, {
+                        base: baseSinIva,
+                        monto: nuevoMonto,
+                        impuestoCausado: nuevoCausado,
+                        ivaMonto: ivaCalculado,
+                        ivaAlicuota: aliPct,
+                        baseBs: enBolivares(baseSinIva, corregir.moneda, corregir.tasa),
+                        montoBs: enBolivares(nuevoMonto, corregir.moneda, corregir.tasa),
+                      });
+                      toast('Retención corregida exitosamente (base imponible recalculada sin IVA)', 'success');
+                      setCorregir(null);
+                      await reload();
+                    } catch (e) {
+                      toast(e instanceof Error ? e.message : 'No se pudo corregir la retención', 'error');
+                    }
+                  }}
+                >
+                  Confirmar corrección fiscal
+                </button>
+              </>
+            )}
+          >
+            <div style={{ fontSize: '.88rem', display: 'grid', gap: '.6rem' }}>
+              <p style={{ margin: 0 }}>
+                Esta retención de <strong>{labelImpuesto(corregir.tipo)}</strong> de <strong>{corregir.contraparteNombre}</strong> fue registrada con la base imponible igual al total con IVA ({monto(corregir.baseImponible, corregir.moneda)}).
+              </p>
+              <div className="card" style={{ background: 'rgba(255, 138, 0, 0.08)', borderColor: 'var(--brand, #ff8a00)', padding: '.75rem' }}>
+                <strong style={{ color: 'var(--brand, #ff8a00)', display: 'block', marginBottom: '.4rem' }}>
+                  Recálculo fiscal según Decreto 1.808 (exclusión de IVA):
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.5 }}>
+                  <li>Total factura: <strong>{monto(total, corregir.moneda)}</strong></li>
+                  <li>IVA ({aliPct}%): <strong>{monto(ivaCalculado, corregir.moneda)}</strong></li>
+                  {ex > 0 && <li>Exento: <strong>{monto(ex, corregir.moneda)}</strong></li>}
+                  <li>Base imponible gravable: <strong style={{ color: 'var(--success)' }}>{monto(baseSinIva, corregir.moneda)}</strong> (antes {monto(corregir.baseImponible, corregir.moneda)})</li>
+                  <li>Alícuota retenida: <strong>{pctRet}%</strong></li>
+                  <li>Impuesto retenido corregido: <strong style={{ color: 'var(--success)' }}>{monto(nuevoMonto, corregir.moneda)}</strong> (antes {monto(corregir.montoRetenido, corregir.moneda)})</li>
+                </ul>
+              </div>
+              <small className="muted">
+                Al confirmar, se actualizarán la base imponible, el monto retenido y el comprobante PDF se generará con los valores corregidos por ley.
+              </small>
+            </div>
+          </Modal>
+        );
+      })()}
+
       {modalArc && (
         <Modal title="Comprobante Anual ARC de ISLR (Art. 24 Decreto 1.808)" compact onClose={() => setModalArc(null)}
           footer={
@@ -1377,6 +1464,70 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         </Modal>
       )}
 
+      {decisionRetener && (
+        <Modal title="¿Qué deseas retener?" compact onClose={() => setDecisionRetener(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', padding: '.4rem 0' }}>
+            <button
+              type="button"
+              className="card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '.35rem',
+                padding: '1rem',
+                textAlign: 'left',
+                border: '1.5px solid var(--primary)',
+                background: 'rgba(245, 158, 11, 0.05)',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                transition: 'border-color .15s ease',
+              }}
+              onClick={() => {
+                setDecisionRetener(false);
+                setFacturaVarias(true);
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, fontSize: '.98rem', color: 'var(--text-normal)' }}>
+                <span>📄</span>
+                <span>Factura de una compra o servicio (Practicada)</span>
+              </div>
+              <small className="muted" style={{ lineHeight: 1.4 }}>
+                Practicar retención fiscal (IVA, ISLR, ISAE) a un proveedor sobre una factura de compra. Vinculable a Orden de Compra (OC), Buzón Móvil o compra directa.
+              </small>
+            </button>
+
+            <button
+              type="button"
+              className="card"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '.35rem',
+                padding: '1rem',
+                textAlign: 'left',
+                border: '1px solid var(--border)',
+                background: 'rgba(255, 255, 255, 0.02)',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                transition: 'border-color .15s ease',
+              }}
+              onClick={() => {
+                setDecisionRetener(false);
+                setRegistrar({});
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, fontSize: '.98rem', color: 'var(--text-normal)' }}>
+                <span>📥</span>
+                <span>Registrar retención ya hecha / recibida</span>
+              </div>
+              <small className="muted" style={{ lineHeight: 1.4 }}>
+                Registrar un comprobante ya emitido o una retención que nos practicó un cliente sobre ventas para alimentar el Libro Fiscal.
+              </small>
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {registrar && (
         <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
           onClose={() => setRegistrar(null)}
@@ -1384,9 +1535,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       )}
       {facturaVarias && (
         <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
-          semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
-          onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
-          onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
+          semilla={retenerSobre ? { documento: retenerSobre, adjunto: retenerSobreAdjunto } : semillaCompra}
+          onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setRetenerSobreAdjunto(null); setSemillaCompra(undefined); }}
+          onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setRetenerSobreAdjunto(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {verFacturas && (
         <FacturasRegistradas puedeRetener={canWrite}
@@ -1436,6 +1587,8 @@ export interface SemillaRetencion {
   facturaControl?: string | null;
   facturaFecha?: string | null;
   sustituyeAComprobante?: string | null;
+  /** Soporte adjunto previo si ya existía en la orden */
+  adjunto?: { nombre: string; bucket: string; path: string } | null;
 }
 
 // C-c (líder): «¿Quién retuvo?» (Recibida/Practicada) es un control de VENTAS. En el
@@ -1817,6 +1970,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if ((tipo === 'iva' || tipo === 'islr') && nDec(facturaTotalStr) < 0) { setError('El total de la factura o nota de débito no puede ser negativo.'); return; }
     const faltaBase = faltaEnBaseImponible(esManual ? nDec(baseStr) : calculo.baseImponible); if (faltaBase) { setError(faltaBase); return; }
     if (!esManual) {
+      const tieneSoporte = Boolean(semilla.adjunto || precarga);
+      const errorArchivo = validarArchivoFacturaObligatorio(tieneSoporte, archivo);
+      if (errorArchivo) { setError(errorArchivo); return; }
       const errorDoc = validarDocumentoRespaldo(tipoArchivo, otroDetalle, !!archivo);
       if (errorDoc) { setError(errorDoc); return; }
     }
@@ -2246,7 +2402,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           </>
         ) : (
           <>
-            <label>Documento de respaldo (PDF o imagen, si lo tienes)</label>
+            <label style={{ color: archivo || semilla.adjunto || precarga ? 'var(--text-normal)' : 'var(--danger, #ef4444)' }}>
+              Documento de respaldo (PDF o imagen) {!semilla.adjunto && !precarga && <span style={{ color: 'var(--danger, #ef4444)' }}>* OBLIGATORIO</span>}
+            </label>
             <select
               className="select"
               value={tipoArchivo}

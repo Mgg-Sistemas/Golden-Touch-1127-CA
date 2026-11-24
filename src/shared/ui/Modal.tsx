@@ -11,6 +11,8 @@ interface ModalProps {
   /** Modal pequeño y centrado (confirmaciones / “aceptar algo”). Los formularios
    *  van a pantalla completa (compact=false, por defecto). */
   compact?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
   onClose: () => void;
   /** Minimizar a medida (Pedidos reabre la orden por su id). Sin esto, el Modal se minimiza SOLO: se
    *  oculta sin desmontarse (conserva lo escrito) y queda en la barra inferior (ver minimizadas.ts). */
@@ -21,7 +23,7 @@ interface ModalProps {
   footer?: ReactNode;
 }
 
-export function Modal({ title, size = 'md', compact = false, onClose, onMinimizar, minimizable, children, footer }: ModalProps) {
+export function Modal({ title, size = 'md', compact = false, className, style, onClose, onMinimizar, minimizable, children, footer }: ModalProps) {
   // Minimizar en TODOS los módulos (21/10/2026): salvo que la página traiga su propio onMinimizar o sea un
   // modal pequeño de confirmación, la ventana se oculta sin desmontarse y deja su pestaña en la barra de
   // abajo (hasta MAX_MINIMIZADAS, solo dentro del módulo). Al restaurarla vuelve tal como estaba.
@@ -72,7 +74,10 @@ export function Modal({ title, size = 'md', compact = false, onClose, onMinimiza
   // con la ✕ (o un botón explícito del pie). Así no se pierde lo cargado por error.
   return createPortal(
     <div className="modal-backdrop" style={oculto ? { display: 'none' } : undefined}>
-      <div className={`modal ${compact ? 'modal-compact' : ''} ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''}`}>
+      <div
+        className={`modal ${compact ? 'modal-compact' : ''} ${size === 'lg' ? 'modal-lg' : size === 'xl' ? 'modal-xl' : ''} ${className ?? ''}`}
+        style={style}
+      >
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{title ?? ''}</h3>
           <div style={{ display: 'flex', gap: '.35rem' }}>
