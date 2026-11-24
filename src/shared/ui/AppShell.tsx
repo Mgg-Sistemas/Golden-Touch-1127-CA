@@ -15,9 +15,9 @@ import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { HintsToggle } from '@/shared/ui/HintsToggle';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { chequearRespaldoAutomatico, BACKUP_EMAIL } from '@/shared/lib/backup';
+import { RespaldoDataModal } from '@/shared/ui/RespaldoDataModal';
 import { mensajeError } from '@/shared/lib/errores';
-import { Modal } from '@/shared/ui/Modal';
 import { scanStockAndNotify, unreadCountParaUsuario } from '@/modules/notificaciones/notif.repository';
 import { initSound } from '@/shared/lib/sound';
 import { onNotifRefresh } from '@/shared/lib/notify';
@@ -85,7 +85,6 @@ export function AppShell() {
   const manualSistemaUrl = `${import.meta.env.BASE_URL}manual-sistema.html`;
   const [notifOpen, setNotifOpen] = useState(false);
   const [descargandoManual, setDescargandoManual] = useState(false);
-  const [descargandoBackup, setDescargandoBackup] = useState(false);
   // Lo gobierna el panel de permisos (módulo «respaldo»), no el nombre del rol.
   const mostrarRespaldo = can('respaldo');
   const [unread, setUnread] = useState(0);
@@ -269,37 +268,8 @@ export function AppShell() {
     }
   }
 
-  // Respaldo manual: al hacer clic se elige Descargar o Enviar por correo.
+  // Respaldo manual: abre el modal de respaldo con diseño ejecutivo.
   const [respaldoOpen, setRespaldoOpen] = useState(false);
-  async function handleRespaldoDescargar() {
-    if (descargandoBackup) return;
-    setDescargandoBackup(true);
-    try {
-      await descargarRespaldoSql(user?.email ?? 'sistema', false);
-      toast('Respaldo de datos descargado (.sql)', 'success');
-      setRespaldoOpen(false);
-    } catch (e) {
-      // `mensajeError` y no `e.message`: el respaldo envuelve el error de Postgres
-      // en un Error, así que aquí llegaba el texto crudo en inglés («canceling
-      // statement due to statement timeout») y salía tal cual en el aviso.
-      toast(mensajeError(e, 'No se pudo generar el respaldo'), 'error');
-    } finally {
-      setDescargandoBackup(false);
-    }
-  }
-  async function handleRespaldoCorreo() {
-    if (descargandoBackup) return;
-    setDescargandoBackup(true);
-    try {
-      const { destinatarios } = await enviarRespaldoPorCorreo(user?.email ?? 'sistema', false);
-      toast(`Respaldo enviado por correo a ${destinatarios.join(', ')}`, 'success');
-      setRespaldoOpen(false);
-    } catch (e) {
-      toast(mensajeError(e, 'No se pudo enviar el respaldo'), 'error');
-    } finally {
-      setDescargandoBackup(false);
-    }
-  }
 
   // Respaldo AUTOMÁTICO cada 30 días: al entrar un admin/analista, si toca,
   // descarga el .sql y registra la fecha. Corre una sola vez por sesión.
@@ -556,24 +526,11 @@ export function AppShell() {
         onAllRead={handleAllRead}
       />
 
-      {respaldoOpen && (
-        <Modal
-          title="Respaldo de la base de datos"
-          size="md"
-          onClose={() => { if (!descargandoBackup) setRespaldoOpen(false); }}
-          footer={
-            <>
-              <button className="btn btn-ghost" onClick={() => setRespaldoOpen(false)} disabled={descargandoBackup}>Cancelar</button>
-              <button className="btn btn-ghost" onClick={() => void handleRespaldoDescargar()} disabled={descargandoBackup}>↓ Descargar</button>
-              <button className="btn btn-primary" onClick={() => void handleRespaldoCorreo()} disabled={descargandoBackup}>✉ Enviar por correo</button>
-            </>
-          }
-        >
-          <p className="muted" style={{ margin: 0, fontSize: '.9rem' }}>
-            {descargandoBackup ? 'Generando el respaldo…' : <>¿Cómo quieres el respaldo de la base de datos (.sql)? El envío por correo va a <strong>{BACKUP_EMAIL}</strong>.</>}
-          </p>
-        </Modal>
-      )}
+      <RespaldoDataModal
+        open={respaldoOpen}
+        onClose={() => setRespaldoOpen(false)}
+        userEmail={user?.email}
+      />
     </div>
   );
 }

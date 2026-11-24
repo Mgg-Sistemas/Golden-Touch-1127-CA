@@ -162,6 +162,24 @@ export async function ultimoRespaldo(): Promise<string | null> {
   return (data?.value as { at?: string } | undefined)?.at ?? null;
 }
 
+export interface DetalleUltimoRespaldo {
+  at: string;
+  por?: string;
+  automatico?: boolean;
+}
+
+/** Información detallada del último respaldo registrado (fecha, autor, tipo). */
+export async function obtenerDetalleUltimoRespaldo(): Promise<DetalleUltimoRespaldo | null> {
+  try {
+    const { data } = await supabase.from('config').select('value').eq('key', CONFIG_KEY).maybeSingle();
+    const val = data?.value as DetalleUltimoRespaldo | undefined;
+    if (!val || typeof val !== 'object' || !val.at) return null;
+    return val;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Respaldo AUTOMÁTICO: si el usuario tiene permiso de Respaldo y pasaron ≥30 días
  * (o nunca se hizo), ENVÍA el respaldo POR CORREO (al correo de respaldos) y
