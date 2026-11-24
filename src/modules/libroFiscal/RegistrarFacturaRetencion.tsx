@@ -556,6 +556,14 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       setLineas((xs) => xs.filter((l) => l.tipo !== tipo));
       return;
     }
+    // Gobernanza de Parámetros: comprobar si la empresa practica el impuesto según su régimen
+    if (direccion === 'practicada' && !puedePracticarEmpresa(tipo, config)) {
+      const motivo = empresaFicha
+        ? `La empresa no practica retención de ${labelImpuesto(tipo)} según su régimen en Parámetros.`
+        : motivoNoPuedePracticar(tipo, config);
+      toast(motivo, 'warning');
+      return;
+    }
     const sujetoVal = sugerirSujetoPorRif(rif)?.sujeto ?? 'pj_domiciliada';
     const conceptoDef = sugerirConceptoParaLinea(conceptos, tipo, sujetoVal);
     const baseSugerida = (tipo === 'islr' || tipo === 'municipal') && baseNetaGravable > 0
@@ -777,7 +785,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (ivaFacturaNum > 0 && direccion === 'practicada') {
       for (const l of lineas) {
         if ((l.tipo === 'islr' || l.tipo === 'municipal') && totalFacturaNum > 0 && Math.abs(nDec(l.baseStr) - totalFacturaNum) < 0.01) {
-          return `${labelImpuesto(l.tipo)}: La base imponible coincide con el total de la factura (${facturaTotal}). Debe excluir el IVA (${ivaFacturaStr}) quedando en Bs ${numeroATexto(baseNetaGravable)} (Decreto 1.808). Usa el botón "⚡ 16% IVA" o ajusta la base.`;
+          return `${labelImpuesto(l.tipo)}: La base imponible coincide con el total de la factura (${facturaTotal}). Debe excluir el IVA (${ivaFacturaStr}) quedando en Bs ${numeroATexto(baseNetaGravable)} (Decreto 1.808). Indica el IVA de la factura o ajusta la base gravable.`;
         }
       }
     }
@@ -1455,29 +1463,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
             </div>
 
             <div className="form-row" style={{ flex: '2 1 200px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.2rem' }}>
-                <label style={{ margin: 0, fontWeight: 600 }}>IVA de la factura ({aliIvaPct}%)</label>
-                <div style={{ display: 'flex', gap: '.25rem' }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    style={{ fontSize: '.72rem', padding: '1px 6px', color: 'var(--primary)', border: '1px dashed var(--primary)' }}
-                    title="Desglosar automáticamente 16% de IVA sobre el total"
-                    onClick={aplicarIva16}
-                  >
-                    ⚡ 16% IVA
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    style={{ fontSize: '.72rem', padding: '1px 6px' }}
-                    title="Factura exenta o sin IVA"
-                    onClick={aplicarSinIva}
-                  >
-                    0% Sin IVA
-                  </button>
-                </div>
-              </div>
+              <label style={{ fontWeight: 600 }}>IVA de la factura ({aliIvaPct}%)</label>
               <input
                 className="input mono"
                 value={ivaFacturaStr}
@@ -1490,7 +1476,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 placeholder="0,00"
               />
               <SeLeyo texto={ivaFacturaStr} />
-              <small className="hint muted">Monto del IVA impreso en la factura física/digital.</small>
+              <small className="hint muted">Monto del IVA impreso en la factura física (o 0 si no aplica).</small>
             </div>
 
             <div className="form-row" style={{ flex: '1 1 130px' }}>
@@ -1507,39 +1493,71 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
             </div>
           </div>
 
-          {/* Tarjeta de resumen de base gravable */}
+          {/* Tarjeta de resumen de base gravable y liquidación */}
           {totalFacturaNum > 0 && (
-            <div
-              style={{
-                marginTop: '.5rem',
-                padding: '.55rem .75rem',
-                borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid var(--border)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '.5rem',
-              }}
-            >
-              <div style={{ fontSize: '.84rem' }}>
-                <span className="muted">Total: </span>
-                <strong className="mono">{money(totalFacturaNum, moneda)}</strong>
-                <span className="muted"> − IVA: </span>
-                <strong className="mono">{money(ivaFacturaNum, moneda)}</strong>
-                {exentoNum > 0 && (
-                  <>
-                    <span className="muted"> − Exento: </span>
-                    <strong className="mono">{money(exentoNum, moneda)}</strong>
-                  </>
-                )}
-                <span style={{ color: 'var(--primary)', fontWeight: 700 }}> = Base gravable: </span>
-                <strong className="mono" style={{ color: 'var(--primary)', fontSize: '.95rem' }}>{money(baseNetaGravable, moneda)}</strong>
+            <div style={{ marginTop: '.6rem', display: 'grid', gap: '.4rem' }}>
+              <div
+                style={{
+                  padding: '.55rem .75rem',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '.5rem',
+                }}
+              >
+                <div style={{ fontSize: '.84rem' }}>
+                  <span className="muted">Total factura: </span>
+                  <strong className="mono">{money(totalFacturaNum, moneda)}</strong>
+                  <span className="muted"> − IVA: </span>
+                  <strong className="mono">{money(ivaFacturaNum, moneda)}</strong>
+                  {exentoNum > 0 && (
+                    <>
+                      <span className="muted"> − Exento: </span>
+                      <strong className="mono">{money(exentoNum, moneda)}</strong>
+                    </>
+                  )}
+                  <span style={{ color: 'var(--primary)', fontWeight: 700 }}> = Base gravable sujeta a retención: </span>
+                  <strong className="mono" style={{ color: 'var(--primary)', fontSize: '.95rem' }}>{money(baseNetaGravable, moneda)}</strong>
+                </div>
+                <small className="muted" style={{ fontSize: '.75rem' }}>
+                  ⚖️ Decreto 1.808: el ISLR se deduce sobre la <strong>Base Gravable ({money(baseNetaGravable, moneda)})</strong>.
+                </small>
               </div>
-              <small className="muted" style={{ fontSize: '.75rem' }}>
-                ⚖️ ISLR e ISAE retienen sobre la <strong>Base Gravable ({money(baseNetaGravable, moneda)})</strong>, sin incluir IVA (Decreto 1.808).
-              </small>
+
+              {/* Resumen de liquidación al proveedor */}
+              {totalRetenido > 0 && (
+                <div
+                  style={{
+                    padding: '.55rem .75rem',
+                    borderRadius: '8px',
+                    background: 'rgba(34, 197, 94, 0.06)',
+                    border: '1px solid rgba(34, 197, 94, 0.25)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '.5rem',
+                  }}
+                >
+                  <div style={{ fontSize: '.84rem' }}>
+                    <span className="muted">Total Factura: </span>
+                    <strong className="mono">{money(totalFacturaNum, moneda)}</strong>
+                    <span className="muted"> − Retención: </span>
+                    <strong className="mono" style={{ color: 'var(--danger, #ef4444)' }}>− {money(totalRetenido, moneda)}</strong>
+                    <span style={{ color: 'var(--success, #22c55e)', fontWeight: 700 }}> = Neto a pagar al proveedor: </span>
+                    <strong className="mono" style={{ color: 'var(--success, #22c55e)', fontSize: '1.02rem' }}>
+                      {money(Math.max(0, totalFacturaNum - totalRetenido), moneda)}
+                    </strong>
+                  </div>
+                  <small className="muted" style={{ fontSize: '.75rem' }}>
+                    💡 Monto neto exacto que Tesorería transferirá por banco al proveedor.
+                  </small>
+                </div>
+              )}
             </div>
           )}
         </div>
