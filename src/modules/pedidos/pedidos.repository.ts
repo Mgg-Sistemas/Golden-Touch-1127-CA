@@ -2413,6 +2413,60 @@ export async function confirmarRetiroOc(o: Orden, modalidad: NonNullable<Orden['
   return r;
 }
 
+/**
+ * 25/11/2026 · Reelegir tipo de transporte / modalidad de entrega:
+ * Permite a Compras o Administrador reelegir o corregir la modalidad de entrega
+ * ('delivery', 'carga_pesada' o 'proveedor') en cualquier OC no recibida.
+ * Si ya estaba asignada o tomada en delivery o carga pesada, cancela el pedido previo para que
+ * quede inmediatamente disponible en la nueva modalidad.
+ */
+export async function reelegirModalidadEntregaOc(
+  o: Orden,
+  modalidad: ModalidadEntrega,
+  actorEmail: string,
+  motivo?: string
+): Promise<Orden> {
+  if (o.recibida_en) throw new Error('No se puede cambiar el transporte de una orden que ya fue recibida.');
+  const ahora = new Date().toISOString();
+
+  // 1. Si tenía pedidos activos en delivery_pedidos para esta OC, cancelarlos para liberar la orden
+  try {
+    await supabase.from('delivery_pedidos')
+      .update({
+        estado: 'cancelado',
+        cancelado_en: ahora,
+        motivo_cancel: `Cambio de transporte a ${modalidad}${motivo ? `: ${motivo}` : ''}`
+      })
+      .eq('orden_id', o.id)
+      .eq('origen', 'compra')
+      .not('estado', 'in', '("entregado","cancelado")');
+  } catch (err) {
+    console.warn('reelegirModalidadEntregaOc: no se pudo cancelar pedido previo de delivery:', err);
+  }
+
+  // 2. Actualizar la orden con la nueva modalidad y registrar en historial
+  const updatePayload: Record<string, unknown> = {
+    modalidad_entrega: modalidad,
+    historial: appendHistorial(o, 'modalidad_cambiada', actorEmail, {
+      modalidad,
+      antes: o.modalidad_entrega ?? null,
+      motivo: motivo || 'Transporte reelegido por Compras',
+    }),
+  };
+
+  // Si la orden ya está pagada (o tenía retiro confirmado), refrescamos retiro_confirmado_en para reactivar avisos
+  if (o.estado === 'pagada' || o.retiro_confirmado_en) {
+    updatePayload.retiro_confirmado_en = ahora;
+    updatePayload.retiro_confirmado_por = actorEmail;
+  }
+
+  const { data, error } = await supabase.from(TABLE).update(updatePayload).eq('id', o.id).select('*');
+  if (error) throw error;
+  const r = (data ?? [])[0] as Orden | undefined;
+  if (!r) throw new Error('No se pudo reelegir el transporte de la orden.');
+  return r;
+}
+
 /** Motivos sugeridos para marcar una OC pagada sin descontar caja (06/11/2026). */
 export const MOTIVOS_PAGADA_SIN_CAJA = [
   'Pagada por otra empresa del grupo',
