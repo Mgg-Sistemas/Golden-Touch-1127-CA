@@ -45,7 +45,7 @@ import type {
 import { INTERRUPTOR_RETENCION_MOMENTO, SEDES_ENTREGA, etiquetaSedeEntrega, MODALIDADES_ENTREGA, etiquetaModalidadEntrega, type ModalidadEntrega } from '@/shared/lib/types';
 import { COL_POR_RETIRAR, enPendientePorRecibir, esperaRetiro, textoEventoDelivery } from './retiroOc';
 import { indicarMetodoPagoCredito } from './pedidos.repository';
-import { confirmarRetiroOc, retencionAntesDePagar } from './pedidos.repository';
+import { confirmarRetiroOc, reelegirModalidadEntregaOc, retencionAntesDePagar } from './pedidos.repository';
 import { interruptorActivo, useInterruptorDesde } from '@/shared/lib/interruptores';
 import { soloOrdenesPropias } from './visibilidadSolicitudes';
 import { CLAVE_INTERRUPTOR as CLAVE_INTERRUPTOR_REVISION_ALMACEN } from '@/modules/solicitudesAlmacen/solicitudesAlmacen.repository';
@@ -263,6 +263,7 @@ function eventLabel(ev: string): string {
       credito_saldado: 'Crédito saldado · pendiente por recepción',
       pagada: 'Pago registrado (Tesorería)',
       retiro_confirmado: 'Retiro confirmado por Compras',
+      modalidad_cambiada: 'Transporte reelegido',
       delivery_tomado: 'Delivery tomado',
       delivery_en_ruta: 'Delivery en ruta',
       delivery_entregado: 'Delivery entregado',
@@ -308,6 +309,7 @@ function eventClass(ev: string): string {
       credito_saldado: 'ok',
       pagada: 'ok',
       retiro_confirmado: 'info',
+      modalidad_cambiada: 'info',
       delivery_tomado: 'info',
       delivery_en_ruta: 'info',
       delivery_entregado: 'ok',
@@ -3539,6 +3541,7 @@ function OrdenDetailModal({
     ['pagada', 'por_recibir', 'recibida', 'finalizada', 'cuenta_abierta'].includes(o.estado);
   const [reintegrarOpen, setReintegrarOpen] = useState(false);
   const [reintegrando, setReintegrando] = useState(false);
+  const [reelegirTransporteOpen, setReelegirTransporteOpen] = useState(false);
   async function confirmarCancelarConReintegro() {
     setReintegrando(true);
     try {
@@ -4042,11 +4045,35 @@ function OrdenDetailModal({
         );
       })()}
       {/* 05/11/2026: quién entrega (se elige al indicar el método de pago). */}
-      {o.oc_codigo && o.modalidad_entrega && (
+      {o.oc_codigo && (o.modalidad_entrega || canManageProcurement) && (
         <div className="detail-row">
           <div className="k">Entrega</div>
-          <div className="v"><span className="badge">{etiquetaModalidadEntrega(o.modalidad_entrega)}</span></div>
+          <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <span className="badge">{etiquetaModalidadEntrega(o.modalidad_entrega)}</span>
+            {canManageProcurement && !o.recibida_en && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                style={{ fontSize: '.75rem', padding: '.15rem .5rem', border: '1px solid var(--border)' }}
+                onClick={() => setReelegirTransporteOpen((v) => !v)}
+                title="Reelegir si busca Delivery, Carga pesada o la trae el proveedor"
+              >
+                🔄 Reelegir transporte
+              </button>
+            )}
+          </div>
         </div>
+      )}
+      {reelegirTransporteOpen && canManageProcurement && !o.recibida_en && (
+        <ReelegirTransporteBox
+          orden={o}
+          actorEmail={actorEmail}
+          onDone={async () => {
+            setReelegirTransporteOpen(false);
+            await onAcceptedOffer();
+          }}
+          onCancel={() => setReelegirTransporteOpen(false)}
+        />
       )}
       {/* 06/11/2026: «Pendientes por recibir» — el analista confirma el retiro antes del delivery. */}
       {esperaRetiro(o) && (
@@ -4567,6 +4594,124 @@ function ConfirmarRetiroBox({ orden: o, actorEmail, onDone }: { orden: Orden; ac
   );
 }
 
+/**
+ * 25/11/2026: permite al analista reelegir o corregir el tipo de transporte
+ * (delivery motorizado, carga pesada camión, o entrega a domicilio del proveedor).
+ */
+function ReelegirTransporteBox({
+  orden: o,
+  actorEmail,
+  onDone,
+  onCancel,
+}: {
+  orden: Orden;
+  actorEmail: string;
+  onDone: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [modalidad, setModalidad] = useState<ModalidadEntrega>(o.modalidad_entrega ?? 'delivery');
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function guardar() {
+    if (!modalidad || saving) return;
+    setSaving(true);
+    try {
+      await reelegirModalidadEntregaOc(o, modalidad, actorEmail, motivo.trim());
+      const label = modalidad === 'carga_pesada' ? 'Carga pesada 🚚' : modalidad === 'proveedor' ? 'A domicilio (proveedor) 🏠' : 'Delivery (motorizado) 🛵';
+      notify(`OC ${o.oc_codigo ?? o.codigo} · transporte cambiado a ${label}`, 'success');
+      toast(`Modalidad actualizada a ${label}`, 'success');
+      await onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cambiar el transporte', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="card"
+      style={{
+        margin: '.5rem 0',
+        padding: '.75rem .95rem',
+        borderLeft: '3px solid var(--accent, #3b82f6)',
+        background: 'var(--surface-2, rgba(255,255,255,0.03))',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+        <div style={{ fontSize: '.82rem', fontWeight: 700, letterSpacing: '.03em' }}>
+          🔄 REELEGIR TIPO DE TRANSPORTE
+        </div>
+        <button
+          type="button"
+          className="btn btn-xs btn-ghost"
+          onClick={onCancel}
+          disabled={saving}
+          style={{ opacity: 0.7 }}
+        >
+          ✕
+        </button>
+      </div>
+      <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.6rem' }}>
+        Selecciona cómo se retirarán o trasladarán los productos. Si la orden ya estaba en Delivery o Carga pesada, se reubicará automáticamente al nuevo canal.
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.65rem' }}>
+        {MODALIDADES_ENTREGA.map((m) => (
+          <label
+            key={m.key}
+            className="card"
+            title={m.ayuda}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '.4rem',
+              margin: 0,
+              padding: '.45rem .75rem',
+              cursor: 'pointer',
+              border: `1px solid ${modalidad === m.key ? 'var(--primary, #f59e0b)' : 'var(--border)'}`,
+              background: modalidad === m.key ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+            }}
+          >
+            <input
+              type="radio"
+              name={`reelegir-transporte-${o.id}`}
+              checked={modalidad === m.key}
+              onChange={() => setModalidad(m.key)}
+              disabled={saving}
+            />
+            <strong>{m.icono} {m.label.toUpperCase()}</strong>
+          </label>
+        ))}
+      </div>
+      <div style={{ marginBottom: '.65rem' }}>
+        <input
+          type="text"
+          className="input input-sm"
+          style={{ width: '100%', fontSize: '.8rem' }}
+          placeholder="Motivo del cambio (opcional, ej. Marcado delivery por error, requiere camión)"
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          disabled={saving}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={saving}>
+          Cancelar
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={saving || (modalidad === o.modalidad_entrega && !motivo)}
+          onClick={() => void guardar()}
+        >
+          {saving ? 'Guardando…' : '✓ Aplicar cambio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Muestra el Nombre y Apellido de la persona a partir de su email o ID; nunca el correo plano. */
 function persona(email: string | null | undefined, map: Map<string, string>): string {
   if (!email) return '—';
@@ -4610,7 +4755,7 @@ function Timeline({
           const ev = h as EventoHistorial & { repartidor?: string | null; canal?: string | null; almacen?: string | null; modalidad?: ModalidadEntrega | null };
           const td = textoEventoDelivery({ ...ev, motivo: h.motivo ?? null });
           if (td) { titulo = td; extra = ''; }
-          if (h.evento === 'retiro_confirmado') extra = ` · ${etiquetaModalidadEntrega(ev.modalidad)}`;
+          if (h.evento === 'retiro_confirmado' || h.evento === 'modalidad_cambiada') extra = ` · ${etiquetaModalidadEntrega(ev.modalidad)}`;
         }
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>
