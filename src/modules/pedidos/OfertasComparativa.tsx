@@ -25,6 +25,10 @@ import { agruparVariantes, hayVariantes, totalesRepresentativos } from './varian
 import { calcularDesgloseModalidadesOferta, type ModalidadPagoAnalista } from './modalidadPago';
 import { esCotizacionDeEstaOc } from './ofertasPadreHija';
 import { esOfertaEditable } from './ofertasEditables';
+import {
+  detalleCotizacionEur, factorEuroUsd, simboloCotizacion, usdACotizacion,
+  type MonedaCotizacion, type TasasCotizacion,
+} from './cotizacionMoneda';
 
 /** Impuestos absolutos ($) de una oferta (IVA + IGTF) que se SUMAN al total al pasar
  *  a la OC. Se muestran en la comparación para que el total refleje lo que se pagará. */
@@ -57,6 +61,32 @@ function resumenFicha(ficha: OfertaProveedor['ficha']): string {
     if (ls.length) partes.push(ls.join(', '));
   }
   return partes.join(' · ');
+}
+
+/** Tasas BCV con que se convirtió una oferta cotizada en euros. */
+function tasasOferta(of: OfertaProveedor): TasasCotizacion {
+  return { usd: Number(of.tasa_usd_bcv) || 0, eur: Number(of.tasa_eur_bcv) || 0 };
+}
+
+/** Precio unitario en €: el que escribió el proveedor o, si falta, la reconversión. */
+function precioEurItem(it: ItemOrden, tasas: TasasCotizacion): number {
+  if (Number(it.precio_eur) > 0) return Number(it.precio_eur);
+  const f = factorEuroUsd(tasas);
+  return f > 0 ? usdACotizacion(Number(it.precio) || 0, 'EUR', tasas) : 0;
+}
+
+/** Total en euros de una oferta. Se prefiere el total guardado; si es una oferta
+ *  anterior al switch, se reconvierte con sus tasas BCV guardadas (o con los ítems). */
+function totalEurOferta(of: OfertaProveedor): number {
+  if (Number(of.precio_total_eur) > 0) return Number(of.precio_total_eur);
+  const tasas = tasasOferta(of);
+  const f = factorEuroUsd(tasas);
+  if (f > 0) return usdACotizacion(Number(of.precio_total) || 0, 'EUR', tasas);
+  return totalesRepresentativos((of.items ?? []).map((it) => ({ ...it, precio: precioEurItem(it, tasas) }))).bcv;
+}
+
+function fmtCant(n: number): string {
+  return (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 interface Props {
@@ -108,6 +138,9 @@ export function OfertasComparativa({
   const [modalidadSeleccionada, setModalidadSeleccionada] = useState<ModalidadPagoAnalista>('divisa');
   // Detalle por ítem que se despliega al hacer click en un proveedor.
   const [expandido, setExpandido] = useState<string | null>(null);
+  // Vista de la comparativa: $ a BCV (por defecto, es lo que se guarda y se compara)
+  // o el precio original en € de las cotizaciones cargadas como «EURO A BCV».
+  const [vistaMoneda, setVistaMoneda] = useState<MonedaCotizacion>('USD');
   // Oferta a eliminar (confirmación).
   const [aEliminar, setAEliminar] = useState<OfertaProveedor | null>(null);
   // Modal para repartir la OP entre varios proveedores (multi-proveedor).
@@ -154,6 +187,7 @@ export function OfertasComparativa({
   }, [ofertasOrdenId, reloadKey, rtTick]);
 
   const scored = scoreOfertas(ofertas, stats);
+  const hayEur = ofertas.some((o) => o.moneda_cotizacion === 'EUR');
   // 23/11/2026: en una orden HIJA se siguen mostrando las N cotizaciones del
   // padre (no solo la del proveedor asignado). La de esta OC se distingue con
   // el badge «Aceptada · esta OC»; el resto queda en solo lectura.
@@ -341,6 +375,26 @@ export function OfertasComparativa({
   return (
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center', marginBottom: '.6rem' }}>
+        <span className="muted" style={{ fontSize: '.78rem' }}>Ver en</span>
+        <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+          <button type="button" className={`btn btn-sm ${vistaMoneda === 'USD' ? 'btn-primary' : 'btn-ghost'}`}
+            aria-pressed={vistaMoneda === 'USD'} onClick={() => setVistaMoneda('USD')}
+            title="Precio equivalente en dólares a la tasa BCV (lo que se guarda y compara)">
+            $ A BCV
+          </button>
+          <button type="button" className={`btn btn-sm ${vistaMoneda === 'EUR' ? 'btn-primary' : 'btn-ghost'}`}
+            aria-pressed={vistaMoneda === 'EUR'} onClick={() => setVistaMoneda('EUR')} disabled={!hayEur}
+            title={hayEur ? 'Mostrar las cotizaciones en euros con la tasa BCV con que se cargaron' : 'No hay cotizaciones cargadas en euro'}>
+            EURO A BCV
+          </button>
+        </div>
+        {vistaMoneda === 'EUR' && (
+          <small className="muted" style={{ fontSize: '.72rem' }}>
+            Las cotizaciones en euro se muestran con su tasa BCV guardada; el ranking y la OC siguen en $ a BCV.
+          </small>
+        )}
+      </div>
       {(esHija || esMadreRepartida) && (
         <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.5rem' }}>
           {esHija ? (
@@ -420,6 +474,11 @@ export function OfertasComparativa({
                         {s.mejorPrecio && <span className="badge info">Mejor precio</span>}
                         {s.masPuntual && <span className="badge info">Más puntual</span>}
                         {s.mejorCalidad && <span className="badge info">Mejor calidad</span>}
+                        {s.oferta.moneda_cotizacion === 'EUR' && (
+                          <span className="badge info" title={detalleCotizacionEur(Number(s.oferta.precio_total) || 0, tasasOferta(s.oferta)) ?? 'Cotizada en euro a tasa BCV'}>
+                            {simboloCotizacion('EUR')} a BCV
+                          </span>
+                        )}
                       </div>
                       {resumenFicha(s.oferta.ficha) && (
                         <div className="muted" style={{ marginTop: '.25rem', fontSize: '.72rem', lineHeight: 1.35 }}>
@@ -437,6 +496,9 @@ export function OfertasComparativa({
                         const baseDiv = s.oferta.precio_divisa != null
                           ? (rep.usd > 0 ? rep.usd : Number(s.oferta.precio_divisa))
                           : (rep.usd > 0 ? rep.usd : null);
+                        const verEur = vistaMoneda === 'EUR' && s.oferta.moneda_cotizacion === 'EUR';
+                        const tasas = tasasOferta(s.oferta);
+                        const totalEur = verEur ? totalEurOferta(s.oferta) : 0;
                         // Los impuestos (IVA/IGTF) SE SUMAN al total (así queda en la OC),
                         // por eso el número grande de la comparación ya los incluye.
                         const imp = impuestosOferta(s.oferta);
@@ -446,7 +508,19 @@ export function OfertasComparativa({
                         const pct = bcv > 0 && div != null ? (dif / bcv) * 100 : 0;
                         return (
                           <>
-                            {money(bcv)}
+                            {verEur ? (
+                              <>
+                                <strong className="mono">€ {fmtCant(totalEur)}</strong>
+                                <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400, marginTop: '.15rem' }} title="Equivalente en $ a la tasa BCV con que se cargó la cotización">
+                                  {money(bcv)} a BCV{tasas.usd > 0 ? ` · ≈ Bs ${fmtCant(bcv * tasas.usd)}` : ''}
+                                </div>
+                                {detalleCotizacionEur(baseBcv, tasas) && (
+                                  <div className="muted" style={{ fontSize: '.62rem', fontWeight: 400 }} title="Conversión de la cotización en euro">
+                                    {detalleCotizacionEur(baseBcv, tasas)}
+                                  </div>
+                                )}
+                              </>
+                            ) : money(bcv)}
                             {imp > 0 && <div className="muted" style={{ fontSize: '.66rem', fontWeight: 600 }} title="Total con IVA/IGTF incluidos">base {money(baseBcv)} · imp. +{money(imp)}</div>}
                             {tieneAlt && <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--warning, #d97706)' }}>estimado · alternativas</div>}
                             {div != null && (
@@ -517,6 +591,9 @@ export function OfertasComparativa({
                               : (s.oferta.precio_divisa != null ? Number(s.oferta.precio_divisa) : 0);
                             const impDet = impuestosOferta(s.oferta);   // IVA/IGTF que se suman al total
                             const hayUsd = s.oferta.items.some((it) => Number(it.precio_usd) > 0) || s.oferta.precio_divisa != null;
+                            const verEur = vistaMoneda === 'EUR' && s.oferta.moneda_cotizacion === 'EUR';
+                            const tasas = tasasOferta(s.oferta);
+                            const totalEurDet = verEur ? totalEurOferta(s.oferta) : 0;
                             const difTotal = totalBcv - totalUsd;
                             const pctTotal = totalBcv > 0 ? (difTotal / totalBcv) * 100 : 0;
                             // Skus con más de una marca/modelo = alternativas (se elige 1 al aceptar).
@@ -533,14 +610,16 @@ export function OfertasComparativa({
                               <tr>
                                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Descripción</th>
                                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant</th>
-                                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
+                                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>
+                                  {verEur ? 'EURO A BCV' : '$ A BCV'}
+                                </th>
                                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
                                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
                                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Variación %</th>
                               </tr>
                               <tr>
-                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio</th>
-                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total</th>
+                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio {verEur ? '€' : '$'}</th>
+                                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total {verEur ? '€' : '$'}</th>
                                 <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Precio</th>
                                 <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Total</th>
                               </tr>
@@ -550,6 +629,7 @@ export function OfertasComparativa({
                                 const cant = Number(it.cantidad) || 0;
                                 const precio = Number(it.precio) || 0;
                                 const precioU = Number(it.precio_usd) || 0;
+                                const precioE = precioEurItem(it, tasas);
                                 const dif = (precio - precioU) * cant;
                                 const pct = precio > 0 ? ((precio - precioU) / precio) * 100 : 0;
                                 return (
@@ -569,10 +649,11 @@ export function OfertasComparativa({
                                       {rotuloConversion(it, cant) && <div className="muted" style={{ fontSize: '.68rem' }}>{rotuloConversion(it, cant)}</div>}
                                     </td>
                                     <td className="num mono">
-                                      {money(precio)}
+                                      {verEur ? <strong className="mono">€ {fmtCant(precioE)}</strong> : money(precio)}
+                                      {verEur && <div className="muted" style={{ fontSize: '.64rem', fontWeight: 400 }}>{money(precio)} a BCV</div>}
                                       {tienePresentacion(it) && precio > 0 && <div className="muted" style={{ fontSize: '.68rem' }} title="Precio por unidad de uso, para comparar">{money(precioEnUso(it, precio))} / {it.unidad_uso}</div>}
                                     </td>
-                                    <td className="num mono">{money(cant * precio)}</td>
+                                    <td className="num mono">{verEur ? `€ ${fmtCant(cant * precioE)}` : money(cant * precio)}</td>
                                     <td className="num mono">{precioU > 0 ? money(precioU) : '—'}</td>
                                     <td className="num mono">{precioU > 0 ? money(cant * precioU) : '—'}</td>
                                     <td className="num mono" style={{ color: dif >= 0 ? 'var(--success)' : 'var(--danger)' }}>{precioU > 0 ? money(dif) : '—'}</td>
@@ -591,7 +672,7 @@ export function OfertasComparativa({
                               )}
                               <tr style={{ fontWeight: 700 }}>
                                 <td colSpan={3} style={{ textAlign: 'right' }}>{impDet > 0 ? 'Subtotal' : 'TOTAL'}{skusAlt.size > 0 ? ' *' : ''}</td>
-                                <td className="num mono">{money(totalBcv)}</td>
+                                <td className="num mono">{verEur ? <><strong>€ {fmtCant(totalEurDet)}</strong><div className="muted" style={{ fontSize: '.64rem', fontWeight: 400 }}>{money(totalBcv)} a BCV</div></> : money(totalBcv)}</td>
                                 <td></td>
                                 <td className="num mono">{hayUsd ? money(totalUsd) : '—'}</td>
                                 <td className="num mono" style={{ color: difTotal >= 0 ? 'var(--success)' : 'var(--danger)' }}>{hayUsd ? money(difTotal) : '—'}</td>
@@ -608,7 +689,7 @@ export function OfertasComparativa({
                                   </tr>
                                   <tr style={{ fontWeight: 800 }}>
                                     <td colSpan={3} style={{ textAlign: 'right' }}>TOTAL CON IMPUESTOS</td>
-                                    <td className="num mono">{money(totalBcv + impDet)}</td>
+                                    <td className="num mono">{verEur ? <>€ {fmtCant(totalEurDet)}<div className="muted" style={{ fontSize: '.64rem', fontWeight: 400 }}>imp. en $: {money(impDet)} · {money(totalBcv + impDet)} a BCV</div></> : money(totalBcv + impDet)}</td>
                                     <td></td>
                                     <td className="num mono">{hayUsd ? money(totalUsd + impDet) : '—'}</td>
                                     <td></td><td></td>

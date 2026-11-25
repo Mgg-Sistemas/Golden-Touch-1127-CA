@@ -1245,6 +1245,9 @@ export interface ItemOrden {
   precio: number;
   /** Precio unitario si se paga en USD/divisa (efectivo). `precio` es el de pago en Bs a BCV. */
   precio_usd?: number | null;
+  /** Precio unitario en la moneda original del proveedor cuando cotizó en EURO (a tasa BCV).
+   *  `precio` sigue siendo el equivalente en $ a BCV canónico del sistema. */
+  precio_eur?: number | null;
   /** Producto o servicio exento de IVA (Art. 18 Ley del IVA). Si es true, no genera base gravada de IVA. */
   exento?: boolean;
   /** Descuento (monto, en la moneda de la oferta) aplicado a este ítem sobre el total en Bs. */
@@ -1914,6 +1917,16 @@ export interface OfertaProveedor {
   ficha?: FichaOferta | null;
   /** Precio total si se paga en divisa/efectivo (precio_total es el de referencia BCV). */
   precio_divisa?: number | null;
+  /** Moneda en que el proveedor entregó la cotización. 'USD' = $ a BCV (por defecto,
+   *  también en ofertas antiguas); 'EUR' = euro a tasa BCV. El precio canónico guardado
+   *  (`precio_total` / `items[].precio`) SIEMPRE es el equivalente en $ a BCV. */
+  moneda_cotizacion?: 'USD' | 'EUR' | null;
+  /** Tasas BCV usadas al convertir (Bs por 1 USD / Bs por 1 EUR). Se guardan para que la
+   *  oferta se pueda volver a ver en euros aunque la tasa de hoy sea otra. */
+  tasa_usd_bcv?: number | null;
+  tasa_eur_bcv?: number | null;
+  /** Total en euros que el proveedor cotizó (informativo; para alternar la vista). */
+  precio_total_eur?: number | null;
   /** Descuento obtenido (monto $) que el proveedor concede; se resta del total de la
    *  factura/OC. Opcional. */
   descuento_obtenido?: number | null;

@@ -17,6 +17,10 @@ import { esRecargaAgua } from './servicios.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { fijarActividadProveedor } from '@/modules/proveedores/actividadesEconomicas.repository';
 import { getTasaHoy, round2 } from '@/modules/tesoreria/tasas.repository';
+import {
+  cotizacionAUsd, factorEuroUsd, usdACotizacion,
+  type MonedaCotizacion, type TasasCotizacion,
+} from './cotizacionMoneda';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { aplicarPresentacion, nombrePresentacion, precioEnUso, presentacionesPara, rotuloConversion, tienePresentacion, type Presentacion } from '@/modules/inventario/presentaciones';
 import { listPresentaciones, crearPresentacion } from '@/modules/inventario/presentaciones.repository';
@@ -54,8 +58,9 @@ interface FormItem extends ItemOrden {
   /** Id estable de la fila (clave de React): NO depende del sku ni del índice, para
    *  que agregar/quitar variantes no remonte ni revuelva las demás filas. */
   uid: string;
-  precio: number;          // Pago en Bs a BCV (unitario, en $)
-  precio_usd: number;      // Pago en USD (unitario, en $)
+  precio: number;          // Equivalente en $ a BCV (unitario); SIEMPRE el precio canónico
+  precio_usd: number;      // Pago en USD efectivo (unitario, en $)
+  precio_eur: number;      // Precio escrito por el proveedor si cotizó en € (vista original)
   marca: string;           // Marca ofertada para este producto (variante)
   modelo: string;          // Modelo ofertado
 }
@@ -236,6 +241,7 @@ export function AgregarOfertaModal({
       ...i, uid: nuevoUid(),
       precio: editando ? Number(i.precio) || 0 : 0,
       precio_usd: editando ? Number((i as ItemOrden).precio_usd) || 0 : 0,
+      precio_eur: editando ? Number((i as ItemOrden).precio_eur) || 0 : 0,
       marca: (i as ItemOrden).marca ?? '',
       modelo: (i as ItemOrden).modelo ?? '',
       exento: !!(i as ItemOrden).exento,
@@ -318,8 +324,55 @@ export function AgregarOfertaModal({
 
   // Tasa BCV (Bs por $) para el conversor: los precios se guardan en $, pero el
   // proveedor suele cotizar en Bs. Prellenada con la tasa del día (editable).
-  const [tasa, setTasa] = useState<number>(0);
-  useEffect(() => { getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); }).catch(() => { /* sin tasa */ }); }, []);
+  // Al editar una cotización en euros se RESPETAN las tasas con que se guardó, para
+  // no recalcular (y cambiar) el precio que el proveedor entregó.
+  const [tasa, setTasa] = useState<number>(Number(ofertaEditar?.tasa_usd_bcv) || 0);
+  const [tasaEur, setTasaEur] = useState<number>(Number(ofertaEditar?.tasa_eur_bcv) || 0);
+  useEffect(() => {
+    getTasaHoy().then((t) => {
+      setTasa((prev) => prev > 0 ? prev : (Number(t.usd) || 0));
+      setTasaEur((prev) => prev > 0 ? prev : (Number(t.eur) || 0));
+    }).catch(() => { /* sin tasa */ });
+  }, []);
+  const tasas: TasasCotizacion = { usd: tasa, eur: tasaEur };
+  const factorEurUsd = factorEuroUsd(tasas);
+  /** Moneda en que el proveedor entregó la cotización: $ a BCV o euro a tasa BCV. */
+  const [monedaCotizacion, setMonedaCotizacion] = useState<MonedaCotizacion>(
+    ofertaEditar?.moneda_cotizacion === 'EUR' ? 'EUR' : 'USD',
+  );
+  function cambiarMoneda(next: MonedaCotizacion) {
+    if (next === monedaCotizacion) return;
+    // Al pasar a euros por primera vez, reconstruimos el monto original desde el
+    // precio canónico ya cargado. Al volver a $, el precio canónico NO se toca.
+    if (next === 'EUR') {
+      const f = factorEuroUsd(tasas);
+      setItems((prev) => prev.map((it) => ({
+        ...it,
+        precio_eur: Number(it.precio_eur) > 0
+          ? it.precio_eur
+          : (f > 0 ? usdACotizacion(it.precio, 'EUR', tasas) : 0),
+      })));
+    }
+    setMonedaCotizacion(next);
+  }
+  // Si el usuario corrige la tasa BCV del euro DESPUÉS de escribir los precios,
+  // recalculamos el equivalente en $ canónico sin tocar los € originales.
+  useEffect(() => {
+    if (monedaCotizacion !== 'EUR' || !(factorEurUsd > 0)) return;
+    setItems((prev) => {
+      let cambio = false;
+      const next = prev.map((it) => {
+        const eur = Number(it.precio_eur) || 0;
+        if (!(eur > 0)) return it;
+        const usd = cotizacionAUsd(eur, 'EUR', tasas);
+        if (usd === it.precio) return it;
+        cambio = true;
+        return { ...it, precio: usd };
+      });
+      return cambio ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monedaCotizacion, factorEurUsd]);
   // Conversor auxiliar Bs↔$ (no toca las columnas; ayuda a pasar el precio del proveedor).
   const [convMonto, setConvMonto] = useState('');
   const [convDir, setConvDir] = useState<'bs_a_usd' | 'usd_a_bs'>('bs_a_usd');
@@ -411,6 +464,16 @@ export function AgregarOfertaModal({
   const netoBcv = Math.max(0, Math.round((precioTotal - descuentoNum) * 100) / 100);
   const netoUsd = Math.max(0, Math.round((totalUsd - descuentoNum) * 100) / 100);
   const tieneUsd = items.some((i) => i.precio_usd > 0);
+  // Total en la moneda original del proveedor. Las variantes siguen contando UNA vez.
+  // El equivalente en $ a BCV (`precioTotal`) es el que se guarda y compara.
+  const enEur = monedaCotizacion === 'EUR';
+  const precioEurUnitario = (it: FormItem) => Number(it.precio_eur) > 0
+    ? Number(it.precio_eur)
+    : (factorEurUsd > 0 ? usdACotizacion(it.precio, 'EUR', tasas) : 0);
+  const totalEur = enEur && factorEurUsd > 0
+    ? totalesRepresentativos(items.map((it) => ({ ...it, precio: precioEurUnitario(it) }))).bcv
+    : 0;
+  const fmtCant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // ── Impuestos (IVA / IGTF) ──────────────────────────────────────────────────────────
   // Base imponible = neto tras descuento, en la moneda que define el total de la OC: USD si
@@ -469,7 +532,7 @@ export function AgregarOfertaModal({
   const diferencia = tieneUsd ? precioTotal - totalUsd : 0;
   const ahorroPct = tieneUsd && precioTotal > 0 ? (diferencia / precioTotal) * 100 : 0;
 
-  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'marca' | 'modelo' | 'exento' | 'unidad'>>) {
+  function updateItem(idx: number, patch: Partial<Pick<FormItem, 'cantidad' | 'precio' | 'precio_usd' | 'precio_eur' | 'marca' | 'modelo' | 'exento' | 'unidad'>>) {
     setItems((prev) => prev.map((it, k) => {
       if (k !== idx) return it;
       const next = { ...it, ...patch };
@@ -534,7 +597,7 @@ export function AgregarOfertaModal({
     setItems((prev) => {
       const base = prev[idx];
       if (!base) return prev;
-      const variante: FormItem = { ...base, uid: nuevoUid(), precio: 0, precio_usd: 0, marca: '', modelo: '' };
+      const variante: FormItem = { ...base, uid: nuevoUid(), precio: 0, precio_usd: 0, precio_eur: 0, marca: '', modelo: '' };
       const copy = [...prev];
       copy.splice(idx + 1, 0, variante);
       return copy;
@@ -552,8 +615,14 @@ export function AgregarOfertaModal({
   async function handleSubmit() {
     // El proveedor puede cotizar SOLO en Bs (BCV) o SOLO en $: basta con que uno
     // de los dos totales sea mayor a cero.
+    if (enEur && !(factorEurUsd > 0)) {
+      toast('Indica la tasa BCV del euro (Bs/€) para convertir la cotización', 'error');
+      return;
+    }
     if (precioTotal <= 0 && totalUsd <= 0) {
-      toast('Ingresa el precio en Bs (BCV) o en USD (al menos uno)', 'error');
+      toast(enEur
+        ? 'Ingresa el precio en euros (o en USD) de al menos un renglón'
+        : 'Ingresa el precio en $ a BCV o en USD (al menos uno)', 'error');
       return;
     }
     if (items.some((i) => !(Number(i.cantidad) > 0))) {
@@ -661,6 +730,9 @@ export function AgregarOfertaModal({
           ...i,
           precio: soloUsd ? i.precio_usd : i.precio,
           precio_usd: i.precio_usd > 0 ? i.precio_usd : null,
+          // La vista en euros se guarda tal cual la escribió el proveedor. En $ a BCV
+          // se deja null: el precio canónico es `precio` (ya convertido si era €).
+          precio_eur: enEur && !soloUsd ? Math.max(0, Number(i.precio_eur) || 0) : null,
           marca: i.marca.trim() || null,
           modelo: i.modelo.trim() || null,
           exento: !!i.exento,
@@ -681,6 +753,16 @@ export function AgregarOfertaModal({
       // solo-$ queda igual al total en USD; para Bs o mixtas, igual que antes. Las
       // variantes del mismo producto (alternativas) cuentan como UNA (la más cara).
       const precioTotalGuardar = totalesRepresentativos(itemsGuardar).bcv;
+      // Total original en euros, recalculado con el MISMO criterio de alternativas.
+      const precioTotalEurGuardar = enEur && factorEurUsd > 0
+        ? totalesRepresentativos(itemsGuardar.map((i) => ({ ...i, precio: Number(i.precio_eur) || 0 }))).bcv
+        : null;
+      const datosMoneda = {
+        moneda_cotizacion: monedaCotizacion,
+        tasa_usd_bcv: tasa > 0 ? tasa : null,
+        tasa_eur_bcv: tasaEur > 0 ? tasaEur : null,
+        precio_total_eur: precioTotalEurGuardar,
+      };
       if (editando) {
         // Al editar: los adjuntos CONSERVADOS (los que no se quitaron) + los nuevos.
         const adjuntosFinal = [...adjuntosExistentes, ...adjuntos];
@@ -692,6 +774,7 @@ export function AgregarOfertaModal({
           items: itemsGuardar,
           precio_total: precioTotalGuardar,
           precio_divisa: tieneUsd ? totalUsd : null,
+          ...datosMoneda,
           descuento_obtenido: descuentoNum,
           iva_pct: conIva ? ivaPctNum : 0,
           iva_monto: conIva ? ivaMonto : 0,
@@ -721,6 +804,7 @@ export function AgregarOfertaModal({
         actividad_economica: actividadLimpia || null,
         items: itemsGuardar,
         precio_total: precioTotalGuardar,
+        ...datosMoneda,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         anticipo_monto: usaAnticipo ? Math.round(Number(anticipoMonto) * 100) / 100 : null,
@@ -964,6 +1048,56 @@ export function AgregarOfertaModal({
         <small className="muted">Si la escribes, queda también en la ficha del proveedor (módulo Proveedores).</small>
       </div>
 
+      {/* Moneda original de la cotización (25/11/2026): el proveedor puede cotizar en $
+          a BCV o en EURO a BCV. Al elegir euro se convierte con la razón de las tasas
+          BCV y se guarda tanto el € original como el $ equivalente que usa el sistema. */}
+      <div className="card" style={{ padding: '.7rem .8rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center' }}>
+          <strong style={{ fontSize: '.84rem' }}>Moneda de la cotización</strong>
+          <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+            <button type="button" className={`btn btn-sm ${!enEur ? 'btn-primary' : 'btn-ghost'}`}
+              aria-pressed={!enEur} onClick={() => cambiarMoneda('USD')} title="El proveedor cotiza en dólares a tasa BCV">
+              $ A BCV
+            </button>
+            <button type="button" className={`btn btn-sm ${enEur ? 'btn-primary' : 'btn-ghost'}`}
+              aria-pressed={enEur} onClick={() => cambiarMoneda('EUR')} title="El proveedor cotiza en euros: se convierte a $ con la tasa BCV del euro">
+              EURO A BCV
+            </button>
+          </div>
+          <small className="muted" style={{ fontSize: '.72rem' }}>
+            {enEur
+              ? 'Escribe los precios en €; el sistema guarda y compara el equivalente en $ a BCV.'
+              : 'Los precios se escriben en $ a BCV (como siempre).'}
+          </small>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.7rem', alignItems: 'flex-end', marginTop: '.6rem' }}>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/$)</label>
+            <input className="input mono" type="number" min={0} step="any" value={tasa || ''}
+              onChange={(e) => setTasa(Math.max(0, Number(e.target.value) || 0))} placeholder="0,00" style={{ width: 120 }} />
+          </div>
+          {enEur && (
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.72rem' }}>Tasa BCV (Bs/€)</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasaEur || ''}
+                onChange={(e) => setTasaEur(Math.max(0, Number(e.target.value) || 0))} placeholder="0,00" style={{ width: 120 }} />
+            </div>
+          )}
+          <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: '.78rem', lineHeight: 1.5 }}>
+            {enEur ? (
+              factorEurUsd > 0 ? (
+                <>
+                  <div>1 € = <strong className="mono">${fmtCant(factorEurUsd)}</strong> · Bs {fmtCant(tasaEur)}/€ · Bs {fmtCant(tasa)}/$</div>
+                  <div><strong className="mono">€ {fmtCant(totalEur)}</strong> → <strong className="mono">{money(precioTotal)}</strong> a BCV ≈ <span className="mono">Bs {fmtCant(precioTotal * tasa)}</span></div>
+                </>
+              ) : <div style={{ color: 'var(--danger)' }}>⚠️ Indica la tasa BCV del euro para convertir.</div>
+            ) : (
+              <div className="muted">1 $ = <strong className="mono">Bs {fmtCant(tasa)}</strong> · total guardado en $ a BCV</div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Conversor Bs↔$ a la tasa del día (o la que se escriba): ayuda a pasar el precio
           que el proveedor dio en Bs a $ (o al revés) para tipearlo en las columnas. */}
       <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.6rem', borderColor: 'var(--brand, #ff8a00)', display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
@@ -991,7 +1125,11 @@ export function AgregarOfertaModal({
       </div>
 
       <div className="form-row">
-        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>(precio en Bs a BCV y/o en USD efectivo — completa al menos una columna)</span></label>
+        <label>Cotización por ítem <span className="muted" style={{ fontWeight: 400 }}>
+          {enEur
+            ? `(precio en € a tasa BCV — se convierte a $ a BCV al guardar${tieneUsd ? '; la columna USD es pago en efectivo aparte' : ''})`
+            : '(precio en $ a BCV y/o en USD efectivo — completa al menos una columna)'}
+        </span></label>
         {conNombreInv && !nombreInvBloqueado && (
           <p className="hint muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
             📦 <strong>Se guarda en inventario como</strong>: el producto del inventario con que cada renglón entra al recibir la OC. Por defecto queda <strong>como viene de la solicitud</strong>; con <strong>Cambiar</strong> eliges un producto que ya existe o escribes el nombre de uno nuevo (indica su categoría: se crea al guardar). Ningún producto existente se renombra.
@@ -1009,15 +1147,17 @@ export function AgregarOfertaModal({
                 <th rowSpan={2} style={{ verticalAlign: 'bottom' }}>Marca / modelo</th>
                 <th rowSpan={2} style={{ verticalAlign: 'bottom', textAlign: 'center' }} title="Exento de IVA (Art. 18 Ley del IVA). No genera base gravada de IVA (0%)">Exento</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Cant.</th>
-                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>Pago en Bs a BCV</th>
+                <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(96,165,250,.12)' }}>
+                  {enEur ? 'EURO A BCV' : '$ A BCV'}
+                </th>
                 <th colSpan={2} className="num" style={{ textAlign: 'center', background: 'rgba(248,113,113,.12)' }}>Pago en USD</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Diferencia</th>
                 <th rowSpan={2} className="num" style={{ verticalAlign: 'bottom' }}>Var. %</th>
                 <th rowSpan={2}></th>
               </tr>
               <tr>
-                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio</th>
-                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total</th>
+                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Precio {enEur ? '€' : '$'}</th>
+                <th className="num" style={{ background: 'rgba(96,165,250,.12)' }}>Total {enEur ? '€' : '$'}</th>
                 <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Precio</th>
                 <th className="num" style={{ background: 'rgba(248,113,113,.12)' }}>Total</th>
               </tr>
@@ -1025,6 +1165,8 @@ export function AgregarOfertaModal({
             <tbody>
               {items.map((it, idx) => {
                 const totalBs = it.cantidad * it.precio;
+                const peur = precioEurUnitario(it);
+                const totalE = it.cantidad * peur;
                 const totalU = it.cantidad * it.precio_usd;
                 const conUsd = it.precio_usd > 0;
                 const dif = (it.precio - it.precio_usd) * it.cantidad;
@@ -1138,13 +1280,30 @@ export function AgregarOfertaModal({
                       ) : (it.unidad ? <div className="muted" style={{ fontSize: '.66rem' }}>{it.unidad}</div> : null)}
                     </td>
                     <td className="num">
-                      <input key={`p-${it.factor ?? 1}`} className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
-                        defaultValue={it.precio ? String(it.precio) : ''} onFocus={(e) => e.target.select()}
-                        onChange={(e) => { const v = e.target.value.replace(/[^0-9.,]/g, ''); if (v !== e.target.value) e.target.value = v; updateItem(idx, { precio: Number(v.replace(',', '.')) || 0 }); }} />
-                      {tasa > 0 && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
+                      <input key={`p-${it.factor ?? 1}-${monedaCotizacion}`} className="input mono" inputMode="decimal" placeholder="0,00" style={{ width: 90, textAlign: 'right' }}
+                        defaultValue={enEur ? (peur ? String(peur) : '') : (it.precio ? String(it.precio) : '')} onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/[^0-9.,]/g, '');
+                          if (v !== e.target.value) e.target.value = v;
+                          const n = Number(v.replace(',', '.')) || 0;
+                          // En euros el valor escrito es el original; `precio` queda como
+                          // equivalente en $ a BCV para que nada más en el sistema cambie.
+                          if (enEur) updateItem(idx, { precio_eur: n, precio: cotizacionAUsd(n, 'EUR', tasas) });
+                          else updateItem(idx, { precio: n });
+                        }} />
+                      {enEur ? (
+                        peur > 0 && (
+                          <div className="muted mono" style={{ fontSize: '.66rem' }}>
+                            → {money(it.precio)} a BCV
+                            {factorEurUsd > 0 && tasaEur > 0 && <> · Bs {fmtCant(peur * tasaEur)}</>}
+                          </div>
+                        )
+                      ) : (
+                        tasa > 0 && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }}>≈ Bs {round2(it.precio * tasa).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      )}
                       {tienePresentacion(it) && it.precio > 0 && <div className="muted mono" style={{ fontSize: '.66rem' }} title="Precio por unidad de uso, para comparar con otros proveedores">{money(precioEnUso(it, it.precio))} / {it.unidad_uso}</div>}
                     </td>
-                    <td className="num mono">{money(totalBs)}</td>
+                    <td className="num mono">{enEur ? `€ ${fmtCant(totalE)}` : money(totalBs)}</td>
                     <td className="num">
                       <input key={`u-${it.factor ?? 1}`} className="input mono" inputMode="decimal" placeholder="—" style={{ width: 90, textAlign: 'right' }}
                         defaultValue={it.precio_usd ? String(it.precio_usd) : ''} onFocus={(e) => e.target.select()}
@@ -1169,7 +1328,9 @@ export function AgregarOfertaModal({
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
                 <td colSpan={conNombreInv ? 7 : 6} className="num">SUBTOTAL{conAlternativas ? ' *' : ''}</td>
-                <td className="num mono">{money(precioTotal)}</td>
+                <td className="num mono">
+                  {enEur ? <>€ {fmtCant(totalEur)}<div className="muted" style={{ fontSize: '.66rem', fontWeight: 400 }}>{money(precioTotal)} a BCV</div></> : money(precioTotal)}
+                </td>
                 <td></td>
                 <td className="num mono">{tieneUsd ? money(totalUsd) : '—'}</td>
                 <td className="num mono" style={{ color: diferencia >= 0 ? 'var(--success)' : 'var(--danger)' }}>{tieneUsd ? money(diferencia) : '—'}</td>
@@ -1186,9 +1347,15 @@ export function AgregarOfertaModal({
           </div>
         )}
         <small className="muted">
-          <strong>Pago en Bs a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llena solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (Bs − USD)
-          y la <strong>Variación %</strong> = (Bs − USD) / Bs por producto. El total en USD se guarda como precio en divisa.
-          Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usa <strong>+ marca</strong> para cargar cada variante con su precio.
+          {enEur ? (
+            <>La columna <strong>EURO A BCV</strong> es el precio original en €; al guardar se convierte con las tasas BCV indicadas y queda en <strong>$ a BCV</strong> para el ranking, la OC y el PMP.
+              {factorEurUsd > 0 && <> 1 € = ${fmtCant(factorEurUsd)} (Bs {fmtCant(tasaEur)}/€ ÷ Bs {fmtCant(tasa)}/$).</>}
+              {' '}La columna <strong>Pago en USD</strong> es aparte (pago en efectivo), no la conversión del euro.</>
+          ) : (
+            <><strong>$ a BCV</strong> y <strong>Pago en USD</strong> son ambos en $. Si el proveedor cotiza en una sola moneda, <strong>llena solo esa columna</strong> (la otra puede quedar en blanco). La <strong>Diferencia</strong> = (BCV − USD)
+              y la <strong>Variación %</strong> = (BCV − USD) / BCV por producto. El total en USD se guarda como precio en divisa.</>
+          )}
+          {' '}Si el proveedor ofrece el <strong>mismo producto en varias marcas/modelos</strong>, usa <strong>+ marca</strong> para cargar cada variante con su precio.
         </small>
       </div>
 
@@ -1196,7 +1363,14 @@ export function AgregarOfertaModal({
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}><span>💵 Totales</span></div>
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
-          <div>Total BCV: <strong>{precioTotal > 0 ? money(precioTotal) : '—'}</strong></div>
+          <div>{enEur ? 'Total cotizado en €' : 'Total BCV'}: <strong>{enEur ? (totalEur > 0 ? `€ ${fmtCant(totalEur)}` : '—') : (precioTotal > 0 ? money(precioTotal) : '—')}</strong></div>
+          {enEur && (
+            <div style={{ color: 'var(--info, #0284c7)' }}>
+              Convertido a $ a BCV: <strong>{money(precioTotal)}</strong>
+              {tasa > 0 && <> · ≈ <strong className="mono">Bs {fmtCant(precioTotal * tasa)}</strong></>}
+              {factorEurUsd > 0 && <> <span className="muted">(1 € = ${fmtCant(factorEurUsd)})</span></>}
+            </div>
+          )}
           <div>Total USD: <strong style={{ color: 'var(--success)' }}>{tieneUsd ? money(totalUsd) : '—'}</strong></div>
           {montoExento > 0 && (
             <div style={{ color: 'var(--info, #0284c7)' }}>

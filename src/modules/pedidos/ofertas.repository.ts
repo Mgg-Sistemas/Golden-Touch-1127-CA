@@ -23,6 +23,13 @@ export interface CrearOfertaInput {
   precio_total: number;
   /** Precio con descuento en divisa (opcional). Si se indica, pasa a ser el precio final de la OC. */
   precio_divisa?: number | null;
+  /** Moneda original de la cotización: $ a BCV (USD, por defecto) o euro a tasa BCV (EUR).
+   *  El `precio_total` guardado sigue siendo siempre el equivalente en $ a BCV. */
+  moneda_cotizacion?: 'USD' | 'EUR' | null;
+  /** Tasas BCV usadas en la conversión y total en euros (para volver a mostrar la oferta). */
+  tasa_usd_bcv?: number | null;
+  tasa_eur_bcv?: number | null;
+  precio_total_eur?: number | null;
   /** Descuento obtenido (monto $) que se resta del total de la factura/OC. Opcional. */
   descuento_obtenido?: number | null;
   /** Impuestos de la factura del proveedor (se SUMAN al total de la OC y se arrastran a
@@ -179,6 +186,11 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       items: input.items,
       precio_total: input.precio_total,
       precio_divisa: input.precio_divisa ?? null,
+      moneda_cotizacion: input.moneda_cotizacion === 'EUR' ? 'EUR' : 'USD',
+      tasa_usd_bcv: Number(input.tasa_usd_bcv) > 0 ? Number(input.tasa_usd_bcv) : null,
+      tasa_eur_bcv: Number(input.tasa_eur_bcv) > 0 ? Number(input.tasa_eur_bcv) : null,
+      precio_total_eur: input.moneda_cotizacion === 'EUR' && Number(input.precio_total_eur) > 0
+        ? Number(input.precio_total_eur) : null,
       descuento_obtenido: Math.max(0, Number(input.descuento_obtenido) || 0),
       iva_pct: Math.max(0, Number(input.iva_pct) || 0),
       iva_monto: Math.max(0, Number(input.iva_monto) || 0),
@@ -207,7 +219,8 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
 export async function actualizarOferta(
   id: string,
   patch: Partial<Pick<CrearOfertaInput,
-    'proveedor_id' | 'actividad_economica' | 'items' | 'precio_total' | 'precio_divisa' | 'descuento_obtenido' |
+    'proveedor_id' | 'actividad_economica' | 'items' | 'precio_total' | 'precio_divisa' |
+    'moneda_cotizacion' | 'tasa_usd_bcv' | 'tasa_eur_bcv' | 'precio_total_eur' | 'descuento_obtenido' |
     'iva_pct' | 'iva_monto' | 'iva_aplicado' | 'iva_incluido' | 'igtf_pct' | 'igtf_monto' | 'igtf_aplicado' |
     'fecha_entrega_prometida' | 'condiciones_pago' | 'anticipo_monto' | 'anticipo_moneda' |
     'notas' | 'ficha' | 'adjuntos' | 'pdf_path' | 'pdf_filename'>>
