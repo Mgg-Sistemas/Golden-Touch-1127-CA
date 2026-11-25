@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { signIn, useSession, estaBloqueado, estaInhabilitado, registrarFalloLogin, resetIntentosLogin } from './authStore';
 import { isSupabaseConfigured } from '@/shared/lib/supabase';
-import { isWebAuthnSupported, huellaHint, loginConHuella } from './webauthn.repository';
+import { isWebAuthnSupported, huellaHint, loginConHuella, ultimoEmailUsado, guardarUltimoEmailUsado, olvidarUltimoEmailUsado } from './webauthn.repository';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -14,6 +14,7 @@ export function LoginPage() {
   // Login con huella (WebAuthn): solo si el navegador lo soporta. Si este equipo
   // ya tiene una huella enrolada, prellenamos el correo y lo ofrecemos primero.
   const [huellaBusy, setHuellaBusy] = useState(false);
+  const [cachedEmail, setCachedEmail] = useState<string | null>(null);
   const soportaHuella = isWebAuthnSupported();
   const hint = huellaHint();
 
@@ -34,9 +35,15 @@ export function LoginPage() {
   const { session, loading: cargandoSesion } = useSession();
   const didCleanRef = useRef(false);
   useEffect(() => {
+    const last = ultimoEmailUsado();
+    if (last) {
+      setCachedEmail(last);
+      setEmail(last);
+    } else if (hint) {
+      setEmail(hint);
+    }
     if (didCleanRef.current) return;
     didCleanRef.current = true;
-    if (hint) setEmail(hint);
     // Si el admin deshabilitó la cuenta con la sesión abierta, PermissionsContext
     // cerró la sesión y dejó esta marca: mostramos el motivo al caer aquí.
     if (localStorage.getItem('cuenta_deshabilitada') === '1') {
@@ -46,8 +53,9 @@ export function LoginPage() {
   }, [hint]);
 
   async function handleHuella() {
-    const correo = (email || hint || '').trim();
+    const correo = (email || cachedEmail || hint || '').trim();
     if (!correo) { setError('Escribe tu correo para entrar con huella.'); return; }
+    if (!email && (cachedEmail || hint)) setEmail(cachedEmail || hint || '');
     setError(null);
     setHuellaBusy(true);
     try {
@@ -56,6 +64,7 @@ export function LoginPage() {
         if (await estaInhabilitado(correo)) { setHuellaBusy(false); setError(INHABILITADO_MSG); return; }
       } catch { /* si el chequeo falla, se continúa */ }
       await loginConHuella(correo);
+      guardarUltimoEmailUsado(correo);
       try { await resetIntentosLogin(); } catch { /* best-effort */ }
       navigate('/app');
     } catch (e) {
@@ -99,6 +108,7 @@ export function LoginPage() {
     // 4) Login OK → reiniciar el contador de intentos. El cambio de clave obligatorio
     //    (tras un desbloqueo) lo fuerza PasswordChangeGate al entrar a /app.
     try { await resetIntentosLogin(); } catch { /* best-effort */ }
+    guardarUltimoEmailUsado(correo);
     setSubmitting(false);
     navigate('/app');
   }
@@ -156,6 +166,60 @@ export function LoginPage() {
           {!isSupabaseConfigured && (
             <div className="badge warning" style={{ marginBottom: '1rem', display: 'block', padding: '.6rem .8rem' }}>
               Supabase aún no configurado · revisa .env.local
+            </div>
+          )}
+
+          {cachedEmail && (
+            <div style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.78rem', color: 'var(--muted, #888)' }}>Último correo usado:</span>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '.35rem',
+                  padding: '.2rem .55rem',
+                  background: 'var(--bg-card, rgba(255,255,255,0.06))',
+                  border: '1px solid var(--border)',
+                  borderRadius: '999px',
+                  fontSize: '.82rem',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setEmail(cachedEmail)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent, #f59e0b)',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    padding: 0,
+                    fontSize: 'inherit',
+                  }}
+                  title="Usar este correo"
+                >
+                  {cachedEmail}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    olvidarUltimoEmailUsado();
+                    setCachedEmail(null);
+                  }}
+                  title="Olvidar este correo"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted, #888)',
+                    cursor: 'pointer',
+                    fontSize: '.75rem',
+                    lineHeight: 1,
+                    padding: '0 2px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 

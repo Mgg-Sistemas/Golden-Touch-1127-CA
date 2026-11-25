@@ -9,17 +9,45 @@ import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { supabase } from '@/shared/lib/supabase';
 
-/** Email enrolado en ESTE dispositivo (pista local para ofrecer la huella en el login). */
-const HINT_KEY = 'gt.webauthn.email';
+/** Email del último inicio de sesión en ESTE dispositivo (para autocompletar y acceso biométrico rápido). */
+const HINT_KEY = 'gt_last_login_email';
 
 export function isWebAuthnSupported(): boolean {
   return typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined';
 }
-export function huellaHint(): string | null {
-  try { return localStorage.getItem(HINT_KEY); } catch { return null; }
+
+export function ultimoEmailUsado(): string | null {
+  try {
+    return localStorage.getItem(HINT_KEY) || localStorage.getItem('gt.webauthn.email');
+  } catch {
+    return null;
+  }
 }
-function setHuellaHint(email: string) { try { localStorage.setItem(HINT_KEY, email); } catch { /* ignore */ } }
-export function limpiarHuellaHint() { try { localStorage.removeItem(HINT_KEY); } catch { /* ignore */ } }
+
+export function guardarUltimoEmailUsado(email: string): void {
+  try {
+    const e = email.trim().toLowerCase();
+    if (e) {
+      localStorage.setItem(HINT_KEY, e);
+      localStorage.setItem('gt.webauthn.email', e);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function olvidarUltimoEmailUsado(): void {
+  try {
+    localStorage.removeItem(HINT_KEY);
+    localStorage.removeItem('gt.webauthn.email');
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Compatibilidad con código anterior */
+export const huellaHint = ultimoEmailUsado;
+export const limpiarHuellaHint = olvidarUltimoEmailUsado;
 
 /** Nombre legible del equipo, a partir del navegador/SO. */
 export function etiquetaDispositivo(): string {
@@ -67,7 +95,7 @@ export async function enrolarHuella(deviceLabel?: string): Promise<void> {
     deviceLabel: (deviceLabel || etiquetaDispositivo()).slice(0, 80),
   });
   const { data: u } = await supabase.auth.getUser();
-  if (u?.user?.email) setHuellaHint(u.user.email);
+  if (u?.user?.email) guardarUltimoEmailUsado(u.user.email);
 }
 
 /** Entra con huella (sin contraseña). Abre sesión de Supabase al verificar. */
@@ -81,7 +109,7 @@ export async function loginConHuella(email: string): Promise<void> {
   if (!res?.token_hash) throw new Error('No se pudo iniciar sesión.');
   const { error } = await supabase.auth.verifyOtp({ token_hash: res.token_hash, type: 'magiclink' });
   if (error) throw error;
-  setHuellaHint(res.email || correo);
+  guardarUltimoEmailUsado(res.email || correo);
 }
 
 /* ── Gestión de dispositivos del propio usuario ── */
@@ -92,14 +120,23 @@ export interface DispositivoHuella {
   last_used_at: string | null;
 }
 export async function listarDispositivos(): Promise<DispositivoHuella[]> {
+  const { data: u } = await supabase.auth.getUser();
+  if (!u?.user?.id) return [];
   const { data, error } = await supabase
     .from('webauthn_credentials')
     .select('id, device_label, created_at, last_used_at')
+    .eq('user_id', u.user.id)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as DispositivoHuella[];
 }
 export async function eliminarDispositivo(id: string): Promise<void> {
-  const { error } = await supabase.from('webauthn_credentials').delete().eq('id', id);
+  const { data: u } = await supabase.auth.getUser();
+  if (!u?.user?.id) throw new Error('No autenticado');
+  const { error } = await supabase
+    .from('webauthn_credentials')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', u.user.id);
   if (error) throw error;
 }

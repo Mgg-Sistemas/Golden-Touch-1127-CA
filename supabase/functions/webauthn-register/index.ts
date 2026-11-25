@@ -130,16 +130,18 @@ serve(async (req) => {
     const cred = verification.registrationInfo.credential;
     // deno-lint-ignore no-explicit-any
     const transports = (payload.response as any)?.response?.transports ?? cred.transports ?? null;
-    const { error: upErr } = await admin.from('webauthn_credentials').insert({
-      user_id: userId,
-      credential_id: cred.id,
-      public_key: isoBase64URL.fromBuffer(cred.publicKey),
-      counter: cred.counter ?? 0,
-      transports,
-      device_label: (payload.deviceLabel ?? '').toString().slice(0, 80) || null,
-    });
+    const { error: upErr } = await admin.from('webauthn_credentials').upsert(
+      {
+        user_id: userId,
+        credential_id: cred.id,
+        public_key: isoBase64URL.fromBuffer(cred.publicKey),
+        counter: cred.counter ?? 0,
+        transports,
+        device_label: (payload.deviceLabel ?? '').toString().slice(0, 80) || null,
+      },
+      { onConflict: 'credential_id' },
+    );
     if (upErr) {
-      if ((upErr as { code?: string }).code === '23505') return json({ error: 'Esta huella ya está registrada en este dispositivo.' }, 409);
       console.error('webauthn-register: guardar credencial', upErr);
       return json({ error: 'No se pudo guardar la huella' }, 500);
     }
