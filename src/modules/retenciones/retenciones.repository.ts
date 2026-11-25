@@ -33,12 +33,29 @@ export interface RetencionItem {
   proveedorNombre: string;
 }
 
-async function mapProveedores(ids?: string[]): Promise<Map<string, string>> {
+export async function mapProveedores(ids?: string[]): Promise<Map<string, string>> {
   const unicos = ids ? Array.from(new Set(ids.filter(Boolean))) : [];
   if (ids && unicos.length === 0) return new Map();
   const q = supabase.from('proveedores').select('id, razon_social');
   const { data } = unicos.length > 0 ? await q.in('id', unicos) : await q;
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
+}
+
+/**
+ * Carga órdenes específicas por sus IDs con su nombre de proveedor resuelto.
+ * Utilizado por la cola Por Hacer para resolver órdenes de adjuntos que no
+ * están en la consulta predeterminada de pendientes/hechas.
+ */
+export async function listOrdenesPorIds(ids: string[]): Promise<RetencionItem[]> {
+  const unicos = Array.from(new Set(ids.filter(Boolean)));
+  if (unicos.length === 0) return [];
+  const { data, error } = await supabase.from(TABLE).select('*').in('id', unicos);
+  if (error) throw error;
+  const pm = await mapProveedores((data ?? []).map((o) => (o as Orden).proveedor_id as string));
+  return (data ?? []).map((o) => ({
+    orden: o as Orden,
+    proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—',
+  }));
 }
 
 /**

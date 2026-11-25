@@ -29,6 +29,7 @@ coverage/
 # Documentation interna (NUNCA commitear)
 docs/
 !public/docs/
+research_notes/
 
 # Guías HTML de uso/ejemplo (locales, no commitear)
 ejemplo-registro-acopio.html
