@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { Modal } from '@/shared/ui/Modal';
 import { money, num } from '@/shared/lib/format';
 import { isoAVe } from '@/shared/lib/fechaVE';
@@ -193,6 +194,13 @@ export function ReporteExistenciasModal({ tanques, reporte, onClose }: Props) {
       cancel = true;
     };
   }, [reporte, movsMap]);
+
+  // La caché de movimientos se llenaba una sola vez: con el reporte abierto, los
+  // surtidos nuevos no aparecían hasta refrescar. Al llegar un cambio se invalida
+  // y el efecto de arriba vuelve a consultar todos los tanques.
+  useRealtime(['combustible_tanque_movimientos', 'combustible_tanques', 'combustible_adjuntos'], () => {
+    setMovsMap({});
+  }, { pollMs: 30000 });
 
   // Cálculo de corte (apertura, flujo en periodo, cierre y valoración) para cada tanque
   const cortesPorTanque = useMemo(() => {

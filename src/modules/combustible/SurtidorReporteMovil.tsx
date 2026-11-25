@@ -8,6 +8,7 @@
    mismo reporte en papel (vista previa, se descarga si se pide).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -56,6 +57,11 @@ export function SurtidorReporteMovil({ tanques, tanqueInicial, onClose }: {
     finally { setCargando(false); }
   }, [tanqueId, tanques, desde, hasta]);
   useEffect(() => { void cargar(); }, [cargar]);
+  // El reporte queda abierto mientras se surte: sin esto se congelaba y había que
+  // cerrar y volver a abrir (o refrescar) para ver el movimiento recién cargado.
+  useRealtime(['combustible_tanque_movimientos', 'combustible_tanques', 'combustible_adjuntos'], () => {
+    void cargar();
+  }, { pollMs: 30000 });
 
   const grupos = useMemo(() => ORDEN_TIPOS
     .map((tipo) => {

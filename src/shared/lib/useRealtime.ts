@@ -48,10 +48,13 @@ const RECARGA_MIN_MS = 2500;
  * Suscribe `onChange` a los cambios de `tables`. Agrupa ráfagas (400 ms) y no
  * recarga más de una vez cada 2,5 s. Se desuscribe al desmontar o cambiar tablas.
  */
-export function useRealtime(tables: string[], onChange: () => void, opts?: { enabled?: boolean }): void {
+export function useRealtime(tables: string[], onChange: () => void, opts?: { enabled?: boolean; pollMs?: number }): void {
   const cb = useRef(onChange);
   cb.current = onChange;
   const enabled = opts?.enabled ?? true;
+  /** Respaldo opcional: si el evento Realtime se pierde (canal caído, RLS, etc.),
+   *  la vista igual se pone al día. 0 = solo Realtime. */
+  const pollMs = opts?.pollMs ?? 0;
   const key = [...tables].sort().join(',');
 
   useEffect(() => {
@@ -88,6 +91,16 @@ export function useRealtime(tables: string[], onChange: () => void, opts?: { ena
     };
     if (ocultaApi) document.addEventListener('visibilitychange', alVolver);
 
+    // Respaldo para pantallas críticas (Combustible): un evento perdido no debe
+    // obligar a refrescar a mano. Se respetan el debounce y el mínimo entre recargas.
+    let poll: ReturnType<typeof setInterval> | null = null;
+    if (pollMs > 0) {
+      poll = setInterval(() => {
+        if (ocultaApi && document.hidden) return;
+        programar();
+      }, pollMs);
+    }
+
     const channel = sb.channel(`rt-${key}-${Math.floor(Math.random() * 1e9)}`);
     tables.forEach((t) => {
       channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, alEvento);
@@ -96,9 +109,10 @@ export function useRealtime(tables: string[], onChange: () => void, opts?: { ena
 
     return () => {
       if (timer) clearTimeout(timer);
+      if (poll) clearInterval(poll);
       if (ocultaApi) document.removeEventListener('visibilitychange', alVolver);
       sb.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, enabled]);
+  }, [key, enabled, pollMs]);
 }

@@ -257,7 +257,7 @@ export function TanquesView() {
     void reloadTanques();
     void reloadMovs(selId);
     setReloadKey((k) => k + 1);
-  });
+  }, { pollMs: 30000 });
 
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);

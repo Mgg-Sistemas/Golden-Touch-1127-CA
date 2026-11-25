@@ -127,10 +127,10 @@ export function SurtidorMovilView() {
     return () => { cancel = true; };
   }, [reloadBase]);
   useEffect(() => { void reloadMovs(selId).catch(() => {}); }, [selId, reloadMovs]);
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_catalogos', 'combustible_adjuntos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
+  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_contador_cambios', 'combustible_catalogos', 'combustible_adjuntos', 'maquinaria_lecturas', 'maquinaria_equipos'], () => {
     void reloadBase().catch(() => {});
     void reloadMovs(selId).catch(() => {});
-  });
+  }, { pollMs: 30000 });
 
   const sel = useMemo(() => tanques.find((t) => t.id === selId) ?? null, [tanques, selId]);
   // Si el movimiento abierto lo borró otro (o se borró aquí), el detalle se cierra solo.
