@@ -30,6 +30,8 @@ export interface ColaPorHacerViewProps {
   empresaNombre?: string;
   loading: boolean;
   canWrite: boolean;
+  usuariosDirectorio?: { id?: string; email: string; nombre?: string }[];
+  onCambiarSoporteFisico?: (item: ItemColaPorHacer, recibido: boolean, entregadoPor: string) => Promise<void>;
   onRegistrarBuzon: (fac: FacturaBuzon) => void;
   onRegistrarArchivo: (f: FacturaDeOrigen) => void;
   onRegistrarOrden: (item: RetencionItem) => void;
@@ -44,6 +46,8 @@ export function ColaPorHacerView({
   empresaNombre,
   loading,
   canWrite,
+  usuariosDirectorio,
+  onCambiarSoporteFisico,
   onRegistrarBuzon,
   onRegistrarArchivo,
   onRegistrarOrden,
@@ -54,7 +58,9 @@ export function ColaPorHacerView({
   const [q, setQ] = useState('');
   const [fImp, setFImp] = useState('');
   const [fOrigen, setFOrigen] = useState<'' | 'buzon' | 'compras'>('');
+  const [fFisico, setFFisico] = useState<'' | 'con_fisico' | 'sin_fisico'>('');
   const [ord, setOrd] = useState<'reciente' | 'antiguo' | 'proveedor'>('reciente');
+  const [tempEntregado, setTempEntregado] = useState<Record<string, string>>({});
   const [pag, setPag] = useState(1);
   const tam = 25;
 
@@ -62,7 +68,7 @@ export function ColaPorHacerView({
     const txt = norm(q);
     return items.filter((it) => {
       if (txt) {
-        const hay = norm(`${it.codigo} ${it.proveedorNombre} ${it.proveedorRif ?? ''} ${it.archivoNombre} ${it.empresaNombre ?? ''}`);
+        const hay = norm(`${it.codigo} ${it.proveedorNombre} ${it.proveedorRif ?? ''} ${it.archivoNombre} ${it.empresaNombre ?? ''} ${it.soporteFisico?.entregadoPor ?? ''}`);
         if (!hay.includes(txt)) return false;
       }
       if (fImp) {
@@ -72,9 +78,13 @@ export function ColaPorHacerView({
         if (fOrigen === 'buzon' && it.origen !== 'buzon') return false;
         if (fOrigen === 'compras' && it.origen === 'buzon') return false;
       }
+      if (fFisico) {
+        if (fFisico === 'con_fisico' && !it.soporteFisico?.recibido) return false;
+        if (fFisico === 'sin_fisico' && it.soporteFisico?.recibido) return false;
+      }
       return true;
     });
-  }, [items, q, fImp, fOrigen]);
+  }, [items, q, fImp, fOrigen, fFisico]);
 
   const ordenadas = useMemo(() => {
     const xs = [...filtradas];
@@ -157,6 +167,19 @@ export function ColaPorHacerView({
           </label>
 
           <label className="lfv8-campo">
+            <span>Soporte físico</span>
+            <select
+              className="lfv8-select"
+              value={fFisico}
+              onChange={(e) => { setFFisico(e.target.value as typeof fFisico); setPag(1); }}
+            >
+              <option value="">Todos</option>
+              <option value="con_fisico">✓ Con físico en mano</option>
+              <option value="sin_fisico">Sin físico</option>
+            </select>
+          </label>
+
+          <label className="lfv8-campo">
             <span>Ordenar</span>
             <select
               className="lfv8-select"
@@ -176,11 +199,12 @@ export function ColaPorHacerView({
       </p>
 
       {/* Grid de facturas */}
-      <div className="lfv8-sis" style={{ '--cols': '1.3fr 1.5fr 1fr .9fr 1fr 2.3fr' } as React.CSSProperties}>
+      <div className="lfv8-sis" style={{ '--cols': '1.2fr 1.4fr 1fr 1.3fr .8fr .9fr 2.5fr' } as React.CSSProperties}>
         <div className="lfv8-sis-cab">
           <span>Documento</span>
           <span>Proveedor</span>
-          <span>Soporte / Vía</span>
+          <span>Soporte digital</span>
+          <span>Soporte físico</span>
           <span style={{ textAlign: 'right' }}>Total</span>
           <span>Pendiente</span>
           <span></span>
@@ -242,7 +266,7 @@ export function ColaPorHacerView({
               </span>
 
               {/* Soporte adjunto */}
-              <span data-l="Soporte / Vía">
+              <span data-l="Soporte digital">
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"
@@ -252,6 +276,84 @@ export function ColaPorHacerView({
                 >
                   📎 {it.adjuntosCount > 1 ? `${it.adjuntosCount} archivos` : it.archivoNombre}
                 </button>
+              </span>
+
+              {/* Soporte físico */}
+              <span data-l="Soporte físico">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '.35rem',
+                      cursor: canWrite ? 'pointer' : 'default',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={it.soporteFisico?.recibido ?? false}
+                      disabled={!canWrite}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const actualTexto = tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '');
+                        void onCambiarSoporteFisico?.(it, checked, actualTexto);
+                      }}
+                      style={{
+                        width: '15px',
+                        height: '15px',
+                        accentColor: 'var(--success, #16a34a)',
+                        cursor: canWrite ? 'pointer' : 'default',
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: '.75rem',
+                        fontWeight: it.soporteFisico?.recibido ? 600 : 400,
+                        color: it.soporteFisico?.recibido ? 'var(--success, #16a34a)' : 'var(--text-muted)',
+                      }}
+                    >
+                      {it.soporteFisico?.recibido ? '✓ En mano' : 'Sin físico'}
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    list="usuarios-entrega-list"
+                    className="input input-sm"
+                    placeholder="¿Quién entregó?"
+                    value={tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '')}
+                    disabled={!canWrite}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTempEntregado((prev) => ({ ...prev, [it.id]: v }));
+                    }}
+                    onBlur={(e) => {
+                      const v = e.target.value;
+                      if (v !== (it.soporteFisico?.entregadoPor ?? '')) {
+                        void onCambiarSoporteFisico?.(it, it.soporteFisico?.recibido ?? (v.trim().length > 0), v);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const v = (e.target as HTMLInputElement).value;
+                        void onCambiarSoporteFisico?.(it, it.soporteFisico?.recibido ?? (v.trim().length > 0), v);
+                      }
+                    }}
+                    style={{
+                      fontSize: '.74rem',
+                      padding: '2px 6px',
+                      width: '100%',
+                      maxWidth: '180px',
+                      borderColor: it.soporteFisico?.recibido ? 'rgba(34, 197, 94, 0.35)' : undefined,
+                      background: it.soporteFisico?.recibido ? 'rgba(34, 197, 94, 0.05)' : undefined,
+                    }}
+                    title={
+                      it.soporteFisico?.recibidoEn
+                        ? `Recibido: ${it.soporteFisico.recibidoEn.slice(0, 10)}${it.soporteFisico.recibidoPor ? ` por ${it.soporteFisico.recibidoPor}` : ''}`
+                        : 'Escribe quién entregó el documento físico (usuario del sistema o externo)'
+                    }
+                  />
+                </div>
               </span>
 
               {/* Montos */}
@@ -317,32 +419,39 @@ export function ColaPorHacerView({
                   </>
                 )}
 
-                {/* Acción no aplica si es orden de compra */}
-                {onNoAplica && esComprasOrden && it.rawOrdenItem && pends.map((k) => {
-                  const o = it.rawOrdenItem!.orden;
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return (
-                    <button
-                      key={`na-${k}`}
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      title={`Al ${lbl} de esta compra no le corresponde retención`}
-                      onClick={() => onNoAplica({
-                        ordenId: o.id,
-                        codigo: o.oc_codigo ?? o.codigo,
-                        proveedorId: o.proveedor_id ?? null,
-                        proveedorNombre: it.proveedorNombre,
-                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                        total: o.total ?? null,
-                        impuestoClave: tipoAGt(k),
-                        impuestoNombre: lbl,
-                        fechaDocumento: it.fecha ?? '',
-                      })}
-                    >
-                      {lbl}: no aplica
-                    </button>
-                  );
-                })}
+                {/* Acción no aplica / no es apta para retener */}
+                {onNoAplica && canWrite && (it.rawOrdenItem || it.rawFacturaOrigen?.origen.tipo === 'oc') && pends.length > 0 && (
+                  <>
+                    {pends.map((k) => {
+                      const o = it.rawOrdenItem?.orden;
+                      const ordenId = o?.id || (it.rawFacturaOrigen?.origen.tipo === 'oc' ? it.rawFacturaOrigen.origen.id : '');
+                      const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
+                      const btnTexto = pends.length === 1 ? `🚫 No es apta` : `🚫 ${lbl}: no aplica`;
+                      return (
+                        <button
+                          key={`na-${k}`}
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          style={{ color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.3)' }}
+                          title={`Indicar que a esta orden no le corresponde retención de ${lbl} (no es apta)`}
+                          onClick={() => onNoAplica({
+                            ordenId,
+                            codigo: o?.oc_codigo ?? o?.codigo ?? it.codigo,
+                            proveedorId: o?.proveedor_id ?? null,
+                            proveedorNombre: it.proveedorNombre,
+                            moneda: o?.total_moneda === 'Bs' ? 'Bs' : it.moneda,
+                            total: o?.total ?? it.total ?? null,
+                            impuestoClave: tipoAGt(k),
+                            impuestoNombre: lbl,
+                            fechaDocumento: it.fecha ?? '',
+                          })}
+                        >
+                          {btnTexto}
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
 
                 {/* Ver detalle / orden si aplica */}
                 {it.rawOrdenItem && (
@@ -408,6 +517,14 @@ export function ColaPorHacerView({
           </div>
         )}
       </div>
+
+      <datalist id="usuarios-entrega-list">
+        {usuariosDirectorio?.map((u) => (
+          <option key={u.id || u.email} value={u.nombre || u.email}>
+            {u.nombre ? `${u.nombre} (${u.email})` : u.email}
+          </option>
+        ))}
+      </datalist>
     </>
   );
 }

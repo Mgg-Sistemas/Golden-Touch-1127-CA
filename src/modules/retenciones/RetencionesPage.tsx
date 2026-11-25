@@ -11,10 +11,12 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import {
-  listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
+  listRetencionesPendientes, listRetencionesHechas, listOrdenesPorIds, finalizarRetencion,
   urlRetencion, comprobantesDeOrden, labelRetencionModo, labelRetencionMomento,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
+import { cargarSoportesFisicos, guardarSoporteFisico, type SoportesFisicosMap } from './soporteFisico.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
 import { urlSoporteCola, type SoporteCola } from './soporteCola';
 import { estadoRetencionDeOrden, badgeEstadoRetencion, textoPago } from './estadoRetencion';
@@ -30,7 +32,7 @@ import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
 import { semillaFacturaDesdeBuzon, semillaFacturaDesdeOrden, semillaFacturaDesdeOrdenArchivo } from '@/modules/libroFiscal/semillasRetencion';
-import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, cargarDatosDirectosPorIds, type FacturaDeOrigen, type DatosDirectoExtra } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { ColaPorHacerView } from './ColaPorHacerView';
 import { construirColaPorHacer, type ItemColaPorHacer } from './colaPorHacer';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
@@ -83,6 +85,16 @@ export function RetencionesPage() {
   const [facturasBuzon, setFacturasBuzon] = useState<FacturaBuzon[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
   const [pagosOc, setPagosOc] = useState<Map<string, MontoPagado>>(new Map());
+  const [soportesFisicos, setSoportesFisicos] = useState<SoportesFisicosMap>({});
+  const [usuariosDirectorio, setUsuariosDirectorio] = useState<{ id?: string; email: string; nombre?: string }[]>([]);
+  const [todasOrdenes, setTodasOrdenes] = useState<RetencionItem[]>([]);
+  const [directosExtra, setDirectosExtra] = useState<Map<string, DatosDirectoExtra>>(new Map());
+
+  useEffect(() => {
+    listUsuarios()
+      .then((us) => setUsuariosDirectorio(us.map((u) => ({ id: u.id, email: u.email, nombre: u.nombre }))))
+      .catch(() => {});
+  }, []);
   const [conV3, setConV3] = useState(false);
   useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
   // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
@@ -199,12 +211,13 @@ export function RetencionesPage() {
   const reload = useCallback(async () => {
     const cfg = await getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO);
     setConfigFiscal(cfg);
-    const [p, h, libro, fc, fb] = await Promise.all([
+    const [p, h, libro, fc, fb, sf] = await Promise.all([
       listRetencionesPendientes(cfg.estadosKanbanRetencion).catch(() => [] as RetencionItem[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
       listRetenciones({ direccion: 'practicada' }).catch(() => []),
       facturasPorRegistrar().catch(() => [] as FacturaDeOrigen[]),
       listFacturasBuzon().catch(() => [] as FacturaBuzon[]),
+      cargarSoportesFisicos().catch(() => ({} as SoportesFisicosMap)),
     ]);
     const reg: Registradas = new Map();
     for (const r of libro) {
@@ -213,8 +226,30 @@ export function RetencionesPage() {
       s.add(r.tipo);
       reg.set(r.docId, s);
     }
+
+    // Mapa unificado de órdenes para resolver adjuntos que no están en pendientes
+    const ordenesMap = new Map<string, RetencionItem>();
+    for (const item of [...p, ...h]) {
+      if (item?.orden?.id) ordenesMap.set(item.orden.id, item);
+    }
+
+    const missingOcIds = Array.from(new Set(
+      fc.filter((f) => f.origen.tipo === 'oc' && !ordenesMap.has(f.origen.id)).map((f) => f.origen.id),
+    ));
+
+    const [ordenesExtra, directos] = await Promise.all([
+      missingOcIds.length > 0 ? listOrdenesPorIds(missingOcIds).catch(() => [] as RetencionItem[]) : Promise.resolve([] as RetencionItem[]),
+      cargarDatosDirectosPorIds(fc).catch(() => new Map<string, DatosDirectoExtra>()),
+    ]);
+
+    for (const item of ordenesExtra) {
+      if (item?.orden?.id) ordenesMap.set(item.orden.id, item);
+    }
+
+    const todas = Array.from(ordenesMap.values());
+
     // Lo marcado «no aplica» cuenta como resuelto para ese impuesto.
-    const na = await noAplicaPorOrden([...p, ...h].map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
+    const na = await noAplicaPorOrden(todas.map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
     for (const [id, tipos] of na) {
       const s = reg.get(id) ?? new Set<TipoImpuesto>();
       for (const t of tipos) s.add(t);
@@ -222,10 +257,47 @@ export function RetencionesPage() {
     }
     setPendientes(p); setHechas(h); setRegistradas(reg);
     setFacturasCompras(fc); setFacturasBuzon(fb);
+    setSoportesFisicos(sf);
+    setTodasOrdenes(todas);
+    setDirectosExtra(directos);
     // Monto neto con que Tesorería pagó las OC ya pagadas (lectura cruzada, solo lectura).
     const idsPagadas = [...p, ...h].filter((i) => i.orden.retencion_pagada).map((i) => i.orden.id);
     setPagosOc(await montosPagadosDeOrdenes(idsPagadas).catch(() => new Map<string, MontoPagado>()));
   }, []);
+
+  const cambiarSoporteFisico = useCallback(async (item: ItemColaPorHacer, recibido: boolean, entregadoPor: string) => {
+    const ordenId = item.rawOrdenItem?.orden.id || (item.rawFacturaOrigen?.origen.tipo === 'oc' ? item.rawFacturaOrigen.origen.id : null);
+    // Actualización optimista inmediata en la UI
+    setSoportesFisicos((prev) => ({
+      ...prev,
+      [item.id]: {
+        recibido,
+        entregadoPor: entregadoPor.trim(),
+        recibidoEn: recibido ? (prev[item.id]?.recibidoEn || new Date().toISOString()) : undefined,
+        recibidoPor: recibido ? (prev[item.id]?.recibidoPor || actor) : undefined,
+        actualizadoEn: new Date().toISOString(),
+      },
+      ...(ordenId ? {
+        [`orden-${ordenId}`]: {
+          recibido,
+          entregadoPor: entregadoPor.trim(),
+          recibidoEn: recibido ? (prev[`orden-${ordenId}`]?.recibidoEn || new Date().toISOString()) : undefined,
+          recibidoPor: recibido ? (prev[`orden-${ordenId}`]?.recibidoPor || actor) : undefined,
+          actualizadoEn: new Date().toISOString(),
+        },
+      } : {}),
+    }));
+    try {
+      const nuevo = await guardarSoporteFisico(item.id, {
+        recibido,
+        entregadoPor,
+        usuarioEmail: actor,
+      });
+      setSoportesFisicos(nuevo);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo guardar el soporte físico', 'error');
+    }
+  }, [actor]);
 
   useEffect(() => {
     let cancel = false;
@@ -254,17 +326,20 @@ export function RetencionesPage() {
       facturasBuzon,
       facturasCompras,
       pendientesOrdenes: pendientes,
+      todasOrdenes,
+      directosExtra,
+      soportesFisicos,
       registradas,
       practica,
       configFiscal,
       impuestosActivos: impuestosActivos?.claves ?? null,
     }),
-    [empresaId, esGt, facturasBuzon, facturasCompras, pendientes, registradas, practica, configFiscal, impuestosActivos],
+    [empresaId, esGt, facturasBuzon, facturasCompras, pendientes, todasOrdenes, directosExtra, soportesFisicos, registradas, practica, configFiscal, impuestosActivos],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
   async function abrirDesdeFactura(f: FacturaDeOrigen) {
-    const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
+    const item = f.origen.tipo === 'oc' ? todasOrdenes.find((i) => i.orden.id === f.origen.id) : undefined;
     if (item) {
       setRegistrarFactura(semillaFacturaDesdeOrdenArchivo(f, item));
       return;
@@ -442,6 +517,8 @@ export function RetencionesPage() {
           empresaNombre={empresaActual?.nombre}
           loading={loading}
           canWrite={canWrite}
+          usuariosDirectorio={usuariosDirectorio}
+          onCambiarSoporteFisico={cambiarSoporteFisico}
           onRegistrarBuzon={abrirDesdeBuzon}
           onRegistrarArchivo={(f) => { void abrirDesdeFactura(f); }}
           onRegistrarOrden={(item) => {
