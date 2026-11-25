@@ -101,17 +101,37 @@ export function useRealtime(tables: string[], onChange: () => void, opts?: { ena
       }, pollMs);
     }
 
-    const channel = sb.channel(`rt-${key}-${Math.floor(Math.random() * 1e9)}`);
-    tables.forEach((t) => {
-      channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, alEvento);
-    });
-    channel.subscribe();
+    // Un canal que muere (red, servidor, `CHANNEL_ERROR`/`TIMED_OUT`) antes callaba
+    // para siempre: la pantalla seguía "en vivo" pero ya no recibía nada y había
+    // que refrescar. Ahora se vuelve a suscribir con backoff hasta 30 s.
+    let canal: ReturnType<typeof sb.channel> | null = null;
+    let vivo = true;
+    let reintentos = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const conectar = () => {
+      canal = sb.channel(`rt-${key}-${Math.floor(Math.random() * 1e9)}`);
+      tables.forEach((t) => {
+        canal!.on('postgres_changes', { event: '*', schema: 'public', table: t }, alEvento);
+      });
+      canal.subscribe((status: string) => {
+        if (!vivo) return;
+        if (status === 'SUBSCRIBED') { reintentos = 0; return; }
+        if (status !== 'CHANNEL_ERROR' && status !== 'TIMED_OUT') return;
+        if (canal) sb.removeChannel(canal);
+        const espera = Math.min(30000, 2000 * 2 ** reintentos++);
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => { if (vivo) conectar(); }, espera);
+      });
+    };
+    conectar();
 
     return () => {
+      vivo = false;
       if (timer) clearTimeout(timer);
       if (poll) clearInterval(poll);
+      if (retryTimer) clearTimeout(retryTimer);
       if (ocultaApi) document.removeEventListener('visibilitychange', alVolver);
-      sb.removeChannel(channel);
+      if (canal) sb.removeChannel(canal);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled, pollMs]);
