@@ -26,10 +26,12 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
     expect(r.explicacion).toContain('no está marcada como agente de retención de IVA');
   });
 
-  it('el valor por defecto es agente sí y especial no: retiene el IVA', () => {
+  it('el valor por defecto tiene agente sí y especial no: retiene el IVA', () => {
     expect(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva).toBe(true);
     expect(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial).toBe(false);
     expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO).montoRetenido).toBe(120);
+    const ordinario = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: false };
+    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, ordinario).montoRetenido).toBe(0);
   });
 
   it('el especial retiene IVA aunque la casilla de agente esté apagada', () => {
@@ -44,27 +46,35 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
     expect(motivoNoPuedePracticar('igtf', CONFIG_RETENCION_DEFECTO)).toContain('contribuyente especial');
   });
 
-  it('ISLR, municipal y estadal no dependen de ninguna marca', () => {
-    for (const t of ['islr', 'municipal', 'regional'] as const) {
-      expect(puedePracticar(t, ninguna)).toBe(true);
-      expect(motivoNoPuedePracticar(t, ninguna)).toBeNull();
-    }
+  it('ISLR aplica por defecto; municipal (ISAE) y regional requieren activación en Parámetros', () => {
+    expect(puedePracticar('islr', ninguna)).toBe(true);
+    expect(motivoNoPuedePracticar('islr', ninguna)).toBeNull();
+
+    expect(puedePracticar('municipal', ninguna)).toBe(false);
+    expect(motivoNoPuedePracticar('municipal', ninguna)).toContain('ISAE');
+    expect(puedePracticar('municipal', { ...ninguna, retieneMunicipal: true })).toBe(true);
+
+    expect(puedePracticar('regional', ninguna)).toBe(false);
+    expect(motivoNoPuedePracticar('regional', ninguna)).toContain('Timbre Estadal');
+    expect(puedePracticar('regional', { ...ninguna, retieneEstadal: true })).toBe(true);
   });
 
   it('sin marcas, el motivo del IVA lo explica y remite a «Retención recibida»', () => {
     expect(motivoNoPuedePracticar('iva', ninguna)).toContain('Retención recibida');
   });
 
-  it('multi-empresa: las banderas de régimen apagan ISLR/municipal/estadal', () => {
+  it('multi-empresa: las banderas de régimen controlan ISLR/municipal/estadal', () => {
     const noIslr = { ...CONFIG_RETENCION_DEFECTO, retieneIslr: false };
     expect(puedePracticar('islr', noIslr)).toBe(false);
     expect(motivoNoPuedePracticar('islr', noIslr)).toContain('no retiene ISLR');
-    const noMun = { ...CONFIG_RETENCION_DEFECTO, retieneMunicipal: false };
-    expect(puedePracticar('municipal', noMun)).toBe(false);
-    expect(motivoNoPuedePracticar('municipal', noMun)).toContain('ISAE');
-    const noEst = { ...CONFIG_RETENCION_DEFECTO, retieneEstadal: false };
-    expect(puedePracticar('regional', noEst)).toBe(false);
-    expect(motivoNoPuedePracticar('regional', noEst)).toContain('Timbre Estadal');
+    const conMun = { ...CONFIG_RETENCION_DEFECTO, retieneMunicipal: true };
+    expect(puedePracticar('municipal', conMun)).toBe(true);
+    expect(puedePracticar('municipal', CONFIG_RETENCION_DEFECTO)).toBe(false);
+    expect(motivoNoPuedePracticar('municipal', CONFIG_RETENCION_DEFECTO)).toContain('ISAE');
+    const conEst = { ...CONFIG_RETENCION_DEFECTO, retieneEstadal: true };
+    expect(puedePracticar('regional', conEst)).toBe(true);
+    expect(puedePracticar('regional', CONFIG_RETENCION_DEFECTO)).toBe(false);
+    expect(motivoNoPuedePracticar('regional', CONFIG_RETENCION_DEFECTO)).toContain('Timbre Estadal');
   });
 });
 

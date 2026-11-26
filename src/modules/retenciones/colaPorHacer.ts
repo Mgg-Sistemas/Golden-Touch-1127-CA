@@ -14,7 +14,7 @@
    ============================================================ */
 
 import type { Orden } from '@/shared/lib/types';
-import type { ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
+import { puedePracticar, type ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
 import type { FacturaDeOrigen, DatosDirectoExtra } from '@/modules/libroFiscal/documentosOrigen.repository';
 import { NOMBRE_ORIGEN } from '@/modules/libroFiscal/documentosOrigen.repository';
 import type { FacturaBuzon } from './facturasBuzon.repository';
@@ -89,12 +89,12 @@ export function impuestosPendientesDeOrden(
 ): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
-  const retiene = (k: ImpuestoPendiente, flag: 'esAgenteRetencionIva' | 'retieneIslr' | 'retieneMunicipal') =>
-    (practica ? practica.has(k) : (config ? config[flag] !== false : true));
+  const retiene = (k: ImpuestoPendiente) =>
+    (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
 
-  if (retiene('iva', 'esAgenteRetencionIva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
-  if (retiene('islr', 'retieneIslr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
-  if (retiene('municipal', 'retieneMunicipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
+  if (retiene('iva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  if (retiene('islr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
+  if (retiene('municipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
 
   return filtrarActivos(out, activos);
 }
@@ -109,12 +109,12 @@ export function impuestosAplicablesBuzon(
   activos?: Set<string> | null,
 ): ImpuestoPendiente[] {
   const out: ImpuestoPendiente[] = [];
-  const retiene = (k: ImpuestoPendiente, flag: 'esAgenteRetencionIva' | 'retieneIslr' | 'retieneMunicipal') =>
-    (practica ? practica.has(k) : (config ? config[flag] !== false : true));
+  const retiene = (k: ImpuestoPendiente) =>
+    (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
 
-  if (retiene('iva', 'esAgenteRetencionIva')) out.push('iva');
-  if (retiene('islr', 'retieneIslr')) out.push('islr');
-  if (retiene('municipal', 'retieneMunicipal')) out.push('municipal');
+  if (retiene('iva')) out.push('iva');
+  if (retiene('islr')) out.push('islr');
+  if (retiene('municipal')) out.push('municipal');
 
   return filtrarActivos(out, activos ?? null);
 }

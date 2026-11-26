@@ -37,7 +37,7 @@ import { ColaPorHacerView } from './ColaPorHacerView';
 import { construirColaPorHacer, type ItemColaPorHacer } from './colaPorHacer';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
 import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
-import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, puedePracticar, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 import { hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
@@ -472,17 +472,32 @@ export function RetencionesPage() {
     else if (campo === 'tipo') setFTipo(v as '' | TipoRetencion);
   };
 
+  const conteosPorEmpresa = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const e of empresas) {
+      if (esEmpresaGt(e)) {
+        const buzonGt = facturasBuzon.filter((f) => (!f.empresaId || f.empresaId === e.id) && f.estatus !== 'retenida' && f.estatus !== 'descartada').length;
+        map[e.id] = (facturasCompras.length || 0) + buzonGt;
+      } else {
+        map[e.id] = facturasBuzon.filter((f) => f.empresaId === e.id && f.estatus !== 'retenida' && f.estatus !== 'descartada').length;
+      }
+    }
+    return map;
+  }, [empresas, facturasBuzon, facturasCompras]);
+
   return (
     <div>
       {/* ── Cabecera v8 ── */}
       <header style={{ marginBottom: '.75rem' }}>
-        <p className="muted" style={{ margin: '0 0 .5rem' }}>
-          Retenciones por factura: aplicables, registradas y no aplicables.
-        </p>
+        {multiempresa && (
+          <EmpresaActualSelector
+            empresas={empresas}
+            empresaId={empresaId}
+            onChange={setEmpresaId}
+            conteos={conteosPorEmpresa}
+          />
+        )}
         <div className="lfv8-cabeza-acciones">
-          {multiempresa && (
-            <EmpresaActualSelector empresas={empresas} empresaId={empresaId} onChange={setEmpresaId} />
-          )}
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           {buzonVisible && puedeVista('retenciones') && (
             <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none', position: 'relative' }} title={buzonNuevas > 0 ? `${buzonNuevas} factura(s) nueva(s) en el buzón` : 'Abrir vista móvil de facturas'} onClick={marcarBuzonVisto}>
@@ -843,12 +858,12 @@ function impuestosPendientesDeOrden(
 ): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
-  const retiene = (k: ImpuestoPendiente, flag: 'esAgenteRetencionIva' | 'retieneIslr' | 'retieneMunicipal') =>
-    (practica ? practica.has(k) : (config ? config[flag] !== false : true));
+  const retiene = (k: ImpuestoPendiente) =>
+    (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
 
-  if (retiene('iva', 'esAgenteRetencionIva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
-  if (retiene('islr', 'retieneIslr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
-  if (retiene('municipal', 'retieneMunicipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
+  if (retiene('iva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  if (retiene('islr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
+  if (retiene('municipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
 
   // Un impuesto deshabilitado en Parámetros no pide retención.
   return filtrarActivos(out, activos);

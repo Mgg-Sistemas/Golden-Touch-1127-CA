@@ -127,6 +127,31 @@ export function ColaPorHacerView({
 
   return (
     <>
+      {/* Cintillo contextual de la empresa activa */}
+      {empresaNombre && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '.4rem',
+          padding: '.45rem .75rem',
+          marginBottom: '.65rem',
+          borderRadius: '8px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          border: '1px solid var(--border)',
+          fontSize: '.82rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <span>🏢</span>
+            <span>Facturas pendientes por retener para: <strong style={{ color: 'var(--primary)' }}>{empresaNombre}</strong></span>
+          </div>
+          <span style={{ color: 'var(--text-muted)', fontSize: '.75rem' }}>
+            Total en cola: <strong>{items.length}</strong>
+          </span>
+        </div>
+      )}
+
       {/* Barra de búsqueda y filtros */}
       <div className="lfv8-barra">
         <div className="lfv8-buscar">
