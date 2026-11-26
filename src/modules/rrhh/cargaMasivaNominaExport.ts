@@ -267,7 +267,7 @@ export async function descargarCargaMasivaExcel(
   const colsH1 = [
     { h: 'REFERENCIA (10 DÍG.)', w: 18 },
     { h: 'CÉDULA (V+9 DÍG.)', w: 18 },
-    { h: 'CUENTA BANCARIA (20 DÍG.)', w: 26 },
+    { h: 'CUENTA BANCARIA NÓMINA (20 DÍG.)', w: 26 },
     { h: 'MONTO BS (15 DÍG.)', w: 22 },
   ];
   const headH1 = wsHoja1.getRow(1);
@@ -289,7 +289,7 @@ export async function descargarCargaMasivaExcel(
     const vals = [f.resumenTxt.referencia10, f.resumenTxt.cedula10, f.resumenTxt.cuenta20, f.resumenTxt.monto15];
     vals.forEach((v, ci) => {
       const cell = r.getCell(ci + 1);
-      cell.value = v;
+      cell.value = v || null;
       cell.numFmt = '@';
       cell.font = { name: 'Consolas', size: 9.5 };
       cell.alignment = { horizontal: ci === 3 ? 'right' : 'center', vertical: 'middle' };

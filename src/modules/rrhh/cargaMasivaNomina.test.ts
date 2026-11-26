@@ -273,9 +273,36 @@ describe('cargaMasivaNomina · especificación 44 columnas (A..AR)', () => {
     expect(fila.resumenTxt).toEqual({
       referencia10: '0163180719',
       cedula10: 'V002980635',
-      cuenta20: '01630221012211002934',
+      cuenta20: '',
       monto15: '000000000725000',
     });
+  });
+
+  it('usa sólo la cuenta nómina capturada en la ficha, nunca la de transferencia', () => {
+    const conTransferencia = crearPersonalBase({
+      datos_pago: mezclarDatosPagoConCuentas(null, [
+        { id: 'c1', tipo: 'transferencia', banco: '0163', cuenta: '01630221012211002934' },
+      ]),
+    });
+    const conCuentaNomina = crearPersonalBase({
+      datos_pago: mezclarDatosPagoConFichaNomina(
+        mezclarDatosPagoConCuentas(null, [
+          { id: 'c2', tipo: 'transferencia', banco: '0108', cuenta: '01080000000000001234' },
+        ]),
+        { cuenta_bancaria_nomina: '0163-0405-1234-5678-9012' },
+      ),
+    });
+
+    const lote = generarLoteCargaMasivaNomina(
+      [conTransferencia, conCuentaNomina],
+      new Map(),
+      { porcionSueldo: 'monto_fijo_bs', montoFijoBs: 100 },
+    );
+
+    // La transferencia NO rellena la cuenta nómina: queda vacía.
+    expect(lote[0].resumenTxt.cuenta20).toBe('');
+    // Si el usuario la capturó en la ficha, se usa limpia (sólo dígitos).
+    expect(lote[1].resumenTxt.cuenta20).toBe('01630405123456789012');
   });
 
   it('serializa CSV (44 cols) y TXT en formato Resumen Hoja 1 (por defecto) y Sábana 44 cols', () => {
@@ -299,14 +326,14 @@ describe('cargaMasivaNomina · especificación 44 columnas (A..AR)', () => {
 
     // Por defecto el TXT genera el Resumen de Hoja1 del Excel:
     const txtResumenTab = serializarCargaMasivaTxt(lote);
-    expect(txtResumenTab).toBe('0163180719\tV002980635\t01630221012211002934\t000000000725000');
+    expect(txtResumenTab).toBe('0163180719\tV002980635\t\t000000000725000');
 
     const txtResumenFijo = serializarCargaMasivaTxt(lote, {
       modo: 'resumen_hoja1',
       separador: 'ancho_fijo',
       incluirEncabezado: false,
     });
-    expect(txtResumenFijo).toBe('0163180719V00298063501630221012211002934000000000725000');
+    expect(txtResumenFijo).toBe(`0163180719V002980635${' '.repeat(20)}000000000725000`);
     expect(txtResumenFijo).toHaveLength(55);
 
     // Y en modo sabana_44 sigue soportando las 44 columnas:

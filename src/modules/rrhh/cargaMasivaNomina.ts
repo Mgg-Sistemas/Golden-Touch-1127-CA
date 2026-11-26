@@ -121,6 +121,8 @@ export interface FichaNominaBancaria {
   tipo_contrato?: '1' | '2' | '' | null;
   tipo_nomina?: 'W' | 'B' | 'M' | 'S' | 'Y' | '' | null;
   tipo_cuenta_nomina?: 'CCVI' | 'VI01' | '' | null;
+  /** Cuenta nómina de 20 dígitos, escrita a mano. NUNCA se toma de Datos Bancarios (transferencia). */
+  cuenta_bancaria_nomina?: string | null;
   oficina_principal?: string | null;
   oficina_secundaria?: string | null;
 }
@@ -149,6 +151,7 @@ export const FICHA_NOMINA_VACIA: FichaNominaBancaria = {
   tipo_contrato: '',
   tipo_nomina: '',
   tipo_cuenta_nomina: '',
+  cuenta_bancaria_nomina: '',
   oficina_principal: '',
   oficina_secundaria: '',
 };
@@ -197,6 +200,7 @@ export function leerFichaNominaPersonal(datosPago: unknown): FichaNominaBancaria
     tipo_contrato: str('tipo_contrato') as FichaNominaBancaria['tipo_contrato'],
     tipo_nomina: str('tipo_nomina') as FichaNominaBancaria['tipo_nomina'],
     tipo_cuenta_nomina: str('tipo_cuenta_nomina') as FichaNominaBancaria['tipo_cuenta_nomina'],
+    cuenta_bancaria_nomina: str('cuenta_bancaria_nomina'),
     oficina_principal: str('oficina_principal'),
     oficina_secundaria: str('oficina_secundaria'),
   };
@@ -360,7 +364,9 @@ export type ModoContenidoTxt = 'resumen_hoja1' | 'sabana_44';
  * Los 4 campos del TXT tipo resumen que están en «Hoja1» del Excel oficial:
  *   1) Referencia 10 dígitos: Banco (0163) + correlativo 6 dígitos (ej. 0163180719)
  *   2) Cédula 10 caracteres: V/E/P + 9 dígitos con ceros a la izq. (ej. V002940602)
- *   3) Cuenta bancaria 20 dígitos (ej. 01630221012211002934)
+ *   3) Cuenta bancaria NÓMINA de 20 dígitos (ej. 01630221012211002934).
+ *      Se deja VACÍA si no se capturó en la ficha; jamás se copia de la
+ *      cuenta de transferencia de Datos Bancarios.
  *   4) Monto en Bs 15 dígitos con céntimos ×100 (ej. 000000000725000)
  */
 export interface ResumenTxtHoja1 {
@@ -1026,20 +1032,14 @@ export function buscarCuentaBancoTesoro(datosPagoRaw: unknown): string {
   return '';
 }
 
-/** Extrae la cuenta bancaria de 20 dígitos (priorizando 0163 y luego cualquier cuenta transferencia Bs). */
-export function extraerCuentaBancaria20(datosPagoRaw: unknown): string {
-  const cuentas = obtenerCuentasSeguras(datosPagoRaw);
-  for (const c of cuentas) {
-    const num = (c.cuenta ?? '').replace(/\D/g, '');
-    if (num.length === 20 && (c.banco === '0163' || num.startsWith('0163'))) {
-      return num;
-    }
-  }
-  for (const c of cuentas) {
-    const num = (c.cuenta ?? '').replace(/\D/g, '');
-    if (num.length === 20) return num;
-  }
-  return '00000000000000000000';
+/**
+ * Cuenta nómina (20 dígitos) que el usuario escribe en la ficha de RRHH.
+ * IMPORTANTE: antes se tomaba de `datos_pago.cuentas` (transferencia Bs) y
+ * esa NO es la cuenta nómina; por eso ahora sale vacía si no se capturó aquí.
+ */
+export function leerCuentaNomina20(ficha: Pick<FichaNominaBancaria, 'cuenta_bancaria_nomina'>): string {
+  const digitos = (ficha.cuenta_bancaria_nomina ?? '').replace(/\D/g, '');
+  return digitos.length === 20 ? digitos : '';
 }
 
 /**
@@ -1224,7 +1224,8 @@ export function generarLoteCargaMasivaNomina(
     if (!fechaIngreso8) alertas.push('Falta F. Ingreso');
 
     const cuenta0163 = buscarCuentaBancoTesoro(p.datos_pago);
-    const cuenta20 = extraerCuentaBancaria20(p.datos_pago);
+    // La cuenta del resumen TXT es la NÓMINA (capturada a mano), no la de transferencia.
+    const cuenta20 = leerCuentaNomina20(fichaNomina);
 
     const resumenTxt: ResumenTxtHoja1 = {
       referencia10: formatearReferenciaHoja1(numBanco, numSecuencia),
@@ -1352,7 +1353,9 @@ export function serializarCargaMasivaTxt(
     }
     for (const f of filas) {
       const r = f.resumenTxt;
-      lineas.push([r.referencia10, r.cedula10, r.cuenta20, r.monto15].join(sepReal));
+      // En ancho fijo, la cuenta vacía ocupa sus 20 espacios para no correr el monto.
+      const cuenta = sep === 'ancho_fijo' ? r.cuenta20.padEnd(20, ' ') : r.cuenta20;
+      lineas.push([r.referencia10, r.cedula10, cuenta, r.monto15].join(sepReal));
     }
     return lineas.join('\r\n');
   }

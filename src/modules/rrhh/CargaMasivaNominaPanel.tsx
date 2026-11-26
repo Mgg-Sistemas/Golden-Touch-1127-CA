@@ -800,7 +800,7 @@ export function CargaMasivaNominaPanel({
                   <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>✓</th>
                   <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>A · Referencia (10 díg.)</th>
                   <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>B · Cédula (V+9 díg.)</th>
-                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>C · Cuenta Bancaria (20 díg.)</th>
+                  <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'center' }}>C · Cuenta Bancaria Nómina (20 díg.)</th>
                   <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'right' }}>D · Monto TXT (15 díg.)</th>
                   <th style={{ padding: '.42rem .5rem', borderBottom: '2px solid #ff8a00', textAlign: 'left' }}>Trabajador (Referencia visual)</th>
                 </tr>
@@ -808,7 +808,7 @@ export function CargaMasivaNominaPanel({
               <tbody>
                 {filasVisibles.map((f, idx) => {
                   const incluido = !excluidosIds.has(f.personalId);
-                  const sinCuenta = f.resumenTxt.cuenta20 === '00000000000000000000';
+                  const sinCuenta = !f.resumenTxt.cuenta20;
                   return (
                     <tr
                       key={f.personalId}
@@ -839,7 +839,7 @@ export function CargaMasivaNominaPanel({
                           color: sinCuenta ? '#f59e0b' : '#e2e8f0',
                         }}
                       >
-                        {f.resumenTxt.cuenta20}
+                        {f.resumenTxt.cuenta20 || '—'}
                       </td>
                       <td style={{ padding: '.38rem .5rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#22c55e' }}>
                         {f.resumenTxt.monto15}
@@ -850,7 +850,9 @@ export function CargaMasivaNominaPanel({
                       <td style={{ padding: '.38rem .5rem' }}>
                         <div style={{ fontWeight: 600 }}>{f.nombreCompleto}</div>
                         <div style={{ fontSize: '.68rem', color: sinCuenta ? '#f59e0b' : '#94a3b8' }}>
-                          {sinCuenta ? '⚠ Sin cuenta de 20 dígitos en Datos Bancarios' : '✓ Cuenta bancaria cargada'}
+                          {sinCuenta
+                            ? '⚠ Cuenta nómina vacía (no se copia de transferencias)'
+                            : '✓ Cuenta nómina cargada en la ficha'}
                         </div>
                       </td>
                     </tr>
@@ -984,7 +986,8 @@ export function CargaMasivaNominaPanel({
                       <td style={{ padding: '.38rem .5rem' }}>
                         <div style={{ fontWeight: 600 }}>{f.nombreCompleto}</div>
                         <div style={{ fontSize: '.68rem', color: '#94a3b8' }}>
-                          {f.empresa} · {f.departamento} {f.tieneCuenta0163 ? '· 🏦 0163' : ''}
+                          {f.empresa} · {f.departamento}{' '}
+                          {f.tieneCuenta0163 ? '· 🏦 0163 en transferencias' : ''}
                         </div>
                       </td>
                       <td style={{ padding: '.38rem .5rem' }}>

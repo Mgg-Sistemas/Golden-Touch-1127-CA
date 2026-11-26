@@ -12,7 +12,7 @@
        zona postal (con autocompletado al elegir ciudad).
      · Nivel de educación bancario, profesión (código 4 letras), tipo de
        cargo (código 3 dígitos), fuente de ingreso, tipo de contrato,
-       tipo de nómina, tipo de cuenta y oficinas bancarias.
+       tipo de nómina, tipo de cuenta, cuenta bancaria nómina (20 dígitos, escrita a mano y nunca tomada de transferencias) y oficinas bancarias.
    ============================================================ */
 
 import { useMemo } from 'react';
@@ -453,6 +453,24 @@ export function CamposFichaNominaBancaria({ value, onChange }: Props) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="form-row">
+          <label>Cuenta bancaria nómina (20 dígitos)</label>
+          <input
+            className="input"
+            inputMode="numeric"
+            maxLength={20}
+            value={value.cuenta_bancaria_nomina ?? ''}
+            onChange={(e) =>
+              onChange({ cuenta_bancaria_nomina: e.target.value.replace(/\D/g, '').slice(0, 20) })
+            }
+            placeholder="Vacía si aún no hay cuenta nómina"
+          />
+          <small className="muted" style={{ display: 'block' }}>
+            {(value.cuenta_bancaria_nomina ?? '').length}/20 dígitos. Se captura aquí a mano; no se copia de la
+            cuenta de transferencia de Datos Bancarios.
+          </small>
         </div>
 
         <div className="form-row">
