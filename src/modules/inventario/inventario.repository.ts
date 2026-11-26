@@ -318,6 +318,13 @@ async function cargarProductos(): Promise<Producto[]> {
  *  Si ya hay un pedido en viaje, se comparte ese mismo. NO es caché: apenas llega la
  *  respuesta se olvida, y el siguiente pedido vuelve a la base (el stock cambia todo
  *  el tiempo). Cada quien recibe su propia copia del arreglo. */
+/** Todos los depósitos que el usuario puede leer. Se usa SOLO como ayuda cuando
+ *  una búsqueda no encuentra nada en el depósito abierto, para indicar dónde sí
+ *  está la ficha; no mezcla sus existencias ni cambia el catálogo de la pantalla. */
+export async function listProductosTodosLosDepositos(): Promise<Producto[]> {
+  return cargarProductos();
+}
+
 export function listProductos(deposito: Deposito = 'general'): Promise<Producto[]> {
   if (!productosEnCurso) {
     const pedido = cargarProductos();

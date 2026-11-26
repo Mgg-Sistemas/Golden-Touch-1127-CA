@@ -30,6 +30,7 @@ import {
   setEstadoProducto,
   updateProducto,
   getUnidades,
+  listProductosTodosLosDepositos,
   addUnidad,
   renombrarUnidad,
   eliminarUnidad,
@@ -64,13 +65,14 @@ import { CostosYMedidasModal, contarSinCosto } from './CostosYMedidasModal';
 import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
-import { coincideBusquedaProducto } from './busquedaProductos';
+import { coincideBusquedaProducto, rutaDetalleProducto } from './busquedaProductos';
 import {
   ALMACEN_GENERAL,
   ALMACEN_MINA,
   ALMACEN_REUTILIZABLES,
   ALMACEN_DANADOS,
   resolverDeposito,
+  esDelDeposito,
   DEPOSITOS,
   type Deposito,
 } from './depositos';
@@ -158,6 +160,8 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
     ? puedeVista('deposito_mina')
     : isAdmin || vistasDelRol.some((k) => k === 'deposito_mina' || k === 'inventario');
   const [productos, setProductos] = useState<Producto[]>([]);
+  // Si la búsqueda no encuentra nada AQUÍ, fichas que sí existen en OTRO depósito.
+  const [enOtrosDepositos, setEnOtrosDepositos] = useState<Producto[]>([]);
   const [recepciones, setRecepciones] = useState<Orden[]>([]);
   const [recepcionesPendientes, setRecepcionesPendientes] = useState<Orden[]>([]);
   // Cuántas órdenes están pendientes por marcar la recepción (lo que cuenta el botón).
@@ -277,6 +281,29 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
     () => decorated.filter((p) => coincideFiltros(p, ui)),
     [decorated, ui],
   );
+
+  // «No lo veo en el inventario»: si la ficha pertenece a otro depósito, no la
+  // mezclamos en la tabla ni sumamos su stock, pero decimos DÓNDE está y damos
+  // el enlace directo. Caso real: INS-180 cargado en Mina y buscado en Los Pinos.
+  useEffect(() => {
+    let cancelado = false;
+    const q = ui.filterText.trim();
+    if (!q || loading || filtered.length > 0) {
+      setEnOtrosDepositos([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      listProductosTodosLosDepositos()
+        .then((todos) => {
+          if (cancelado) return;
+          setEnOtrosDepositos(todos
+            .filter((p) => p.estado === 'activo' && !esDelDeposito(p, deposito) && coincideBusquedaProducto(p, q))
+            .slice(0, 6));
+        })
+        .catch(() => { if (!cancelado) setEnOtrosDepositos([]); });
+    }, 180);
+    return () => { cancelado = true; window.clearTimeout(timer); };
+  }, [ui.filterText, filtered.length, loading, deposito]);
 
   // Existencias agrupadas por producto (para pasarlas al formulario de movimiento).
   const existMap = useMemo(() => {
@@ -729,6 +756,29 @@ export function InventarioPage({ deposito: propDeposito }: { deposito?: Deposito
       ) : (
         <>
           <InventarioFilterbar values={ui} categorias={categorias} onChange={setFilter2} />
+          {!loading && filtered.length === 0 && enOtrosDepositos.length > 0 && (
+            <div className="card" style={{ marginBottom: '.8rem', borderColor: 'var(--brand, #ff8a00)' }}>
+              <strong>No está en {dep.nombre}, pero sí en otro depósito:</strong>
+              <div style={{ display: 'grid', gap: '.45rem', marginTop: '.6rem' }}>
+                {enOtrosDepositos.map((p) => {
+                  const nombreDep = !p.almacen || p.almacen === ALMACEN_GENERAL ? 'Inventario Los Pinos' : p.almacen;
+                  return (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+                      <span style={{ flex: 1, minWidth: 220 }}>
+                        <strong>{p.nombre}</strong>
+                        <div className="muted mono" style={{ fontSize: '.76rem' }}>
+                          {p.sku} · {nombreDep} · {num(Number(p.stock) || 0)} {p.unidad}
+                        </div>
+                      </span>
+                      <Link className="btn btn-sm btn-primary" to={rutaDetalleProducto(p)}>
+                        Abrir en {nombreDep}
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {loading ? (
             <EmptyState message="Cargando productos…" icon="◔" />
           ) : (
