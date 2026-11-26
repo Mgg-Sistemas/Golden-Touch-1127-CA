@@ -1136,19 +1136,28 @@ function FormularioCargaFactura({
 
       {/* Tipo de documento: Factura por defecto */}
       <div className="surt-campo">
-        <label>Tipo de documento *</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+          <label style={{ margin: 0 }}>Tipo de documento *</label>
+          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary, #f59e0b)' }}>
+            ● {TIPOS_DOCUMENTO_BUZON.find((t) => t.valor === tipoDocumento)?.etiqueta || 'Factura'}
+          </span>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${TIPOS_DOCUMENTO_BUZON.length}, 1fr)`, gap: '0.4rem' }}>
-          {TIPOS_DOCUMENTO_BUZON.map((t) => (
-            <button
-              key={t.valor}
-              type="button"
-              className={`btn ${tipoDocumento === t.valor ? 'primario' : ''}`}
-              style={{ minHeight: '48px', fontSize: '0.92rem', fontWeight: 700 }}
-              onClick={() => setTipoDocumento(t.valor)}
-            >
-              {t.etiqueta}
-            </button>
-          ))}
+          {TIPOS_DOCUMENTO_BUZON.map((t) => {
+            const esSel = tipoDocumento === t.valor;
+            return (
+              <button
+                key={t.valor}
+                type="button"
+                className={`buzon-doc-btn ${esSel ? 'sel' : ''}`}
+                onClick={() => setTipoDocumento(t.valor)}
+                title={t.etiqueta}
+              >
+                {esSel && <span className="doc-dot" />}
+                <span>{t.etiqueta}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

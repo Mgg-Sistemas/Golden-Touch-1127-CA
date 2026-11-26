@@ -265,13 +265,20 @@ export function RetencionesPage() {
     setPagosOc(await montosPagadosDeOrdenes(idsPagadas).catch(() => new Map<string, MontoPagado>()));
   }, []);
 
-  const cambiarSoporteFisico = useCallback(async (item: ItemColaPorHacer, recibido: boolean, entregadoPor: string) => {
+  const cambiarSoporteFisico = useCallback(async (
+    item: ItemColaPorHacer,
+    recibido: boolean,
+    entregadoPor: string,
+    tipo?: 'original' | 'copia' | null,
+  ) => {
     const ordenId = item.rawOrdenItem?.orden.id || (item.rawFacturaOrigen?.origen.tipo === 'oc' ? item.rawFacturaOrigen.origen.id : null);
+    const tipoFinal = tipo !== undefined ? tipo : (recibido ? 'original' : null);
     // Actualización optimista inmediata en la UI
     setSoportesFisicos((prev) => ({
       ...prev,
       [item.id]: {
         recibido,
+        tipo: tipoFinal,
         entregadoPor: entregadoPor.trim(),
         recibidoEn: recibido ? (prev[item.id]?.recibidoEn || new Date().toISOString()) : undefined,
         recibidoPor: recibido ? (prev[item.id]?.recibidoPor || actor) : undefined,
@@ -280,6 +287,7 @@ export function RetencionesPage() {
       ...(ordenId ? {
         [`orden-${ordenId}`]: {
           recibido,
+          tipo: tipoFinal,
           entregadoPor: entregadoPor.trim(),
           recibidoEn: recibido ? (prev[`orden-${ordenId}`]?.recibidoEn || new Date().toISOString()) : undefined,
           recibidoPor: recibido ? (prev[`orden-${ordenId}`]?.recibidoPor || actor) : undefined,
@@ -290,6 +298,7 @@ export function RetencionesPage() {
     try {
       const nuevo = await guardarSoporteFisico(item.id, {
         recibido,
+        tipo: tipoFinal,
         entregadoPor,
         usuarioEmail: actor,
       });

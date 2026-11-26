@@ -31,7 +31,12 @@ export interface ColaPorHacerViewProps {
   loading: boolean;
   canWrite: boolean;
   usuariosDirectorio?: { id?: string; email: string; nombre?: string }[];
-  onCambiarSoporteFisico?: (item: ItemColaPorHacer, recibido: boolean, entregadoPor: string) => Promise<void>;
+  onCambiarSoporteFisico?: (
+    item: ItemColaPorHacer,
+    recibido: boolean,
+    entregadoPor: string,
+    tipo?: 'original' | 'copia' | null,
+  ) => Promise<void>;
   onRegistrarBuzon: (fac: FacturaBuzon) => void;
   onRegistrarArchivo: (f: FacturaDeOrigen) => void;
   onRegistrarOrden: (item: RetencionItem) => void;
@@ -58,7 +63,7 @@ export function ColaPorHacerView({
   const [q, setQ] = useState('');
   const [fImp, setFImp] = useState('');
   const [fOrigen, setFOrigen] = useState<'' | 'buzon' | 'compras'>('');
-  const [fFisico, setFFisico] = useState<'' | 'con_fisico' | 'sin_fisico'>('');
+  const [fFisico, setFFisico] = useState<'' | 'con_fisico' | 'original' | 'copia' | 'sin_fisico'>('');
   const [ord, setOrd] = useState<'reciente' | 'antiguo' | 'proveedor'>('reciente');
   const [tempEntregado, setTempEntregado] = useState<Record<string, string>>({});
   const [pag, setPag] = useState(1);
@@ -80,6 +85,8 @@ export function ColaPorHacerView({
       }
       if (fFisico) {
         if (fFisico === 'con_fisico' && !it.soporteFisico?.recibido) return false;
+        if (fFisico === 'original' && (!it.soporteFisico?.recibido || it.soporteFisico?.tipo === 'copia')) return false;
+        if (fFisico === 'copia' && (!it.soporteFisico?.recibido || it.soporteFisico?.tipo !== 'copia')) return false;
         if (fFisico === 'sin_fisico' && it.soporteFisico?.recibido) return false;
       }
       return true;
@@ -174,7 +181,9 @@ export function ColaPorHacerView({
               onChange={(e) => { setFFisico(e.target.value as typeof fFisico); setPag(1); }}
             >
               <option value="">Todos</option>
-              <option value="con_fisico">✓ Con físico en mano</option>
+              <option value="con_fisico">✓ Con físico (todos)</option>
+              <option value="original">✓ Original</option>
+              <option value="copia">✓ Copia (foto/imp.)</option>
               <option value="sin_fisico">Sin físico</option>
             </select>
           </label>
@@ -280,49 +289,93 @@ export function ColaPorHacerView({
 
               {/* Soporte físico */}
               <span data-l="Soporte físico">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-                  <label
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '.35rem',
-                      cursor: canWrite ? 'pointer' : 'default',
-                      userSelect: 'none',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={it.soporteFisico?.recibido ?? false}
-                      disabled={!canWrite}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        const actualTexto = tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '');
-                        void onCambiarSoporteFisico?.(it, checked, actualTexto);
-                      }}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+                    {/* Casilla 1: Original */}
+                    <label
                       style={{
-                        width: '15px',
-                        height: '15px',
-                        accentColor: 'var(--success, #16a34a)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '.25rem',
                         cursor: canWrite ? 'pointer' : 'default',
+                        userSelect: 'none',
                       }}
-                    />
-                    <span
-                      style={{
-                        fontSize: '.75rem',
-                        fontWeight: it.soporteFisico?.recibido ? 600 : 400,
-                        color: it.soporteFisico?.recibido ? 'var(--success, #16a34a)' : 'var(--text-muted)',
-                      }}
+                      title="Factura original en físico"
                     >
-                      {it.soporteFisico?.recibido ? '✓ En mano' : 'Sin físico'}
-                    </span>
-                  </label>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(it.soporteFisico?.recibido && it.soporteFisico?.tipo !== 'copia')}
+                        disabled={!canWrite}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          const actualTexto = tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '');
+                          void onCambiarSoporteFisico?.(it, checked, actualTexto, checked ? 'original' : null);
+                        }}
+                        style={{
+                          width: '14px',
+                          height: '14px',
+                          accentColor: 'var(--success, #16a34a)',
+                          cursor: canWrite ? 'pointer' : 'default',
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '.74rem',
+                          fontWeight: (it.soporteFisico?.recibido && it.soporteFisico?.tipo !== 'copia') ? 700 : 500,
+                          color: (it.soporteFisico?.recibido && it.soporteFisico?.tipo !== 'copia') ? 'var(--success, #16a34a)' : 'var(--text-muted)',
+                        }}
+                      >
+                        Original
+                      </span>
+                    </label>
+
+                    {/* Casilla 2: Copia (foto o impresión) */}
+                    <label
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '.25rem',
+                        cursor: canWrite ? 'pointer' : 'default',
+                        userSelect: 'none',
+                      }}
+                      title="Copia de factura (foto o impresión)"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(it.soporteFisico?.recibido && it.soporteFisico?.tipo === 'copia')}
+                        disabled={!canWrite}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          const actualTexto = tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '');
+                          void onCambiarSoporteFisico?.(it, checked, actualTexto, checked ? 'copia' : null);
+                        }}
+                        style={{
+                          width: '14px',
+                          height: '14px',
+                          accentColor: 'var(--info, #0284c7)',
+                          cursor: canWrite ? 'pointer' : 'default',
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: '.74rem',
+                          fontWeight: (it.soporteFisico?.recibido && it.soporteFisico?.tipo === 'copia') ? 700 : 500,
+                          color: (it.soporteFisico?.recibido && it.soporteFisico?.tipo === 'copia') ? 'var(--info, #0284c7)' : 'var(--text-muted)',
+                        }}
+                      >
+                        Copia
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Input limpio: quién entregó (sin datalist desplegable) */}
                   <input
                     type="text"
-                    list="usuarios-entrega-list"
                     className="input input-sm"
                     placeholder="¿Quién entregó?"
                     value={tempEntregado[it.id] !== undefined ? tempEntregado[it.id] : (it.soporteFisico?.entregadoPor ?? '')}
                     disabled={!canWrite}
+                    autoComplete="off"
                     onChange={(e) => {
                       const v = e.target.value;
                       setTempEntregado((prev) => ({ ...prev, [it.id]: v }));
@@ -330,13 +383,17 @@ export function ColaPorHacerView({
                     onBlur={(e) => {
                       const v = e.target.value;
                       if (v !== (it.soporteFisico?.entregadoPor ?? '')) {
-                        void onCambiarSoporteFisico?.(it, it.soporteFisico?.recibido ?? (v.trim().length > 0), v);
+                        const rec = it.soporteFisico?.recibido ?? (v.trim().length > 0);
+                        const tipo = it.soporteFisico?.tipo ?? (rec ? 'original' : null);
+                        void onCambiarSoporteFisico?.(it, rec, v, tipo);
                       }
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         const v = (e.target as HTMLInputElement).value;
-                        void onCambiarSoporteFisico?.(it, it.soporteFisico?.recibido ?? (v.trim().length > 0), v);
+                        const rec = it.soporteFisico?.recibido ?? (v.trim().length > 0);
+                        const tipo = it.soporteFisico?.tipo ?? (rec ? 'original' : null);
+                        void onCambiarSoporteFisico?.(it, rec, v, tipo);
                       }
                     }}
                     style={{
@@ -344,13 +401,17 @@ export function ColaPorHacerView({
                       padding: '2px 6px',
                       width: '100%',
                       maxWidth: '180px',
-                      borderColor: it.soporteFisico?.recibido ? 'rgba(34, 197, 94, 0.35)' : undefined,
-                      background: it.soporteFisico?.recibido ? 'rgba(34, 197, 94, 0.05)' : undefined,
+                      borderColor: it.soporteFisico?.recibido
+                        ? (it.soporteFisico?.tipo === 'copia' ? 'rgba(2, 132, 199, 0.4)' : 'rgba(34, 197, 94, 0.4)')
+                        : undefined,
+                      background: it.soporteFisico?.recibido
+                        ? (it.soporteFisico?.tipo === 'copia' ? 'rgba(2, 132, 199, 0.05)' : 'rgba(34, 197, 94, 0.05)')
+                        : undefined,
                     }}
                     title={
                       it.soporteFisico?.recibidoEn
-                        ? `Recibido: ${it.soporteFisico.recibidoEn.slice(0, 10)}${it.soporteFisico.recibidoPor ? ` por ${it.soporteFisico.recibidoPor}` : ''}`
-                        : 'Escribe quién entregó el documento físico (usuario del sistema o externo)'
+                        ? `Soporte: ${it.soporteFisico?.tipo === 'copia' ? 'Copia (foto o impresión)' : 'Original'} · Recibido: ${it.soporteFisico.recibidoEn.slice(0, 10)}${it.soporteFisico.recibidoPor ? ` por ${it.soporteFisico.recibidoPor}` : ''}`
+                        : 'Escribe quién entregó el documento físico o copia'
                     }
                   />
                 </div>
@@ -517,14 +578,6 @@ export function ColaPorHacerView({
           </div>
         )}
       </div>
-
-      <datalist id="usuarios-entrega-list">
-        {usuariosDirectorio?.map((u) => (
-          <option key={u.id || u.email} value={u.nombre || u.email}>
-            {u.nombre ? `${u.nombre} (${u.email})` : u.email}
-          </option>
-        ))}
-      </datalist>
     </>
   );
 }

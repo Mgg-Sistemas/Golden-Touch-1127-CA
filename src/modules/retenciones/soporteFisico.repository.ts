@@ -12,8 +12,11 @@ import { supabase } from '@/shared/lib/supabase';
 
 const CLAVE_CONFIG = 'retenciones.parametros';
 
+export type TipoSoporteFisico = 'original' | 'copia';
+
 export interface RegistroSoporteFisico {
   recibido: boolean;
+  tipo?: TipoSoporteFisico | null;
   entregadoPor?: string;
   recibidoEn?: string;
   recibidoPor?: string | null;
@@ -41,7 +44,12 @@ export async function cargarSoportesFisicos(): Promise<SoportesFisicosMap> {
  */
 export async function guardarSoporteFisico(
   clave: string,
-  registro: { recibido: boolean; entregadoPor?: string; usuarioEmail?: string | null },
+  registro: {
+    recibido: boolean;
+    tipo?: TipoSoporteFisico | null;
+    entregadoPor?: string;
+    usuarioEmail?: string | null;
+  },
 ): Promise<SoportesFisicosMap> {
   const { data } = await supabase
     .from('config')
@@ -53,9 +61,13 @@ export async function guardarSoporteFisico(
 
   const previo = previos[clave] || { recibido: false };
   const entregadoTexto = registro.entregadoPor !== undefined ? registro.entregadoPor.trim() : (previo.entregadoPor || '');
+  const tipoFinal = registro.tipo !== undefined
+    ? registro.tipo
+    : (previo.tipo ?? (registro.recibido ? 'original' : null));
 
   const actualizado: RegistroSoporteFisico = {
     recibido: registro.recibido,
+    tipo: registro.recibido ? tipoFinal : null,
     entregadoPor: entregadoTexto,
     recibidoEn: registro.recibido
       ? (previo.recibido && previo.recibidoEn ? previo.recibidoEn : new Date().toISOString())
