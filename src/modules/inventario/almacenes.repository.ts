@@ -180,11 +180,15 @@ export async function eliminarAlmacen(id: string): Promise<void> {
   await cambiarPapeleraInventario('almacen', [id], 'enviar');
 }
 
-/** Todas las existencias (stock + costo por almacén). */
+/** Todas las existencias (stock + costo por almacén), sin el corte de 1.000 filas
+ *  de PostgREST. Si falta una fila, el modal de movimiento cree que el stock es 0
+ *  y bloquea una salida que sí tiene existencias (26/11/2026: 1.170 filas). */
 export async function listExistencias(): Promise<Existencia[]> {
-  const { data, error } = await supabase.from('existencias').select('*');
-  if (error) throw error;
-  return (data ?? []) as Existencia[];
+  return todasLasFilas<Existencia>((desde, hasta) =>
+    supabase.from('existencias').select('*')
+      .order('producto_id', { ascending: true })
+      .order('almacen', { ascending: true })
+      .range(desde, hasta));
 }
 
 /** Existencia de un producto en un almacén (null si no hay fila). */

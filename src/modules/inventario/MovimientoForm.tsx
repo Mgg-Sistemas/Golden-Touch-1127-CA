@@ -4,10 +4,11 @@ import { money, num, dosDecimales } from '@/shared/lib/format';
 import type { Existencia, Producto, TipoMovimiento } from '@/shared/lib/types';
 import { mensajeError } from '@/shared/lib/errores';
 import { calcularPMP, type MovimientoInput } from './movimientos.repository';
+import { datosAlmacenMovimiento } from './movimientoAlmacen';
 
 interface MovimientoFormProps {
   producto: Producto;
-  /** Existencias del producto (stock + costo del Inventario General). */
+  /** Existencias del producto (stock + costo del almacén que se mueve). */
   existencias: Existencia[];
   actorEmail: string;
   actorName?: string | null;
@@ -27,12 +28,11 @@ const OPCIONES: { value: TipoManual; label: string; sign: 'pos' | 'neg' | 'any' 
 ];
 
 export function MovimientoForm({ producto, existencias, actorEmail, actorName, onClose, onSubmit }: MovimientoFormProps) {
-  // Inventario único: el stock se guarda bajo 'General' (etiqueta visible: "Inventario General").
-  const almacenConStock = useMemo(() => {
-    const conStock = existencias.filter((e) => Number(e.stock) > 0).sort((a, b) => Number(b.stock) - Number(a.stock));
-    return conStock[0]?.almacen ?? null;
-  }, [existencias]);
-  const almacen = almacenConStock || producto.almacen || 'General';
+  // El depósito del producto manda: una salida de Mina nunca se calcula contra General.
+  const { almacen, nombre: nombreAlmacen, stock: stockAlmacen, costo: costoAlmacen } = useMemo(
+    () => datosAlmacenMovimiento(producto, existencias),
+    [producto, existencias],
+  );
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [cantidad, setCantidad] = useState('1');
   // Carga por CAJA/BULTO: la "cantidad" se ingresa en cajas/bultos y se multiplica
@@ -43,11 +43,6 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
   const [detalle, setDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Existencia (stock + costo) del inventario único.
-  const exSel = existencias.find((e) => e.almacen === almacen);
-  const stockAlmacen = Number(exSel?.stock) || 0;
-  const costoAlmacen = Number(exSel?.costo_promedio) || 0;
 
   const [costoUnit, setCostoUnit] = useState(String(costoAlmacen || producto.precio || 0));
 
@@ -98,7 +93,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
       return;
     }
     if ((tipo === 'salida' || tipo === 'consumo') && cantidadNum > stockAlmacen) {
-      setError(`No hay stock suficiente en el Inventario General. Disponible: ${num(stockAlmacen)} ${producto.unidad}.`);
+      setError(`No hay stock suficiente en ${nombreAlmacen}. Disponible: ${num(stockAlmacen)} ${producto.unidad}.`);
       return;
     }
     if (tipo === 'fundicion' && producto.en_fundicion) {
@@ -163,7 +158,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
           </div>
           <div style={{ fontWeight: 600 }}>{producto.nombre}</div>
           <div className="muted mono" style={{ fontSize: '.78rem' }}>
-            Stock en <strong>Inventario General</strong>: <strong>{num(stockAlmacen)} {producto.unidad}</strong> · costo {money(costoAlmacen)}
+            Stock en <strong>{nombreAlmacen}</strong>: <strong>{num(stockAlmacen)} {producto.unidad}</strong> · costo {money(costoAlmacen)}
           </div>
         </div>
 
@@ -285,7 +280,7 @@ export function MovimientoForm({ producto, existencias, actorEmail, actorName, o
           }}
         >
           <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-            Vista previa · Inventario General
+            Vista previa · {nombreAlmacen}
           </div>
           <div className="mono" style={{ fontSize: '.9rem' }}>
             {num(stockAlmacen)} → <strong>{num(stockResultante)}</strong>{' '}
