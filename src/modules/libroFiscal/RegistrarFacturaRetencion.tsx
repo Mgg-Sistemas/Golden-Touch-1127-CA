@@ -333,7 +333,22 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     let activo = true;
     if (direccion === 'practicada') {
       listRetencionesPendientes()
-        .then((items) => { if (activo) setOrdenesPendientes(items); })
+        .then((items) => {
+          if (!activo) return;
+          setOrdenesPendientes(items);
+          if (s.docKind === 'oc' && s.docId) {
+            const item = items.find((x) => x.orden.id === s.docId);
+            if (item?.orden.items && item.orden.items.length > 0) {
+              setRenglonesValery(item.orden.items.map((it, idx) => ({
+                id: `oc-item-${idx}-${Date.now()}`,
+                descripcion: it.nombre || it.sku || `Ítem ${idx + 1}`,
+                cantidad: Number(it.cantidad) || 1,
+                precioUnitario: (item.orden.total_moneda === 'Bs' ? Number(it.precio) : Number(it.precio_usd || it.precio)) || 0,
+                alicuota: it.exento ? 0 : 16,
+              })));
+            }
+          }
+        })
         .catch(() => {});
       listFacturasBuzon({ estatus: 'recibida' })
         .then((items) => { if (activo) setBuzonPendientes(items); })
@@ -1829,7 +1844,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   }
                 }}
               >
-                🛠️ Modo Avanzado (Ensamblar Factura · Valery)
+                🛠️ Modo Avanzado (Ensamblar Factura)
               </button>
             </div>
           </div>
@@ -1851,7 +1866,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 marginBottom: '.6rem',
               }}>
                 <small className="muted" style={{ fontSize: '.78rem' }}>
-                  💡 <strong>Ensamblador de factura estilo Valery Software:</strong> Ingresa o importa renglones. Las bases imponibles y el IVA se calculan automáticamente con exactitud al centavo.
+                  💡 <strong>Ensamblador detallado de factura:</strong> Ingresa o importa renglones. Las bases imponibles, montos exentos y el IVA se calculan automáticamente con exactitud al centavo.
                 </small>
                 <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
                   {ordenSeleccionadaObj?.items && ordenSeleccionadaObj.items.length > 0 && (
