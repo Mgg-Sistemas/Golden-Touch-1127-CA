@@ -299,15 +299,30 @@ export async function listProductosPorIds(ids: string[]): Promise<Producto[]> {
 let productosEnCurso: Promise<Producto[]> | null = null;
 
 async function cargarProductos(): Promise<Producto[]> {
-  const { data, error } = await supabase
-    .from('productos')
-    .select('*')
-    .order('nombre', { ascending: true });
-  if (error) throw error;
+  // PostgREST corta la respuesta en 1.000 filas aunque no pongamos `.limit`.
+  // Al pasar de 1.000 productos, el final alfabético desaparecía del inventario:
+  // INS-180 «TIZA PARA HERRERÍA» existía y salía en el buscador global, pero no
+  // llegaba al listado de Mina (26/11/2026: 1.151 filas; faltaban 20 en Mina).
+  // Se descargan TODAS las páginas. El segundo orden por id evita que dos nombres
+  // iguales cambien de posición entre una página y la siguiente.
+  const LOTE = 1000;
+  const todos: Producto[] = [];
+  for (let desde = 0; ; desde += LOTE) {
+    const { data, error } = await supabase
+      .from('productos')
+      .select('*')
+      .order('nombre', { ascending: true })
+      .order('id', { ascending: true })
+      .range(desde, desde + LOTE - 1);
+    if (error) throw error;
+    const pagina = (data ?? []) as Producto[];
+    todos.push(...pagina);
+    if (pagina.length < LOTE) break;
+  }
   // Orden alfabético A→Z real (español, sin distinguir mayúsculas/acentos):
   // la colación de la BD puede intercalar mayúsculas/números/acentos distinto,
   // así que se reordena en el cliente para que la lista quede siempre A-Z.
-  return ((data ?? []) as Producto[]).sort((a, b) =>
+  return todos.sort((a, b) =>
     (a.nombre ?? '').localeCompare(b.nombre ?? '', 'es', { sensitivity: 'base', numeric: true }));
 }
 
