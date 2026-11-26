@@ -51,7 +51,6 @@ export function ColaPorHacerView({
   empresaNombre,
   loading,
   canWrite,
-  usuariosDirectorio,
   onCambiarSoporteFisico,
   onRegistrarBuzon,
   onRegistrarArchivo,
