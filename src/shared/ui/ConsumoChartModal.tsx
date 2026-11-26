@@ -73,6 +73,34 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [descargandoPng, setDescargandoPng] = useState(false);
+  const capturaRef = useRef<HTMLDivElement>(null);
+
+  const handleDescargarPng = useCallback(async () => {
+    if (!capturaRef.current || descargandoPng) return;
+    setDescargandoPng(true);
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const el = capturaRef.current;
+      const fondo = window.getComputedStyle(el).backgroundColor || '#0f172a';
+      const canvas = await html2canvas(el, {
+        backgroundColor: fondo === 'rgba(0, 0, 0, 0)' || fondo === 'transparent' ? '#0f172a' : fondo,
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const fechaSlug = `${desdeStr}_a_${hastaStr}`;
+      link.download = `consumo-combustible-${preset}-${fechaSlug}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Error al generar imagen de la gráfica:', err);
+    } finally {
+      setDescargandoPng(false);
+    }
+  }, [descargandoPng, desdeStr, hastaStr, preset]);
 
   // `cargar` suele llegar como arrow inline (nueva referencia en cada render).
   // Lo guardamos en un ref para que NO entre en las deps del efecto y evitar un
@@ -138,19 +166,31 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-          {onAbrirReporte ? (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            {onAbrirReporte ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
+                  onAbrirReporte({ desde, hasta });
+                }}
+                title="Descargar reporte de combustible (PDF, Excel, CSV) con filtros avanzados"
+              >
+                📄 Descargar reporte (PDF / Excel / CSV)
+              </button>
+            ) : null}
             <button
               type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                const { desde, hasta } = rangoDePreset(preset, desdeStr, hastaStr);
-                onAbrirReporte({ desde, hasta });
-              }}
-              title="Descargar reporte de combustible (PDF, Excel, CSV) con filtros avanzados"
+              className="btn btn-ghost btn-sm"
+              onClick={handleDescargarPng}
+              disabled={descargandoPng || !sorted.length}
+              title="Descargar gráfica y resumen de totales como imagen PNG"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
             >
-              📄 Descargar reporte (PDF / Excel / CSV)
+              {descargandoPng ? 'Generando PNG…' : '🖼️ Descargar gráfica (PNG)'}
             </button>
-          ) : <span />}
+          </div>
           <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
         </div>
       }
@@ -194,6 +234,16 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
             </button>
           )}
           <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={handleDescargarPng}
+            disabled={descargandoPng || !sorted.length}
+            title="Descargar gráfica y tarjetas de totales como imagen PNG"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
+          >
+            {descargandoPng ? 'Generando PNG…' : '🖼️ Descargar gráfica'}
+          </button>
+          <button
             className={`btn btn-sm ${metrica === 'valor' ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setMetrica('valor')}
           >
@@ -227,44 +277,55 @@ export function ConsumoChartModal({ title, subtitle, cargar, onClose, realtimeTa
         )}
       </div>
 
-      {/* Totales */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${permitirHoras ? '120px' : '140px'}, 1fr))`, gap: '.6rem', marginBottom: '.75rem' }}>
-        <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>{permitirHoras ? 'EQUIPOS' : 'PRODUCTOS CONSUMIDOS'}</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(sorted.length)}</div>
-        </div>
-        <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>CANTIDAD TOTAL</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(totalCantidad)} {sorted[0]?.unidad || ''}</div>
-        </div>
-        <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-          <div className="muted" style={{ fontSize: '.68rem' }}>VALOR TOTAL ($)</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(totalValor)}</div>
-        </div>
-        {permitirHoras && (
+      {/* Zona de captura para exportación a imagen PNG */}
+      <div
+        ref={capturaRef}
+        style={{
+          background: 'var(--surface-0, #0f172a)',
+          borderRadius: 8,
+          padding: '.5rem',
+          marginBottom: '.75rem',
+        }}
+      >
+        {/* Totales */}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${permitirHoras ? '120px' : '140px'}, 1fr))`, gap: '.6rem', marginBottom: '.75rem' }}>
           <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-            <div className="muted" style={{ fontSize: '.68rem' }}>HORAS TRABAJADAS TOTAL</div>
-            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' }}>{num(totalHoras)} h</div>
+            <div className="muted" style={{ fontSize: '.68rem' }}>{permitirHoras ? 'EQUIPOS' : 'PRODUCTOS CONSUMIDOS'}</div>
+            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(sorted.length)}</div>
           </div>
-        )}
-      </div>
-
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
-
-      {/* Gráfica por producto / equipo */}
-      <div className="card" style={{ padding: '.8rem', marginBottom: '.75rem' }}>
-        <div className="card-title" style={{ marginBottom: '.4rem' }}>
-          <span>
-            Consumo por {permitirHoras ? 'equipo' : 'producto'}{' '}
-            {metrica === 'valor' ? '(en $)' : metrica === 'horas' ? '(en horas trabajadas)' : '(en cantidad)'}
-          </span>
-          <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${sorted.length} ${permitirHoras ? 'equipo(s)' : 'producto(s)'}`}</span>
+          <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+            <div className="muted" style={{ fontSize: '.68rem' }}>CANTIDAD TOTAL</div>
+            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{num(totalCantidad)} {sorted[0]?.unidad || ''}</div>
+          </div>
+          <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+            <div className="muted" style={{ fontSize: '.68rem' }}>VALOR TOTAL ($)</div>
+            <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(totalValor)}</div>
+          </div>
+          {permitirHoras && (
+            <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+              <div className="muted" style={{ fontSize: '.68rem' }}>HORAS TRABAJADAS TOTAL</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' }}>{num(totalHoras)} h</div>
+            </div>
+          )}
         </div>
-        <HBarChart
-          data={data}
-          yFormatter={(v) => (metrica === 'valor' ? money(v) : metrica === 'horas' ? `${num(v)} h` : num(v))}
-          emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'}
-        />
+
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+
+        {/* Gráfica por producto / equipo */}
+        <div className="card" style={{ padding: '.8rem', margin: 0 }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>
+            <span>
+              Consumo por {permitirHoras ? 'equipo' : 'producto'}{' '}
+              {metrica === 'valor' ? '(en $)' : metrica === 'horas' ? '(en horas trabajadas)' : '(en cantidad)'}
+            </span>
+            <span className="muted mono" style={{ fontSize: '.78rem' }}>{loading ? 'cargando…' : `${sorted.length} ${permitirHoras ? 'equipo(s)' : 'producto(s)'}`}</span>
+          </div>
+          <HBarChart
+            data={data}
+            yFormatter={(v) => (metrica === 'valor' ? money(v) : metrica === 'horas' ? `${num(v)} h` : num(v))}
+            emptyMessage={loading ? 'Cargando…' : 'Sin consumo en el período seleccionado.'}
+          />
+        </div>
       </div>
 
       {/* Tabla detalle */}

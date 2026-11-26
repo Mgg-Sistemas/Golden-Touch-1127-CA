@@ -418,21 +418,36 @@ export function enriquecerMovimientos(
       empresa = 'Operación Interna';
       claseMaquina = 'traslado';
     } else {
-      if (!equipoNombre) equipoNombre = 'Sin equipo asignado';
-      const ficha = indice.buscar(equipoNombre);
+      const tipo = String(m.tipo ?? '').trim().toLowerCase();
+      const rawEq = (m.equipo ?? '').trim();
+      const obs = String(m.observacion ?? '').trim().toLowerCase();
+      const esMerma = tipo === 'merma' ||
+        norm(rawEq).includes('merma') ||
+        norm(obs).includes('merma');
 
-      if (ficha) {
-        empresa = (ficha.propietario ?? '').trim() || 'Sin empresa asignada';
-        tipoMaquina = (ficha.tipo ?? '').trim() || 'Sin tipo';
-        claseMaquina = claseEquipo(ficha);
-        if (ficha.ubicacion && !m.ubicacion) {
-          ubicacion = normalizarUbicacion(ficha.ubicacion) || ficha.ubicacion.trim();
-        }
+      if (esMerma) {
+        equipoNombre = 'Merma';
+        tipoMaquina = 'Merma / Ajuste';
+        empresa = 'Operación Interna';
+        claseMaquina = 'merma';
+        if (!m.ubicacion) ubicacion = 'Tanque / Almacenamiento';
       } else {
-        if (equipoNombre.toUpperCase().includes('BIDON') || equipoNombre.toUpperCase().includes('BIDONES')) {
-          tipoMaquina = 'Bidón / Almacenamiento';
-        } else if (equipoNombre.toUpperCase().includes('CUBICACION') || equipoNombre.toUpperCase().includes('MERMA')) {
-          tipoMaquina = 'Ajuste / Medición';
+        if (!equipoNombre) equipoNombre = 'Sin equipo asignado';
+        const ficha = indice.buscar(equipoNombre);
+
+        if (ficha) {
+          empresa = (ficha.propietario ?? '').trim() || 'Sin empresa asignada';
+          tipoMaquina = (ficha.tipo ?? '').trim() || 'Sin tipo';
+          claseMaquina = claseEquipo(ficha);
+          if (ficha.ubicacion && !m.ubicacion) {
+            ubicacion = normalizarUbicacion(ficha.ubicacion) || ficha.ubicacion.trim();
+          }
+        } else {
+          if (equipoNombre.toUpperCase().includes('BIDON') || equipoNombre.toUpperCase().includes('BIDONES')) {
+            tipoMaquina = 'Bidón / Almacenamiento';
+          } else if (equipoNombre.toUpperCase().includes('CUBICACION')) {
+            tipoMaquina = 'Ajuste / Medición';
+          }
         }
       }
     }

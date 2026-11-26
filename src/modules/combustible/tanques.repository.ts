@@ -1942,12 +1942,12 @@ export type AgrupacionConsumo = 'equipo' | 'mina' | 'mes';
 const MESES_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 /** Uso de combustible agrupado por equipo, mina (ubicación) o mes, en un rango de
- *  fechas (litros + USD al costo). Solo cuenta movimientos de tipo 'uso'. */
+ *  fechas (litros + USD al costo). Cuenta movimientos de 'uso' y 'merma'. */
 export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsumo = 'equipo'): Promise<ConsumoEquipoItem[]> {
   const { data, error } = await supabase
     .from('combustible_tanque_movimientos')
-    .select('equipo, ubicacion, litros, monto_usd, fecha, tipo, tanque_id, horas_utilizadas, horometro_ini, horometro_fin')
-    .eq('tipo', 'uso')
+    .select('equipo, observacion, ubicacion, litros, monto_usd, fecha, tipo, tanque_id, horas_utilizadas, horometro_ini, horometro_fin')
+    .in('tipo', ['uso', 'merma'])
     .gte('fecha', desde.toISOString().slice(0, 10))
     .lte('fecha', hasta.toISOString().slice(0, 10));
   if (error) throw error;
@@ -1964,18 +1964,30 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
   for (const row of (data ?? []) as Array<Record<string, unknown>>) {
     const litros = num(row.litros);
     if (litros <= 0) continue;
+    const tipo = String(row.tipo ?? '').trim().toLowerCase();
+    const rawEquipo = (row.equipo as string)?.trim() || '';
+    const obs = String(row.observacion ?? '').trim().toLowerCase();
+    const esMerma = tipo === 'merma' ||
+      norm(rawEquipo).includes('merma') ||
+      norm(obs).includes('merma');
+
     let clave: string;
-    if (por === 'mina') clave = (row.ubicacion as string)?.trim() || '— sin mina —';
-    else if (por === 'mes') {
+    if (por === 'mina') {
+      clave = (row.ubicacion as string)?.trim() || (esMerma ? 'Merma' : '— sin mina —');
+    } else if (por === 'mes') {
       const f = String(row.fecha ?? '');
       const [y, m] = f.split('-');
       clave = m ? `${MESES_ES[(Number(m) - 1 + 12) % 12]} ${y}` : '— sin fecha —';
     } else {
-      const equipo = (row.equipo as string)?.trim() || '— sin equipo —';
-      const alias = norm(equipo).replace(/[^a-z0-9]/g, '');
-      clave = /^(?:ep01|encavaep01|(?:camioneta)?encavaep1000(?:a96bm3r(?:3)?)?)$/.test(alias)
-        ? 'ENCAVA EP-01'
-        : equipo;
+      if (esMerma) {
+        clave = 'Merma';
+      } else {
+        const equipo = rawEquipo || '— sin equipo —';
+        const alias = norm(equipo).replace(/[^a-z0-9]/g, '');
+        clave = /^(?:ep01|encavaep01|(?:camioneta)?encavaep1000(?:a96bm3r(?:3)?)?)$/.test(alias)
+          ? 'ENCAVA EP-01'
+          : equipo;
+      }
     }
     const cur = acc.get(clave) ?? { id: clave, nombre: clave, cantidad: 0, valor: 0, horas: 0 };
     cur.cantidad += litros;
@@ -1983,10 +1995,12 @@ export async function consumoUso(desde: Date, hasta: Date, por: AgrupacionConsum
     const tasa = row.tanque_id ? tasaPorTanque.get(row.tanque_id as string) ?? 0 : 0;
     cur.valor += tasa > 0 ? litros * tasa : num(row.monto_usd);
     let h = 0;
-    if (row.horas_utilizadas != null && num(row.horas_utilizadas) > 0) {
-      h = num(row.horas_utilizadas);
-    } else if (row.horometro_fin != null && row.horometro_ini != null && num(row.horometro_fin) >= num(row.horometro_ini)) {
-      h = num(row.horometro_fin) - num(row.horometro_ini);
+    if (!esMerma) {
+      if (row.horas_utilizadas != null && num(row.horas_utilizadas) > 0) {
+        h = num(row.horas_utilizadas);
+      } else if (row.horometro_fin != null && row.horometro_ini != null && num(row.horometro_fin) >= num(row.horometro_ini)) {
+        h = num(row.horometro_fin) - num(row.horometro_ini);
+      }
     }
     cur.horas = (cur.horas ?? 0) + h;
     acc.set(clave, cur);
@@ -2024,7 +2038,7 @@ export async function consultarMovimientosReporteCombustible(
   if (params.tipos && params.tipos.length > 0) {
     q = q.in('tipo', params.tipos);
   } else {
-    q = q.eq('tipo', 'uso');
+    q = q.in('tipo', ['uso', 'merma']);
   }
 
   if (params.tanqueIds && params.tanqueIds.length > 0) {

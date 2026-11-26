@@ -658,7 +658,7 @@ export function TanquesView() {
       {modal === 'consumo' && (
         <ConsumoChartModal
           title="Consumo de combustible por equipo"
-          subtitle="Litros consumidos (movimientos de USO) por equipo. El valor en $ usa la tasa del tanque."
+          subtitle="Litros consumidos y mermas por equipo. El valor en $ usa la tasa del tanque."
           permitirHoras
           onAbrirReporte={({ desde, hasta }) => {
             setRangoReporte({

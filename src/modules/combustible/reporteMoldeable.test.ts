@@ -448,4 +448,59 @@ describe('reporteMoldeable', () => {
     expect(cab4.titulo).toBe('GOLDEN TOUCH 1127');
     expect(cab4.subtitulo).toBe('GENERADOR');
   });
+
+  it('clasifica movimientos de merma como Merma en vez de Sin equipo asignado', () => {
+    const movs: MovimientoTanque[] = [
+      {
+        id: 'm-merma-1',
+        tanque_id: 'tk-1',
+        equipo: null,
+        litros: 85,
+        tipo: 'merma',
+        observacion: 'Evaporación natural',
+        fecha: '2026-11-20',
+      } as MovimientoTanque,
+      {
+        id: 'm-merma-2',
+        tanque_id: 'tk-1',
+        equipo: '',
+        litros: 40,
+        tipo: 'uso',
+        observacion: 'Ajuste por merma de descarga',
+        fecha: '2026-11-21',
+      } as MovimientoTanque,
+      {
+        id: 'm-merma-3',
+        tanque_id: 'tk-1',
+        equipo: 'Merma en traslado',
+        litros: 30,
+        tipo: 'uso',
+        fecha: '2026-11-22',
+      } as MovimientoTanque,
+      {
+        id: 'm-sin-eq',
+        tanque_id: 'tk-1',
+        equipo: null,
+        litros: 20,
+        tipo: 'uso',
+        observacion: 'Despacho temporal',
+        fecha: '2026-11-23',
+      } as MovimientoTanque,
+    ];
+
+    const enriquecidos = enriquecerMovimientos(movs, [], [], 'historica');
+
+    expect(enriquecidos[0].equipoNombre).toBe('Merma');
+    expect(enriquecidos[0].tipoMaquina).toBe('Merma / Ajuste');
+    expect(enriquecidos[0].claseMaquina).toBe('merma');
+
+    expect(enriquecidos[1].equipoNombre).toBe('Merma');
+    expect(enriquecidos[1].tipoMaquina).toBe('Merma / Ajuste');
+
+    expect(enriquecidos[2].equipoNombre).toBe('Merma');
+    expect(enriquecidos[2].tipoMaquina).toBe('Merma / Ajuste');
+
+    // Despacho regular sin equipo que no es merma conserva fallback
+    expect(enriquecidos[3].equipoNombre).toBe('Sin equipo asignado');
+  });
 });

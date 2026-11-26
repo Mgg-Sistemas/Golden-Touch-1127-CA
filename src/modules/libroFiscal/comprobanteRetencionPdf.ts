@@ -103,6 +103,22 @@ export function correlativoDeNumero(numero: string | null | undefined): string {
   return d.length >= 14 ? d.slice(6, 14) : d || '—';
 }
 
+/**
+ * Determina el concepto legal a imprimir en el comprobante fiscal.
+ * En retenciones de ISLR (Decreto 1.808), los conceptos corresponden al catálogo tributario.
+ * Descripciones internas de partidas u órdenes (como "Mano de Obra") se corrigen al
+ * concepto normativo aplicable ("Servicios (contratistas y subcontratistas)").
+ */
+export function conceptoFiscalPdf(r: RetencionPracticada): string {
+  const norm = (r.conceptoNombre ?? '').trim();
+  if (r.tipo === 'islr') {
+    if (!norm || norm.toUpperCase() === 'MANO DE OBRA') {
+      return 'Servicios (contratistas y subcontratistas)';
+    }
+  }
+  return norm || (r.tipo === 'islr' ? 'Servicios (contratistas y subcontratistas)' : 'SERVICIOS');
+}
+
 /** El valor de cada columna de la tabla del comprobante (por su campo). */
 export function valoresDeColumnas(r: RetencionPracticada): Record<string, string> {
   const op = r.operacionNumero != null
@@ -136,7 +152,7 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
     total_factura: totFactura == null ? '—' : montoPdf(totFactura * signo, r.moneda),
     sin_derecho: montoPdf((r.sinDerechoCreditoIva ?? 0) * signo, r.moneda),
     exento: montoPdf(exentoMonto * signo, r.moneda),
-    concepto: r.conceptoNombre || 'SERVICIOS',
+    concepto: conceptoFiscalPdf(r),
     base: montoPdf(r.baseImponible * signo, r.moneda),
     alicuota: r.alicuota ? `${r.alicuota}%` : '—',
     iva: montoPdf(causadoMonto * signo, r.moneda),
@@ -771,7 +787,8 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   const labelImp = r.tipo === 'islr' ? 'I.S.L.R.' : r.tipo === 'iva' ? 'I.V.A.' : r.tipo === 'municipal' ? 'I.S.A.E.' : 'Impuesto';
-  const textoConcepto = `Retención de ${labelImp}${r.conceptoNombre ? ` por concepto de: ${textoPdf(r.conceptoNombre)}` : ''}`;
+  const conceptoFiscal = conceptoFiscalPdf(rEnriquecida);
+  const textoConcepto = `Retención de ${labelImp}${conceptoFiscal ? ` por concepto de: ${textoPdf(conceptoFiscal)}` : ''}`;
   doc.text(textoConcepto, M, y);
 
   if (rEnriquecida.facturaAfectadaNro || rEnriquecida.tipoDocumento === 'nota_credito' || rEnriquecida.tipoDocumento === 'nota_debito') {

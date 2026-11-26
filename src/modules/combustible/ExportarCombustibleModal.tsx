@@ -245,7 +245,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
       tipMap.set(tp, { count: prevTp.count + 1, litros: prevTp.litros + l });
 
       // Equipo
-      const eq = item.equipoNombre || 'Sin equipo';
+      const eq = item.equipoNombre || (item.mov.tipo === 'merma' ? 'Merma' : 'Sin equipo');
       const prevEq = eqMap.get(eq) || { count: 0, litros: 0, tipo: tp, empresa: e };
       eqMap.set(eq, { count: prevEq.count + 1, litros: prevEq.litros + l, tipo: tp, empresa: e });
 
@@ -286,7 +286,7 @@ export function ExportarCombustibleModal({ tanques, tanqueInicialId, rangoInicia
   const statsEquiposEnFiltrosCruzados = useMemo(() => {
     const map = new Map<string, { litros: number; count: number }>();
     for (const mov of movimientosFiltrosCruzadosEquipos) {
-      const eq = mov.equipoNombre || 'Sin equipo';
+      const eq = mov.equipoNombre || (mov.mov.tipo === 'merma' ? 'Merma' : 'Sin equipo');
       const prev = map.get(eq) || { litros: 0, count: 0 };
       map.set(eq, { litros: prev.litros + mov.litros, count: prev.count + 1 });
     }
