@@ -5,7 +5,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { norm } from '@/shared/lib/texto';
-import { ALMACEN_MINA } from '@/modules/inventario/depositos';
+import { depositoDe, resolverDeposito } from '@/modules/inventario/depositos';
+import { rutaDetalleProducto, tokensBusquedaProducto } from '@/modules/inventario/busquedaProductos';
 
 export type TipoResultado = 'producto' | 'proveedor' | 'orden' | 'usuario';
 
@@ -46,16 +47,22 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
   // ilike de siempre sobre el campo original.
   const likeSinAcentos = `%${norm(q)}%`;
 
+  // Productos de TODOS los depósitos que el usuario puede leer. Cada palabra debe
+  // aparecer en el nombre o SKU: así «TIZA DE HERRERÍA» encuentra «TIZA PARA
+  // HERRERÍA» y el resultado abre Mina, no el Inventario General equivocado.
+  let productosQuery = supabase.from('productos').select('id, sku, nombre, categoria, almacen')
+    .eq('estado', 'activo');
+  for (const token of tokensBusquedaProducto(q)) {
+    // Paréntesis, puntos, comas y % tienen significado en la sintaxis `.or`.
+    const limpio = token.replace(/[%(),.]/g, ' ');
+    const likeToken = `%${limpio}%`;
+    productosQuery = productosQuery.or(`nombre_busq.ilike.${likeToken},sku.ilike.${likeToken}`);
+  }
+
   const [prods, provs, ords, usrs] = await Promise.all([
     // SOLO PRODUCTOS ACTIVOS. Un producto inactivo salió del inventario y de los
-    // almacenes a propósito: se dio de baja o se unificó en otro (p. ej. GEN-071
-    // «VINAGRE (unificado en GEN-183)»). Ofrecerlo en el buscador manda a una
-    // ficha que ya no se ve en ninguna pantalla, y hace parecer que hay dos
-    // productos donde queda uno solo.
-    supabase.from('productos').select('id, sku, nombre, categoria')
-      .eq('estado', 'activo')
-      .neq('almacen', ALMACEN_MINA)   // Depósito Mina: independiente, no entra aquí.
-      .or(`nombre_busq.ilike.${likeSinAcentos},sku.ilike.${like}`).limit(6),
+    // almacenes a propósito: se dio de baja o se unificó en otro.
+    productosQuery.order('nombre').limit(12),
     supabase.from('proveedores').select('id, razon_social, rif')
       .or(`razon_social_busq.ilike.${likeSinAcentos},rif.ilike.${like}`).limit(6),
     supabase.from('ordenes').select('id, codigo, estado')
@@ -68,8 +75,13 @@ export async function buscarGlobal(qRaw: string): Promise<ResultadoBusqueda[]> {
 
   const res: ResultadoBusqueda[] = [];
   (prods.data ?? []).forEach((p) => {
-    const r = p as { id: string; sku: string; nombre: string; categoria: string };
-    res.push({ tipo: 'producto', id: r.id, titulo: r.nombre, subtitulo: `${r.sku} · ${r.categoria}`, ruta: `/app/inventario?detalle=${encodeURIComponent(r.id)}` });
+    const r = p as { id: string; sku: string; nombre: string; categoria: string; almacen: string | null };
+    const deposito = resolverDeposito(depositoDe(r));
+    res.push({
+      tipo: 'producto', id: r.id, titulo: r.nombre,
+      subtitulo: `${r.sku} · ${r.categoria} · ${deposito.nombre}`,
+      ruta: rutaDetalleProducto(r),
+    });
   });
   (provs.data ?? []).forEach((p) => {
     const r = p as { id: string; razon_social: string; rif: string };

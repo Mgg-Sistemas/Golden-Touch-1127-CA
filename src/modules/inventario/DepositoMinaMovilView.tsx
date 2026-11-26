@@ -38,6 +38,7 @@ import {
 import { registrarMovimiento } from './movimientos.repository';
 import { ProductoDuplicadoModal } from './ProductoDuplicadoModal';
 import { movimientoSumarStockDuplicado, requiereValidacionDuplicados } from './duplicadosDeposito';
+import { coincideBusquedaProducto } from './busquedaProductos';
 import { esCategoriaReal, MENSAJE_CATEGORIA_OBLIGATORIA } from './categoriaReal';
 import {
   ALMACEN_DANADOS,
@@ -82,7 +83,6 @@ const DESTINO_MGG = '__mgg_los_pinos__';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el inventario entero. */
 const SIN_BUSCAR = 15;
 
-const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const errMsg = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
 
 type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'presalidas' | 'listoPre' | 'listoSalidaPre' | 'retornos' | 'reporte' | 'traslado' | 'histSalidas' | 'histTraslados' | 'recepcion' | 'histRecepciones' | 'recepTraslados' | 'enCamino';
@@ -202,9 +202,10 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
   );
 
   const lista = useMemo(() => {
-    const q = sinAcentos(busca.trim());
-    if (!q) return productos.slice(0, SIN_BUSCAR);
-    return productos.filter((p) => sinAcentos(`${p.nombre} ${p.sku} ${p.categoria}`).includes(q));
+    if (!busca.trim()) return productos.slice(0, SIN_BUSCAR);
+    // Igual que en PC: por palabras, SKU y detalle. «TIZA DE HERRERÍA» debe
+    // encontrar la ficha real «TIZA PARA HERRERÍA», no responder que no existe.
+    return productos.filter((p) => coincideBusquedaProducto(p, busca));
   }, [productos, busca]);
 
   function volver() { setPaso('inicio'); setElegido(null); }

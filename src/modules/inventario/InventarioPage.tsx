@@ -64,7 +64,7 @@ import { CostosYMedidasModal, contarSinCosto } from './CostosYMedidasModal';
 import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { analizarExcel, descargarPlantillaExcel, type AnalisisImport } from './inventarioBulk';
 import { InventarioFilterbar, type FilterValues } from './InventarioFilterbar';
-import { norm } from '@/shared/lib/texto';
+import { coincideBusquedaProducto } from './busquedaProductos';
 import {
   ALMACEN_GENERAL,
   ALMACEN_MINA,
@@ -96,7 +96,6 @@ const INITIAL_UI: UiState = {
 
 /** Predicado de filtros del inventario general. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
-  const q = norm(ui.filterText);
   // SOLO ACTIVOS, sin opción de ver los otros. Un producto inactivo se dio de
   // baja o se unificó en otro: mostrarlo hacía parecer que había dos productos
   // donde queda uno. Los dados de baja viven en «Productos inactivos».
@@ -111,21 +110,8 @@ function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   if (ui.filterStock === 'restock' && !(p._needsRestock && !p._critical)) return false;
   if (ui.filterStock === 'ok' && p._needsRestock) return false;
   if (ui.filterStock === 'sin_mov' && (p.stock ?? 0) > 0) return false;
-  if (q) {
-    // Todos los datos del producto unidos en un solo texto: nombre + detalle (alias,
-    // marca, modelo, serial, código, N°), la MEDIDA/unidad, la categoría, la descripción
-    // y la ubicación. Así el detalle queda VINCULADO al producto en la búsqueda.
-    const haystack = [
-      p.sku, p.nombre, p.nombre_busqueda, p.marca, p.modelo, p.serial, p.codigo, p.numero,
-      p.unidad, p.categoria, p.descripcion, p.ubicacion,
-      // Códigos anteriores (el SKU cambia con la categoría): «GEN-179» sigue encontrando el aceite.
-      ...(p.sku_anteriores ?? []),
-    ].map((c) => norm(String(c ?? ''))).join(' ');
-    // Cada palabra del término debe aparecer en algún dato: "clavo media pulgada"
-    // encuentra el clavo cuya medida/detalle es "media pulgada" (aunque el nombre sea solo "CLAVO").
-    const tokens = q.split(/\s+/).filter(Boolean);
-    if (!tokens.every((t) => haystack.includes(t))) return false;
-  }
+  // Nombre + SKU + detalle, por palabras y sin que «de/para» esconda una ficha.
+  if (!coincideBusquedaProducto(p, ui.filterText)) return false;
   return true;
 }
 
