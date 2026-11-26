@@ -9,13 +9,13 @@
    fecha de la factura; la fecha de la retención es la del comprobante y no
    cambia el período. Se ofrece detrás de v2rDisponible.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import type { Proveedor } from '@/shared/lib/types';
-import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
+import { list as listProveedores, update as updateProveedor } from '@/modules/proveedores/proveedores.repository';
 import { getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
 import { rifValido } from '@/shared/lib/rif';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -137,6 +137,15 @@ interface LineaUI {
   ivaDerivadoConfirmado?: boolean;
 }
 
+/** Renglón para ensamblar factura estilo Valery Software */
+export interface RenglonValery {
+  id: string;
+  descripcion: string;
+  cantidad: number;
+  precioUnitario: number;
+  alicuota: 16 | 8 | 0;
+}
+
 
 let semilla = 0;
 const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
@@ -238,6 +247,88 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [buzonPendientes, setBuzonPendientes] = useState<FacturaExternaBuzon[]>([]);
   const [buzonSeleccionadaId, setBuzonSeleccionadaId] = useState<string>('');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Verificación de historial de retenciones del proveedor (para autorizar edición fiscal)
+  const [verificandoHistorialProv, setVerificandoHistorialProv] = useState(false);
+  const [tieneRetencionesPrevias, setTieneRetencionesPrevias] = useState<boolean | null>(null);
+  const [cantRetencionesPrevias, setCantRetencionesPrevias] = useState(0);
+  const [editandoProveedor, setEditandoProveedor] = useState(false);
+  const [nombreProvEditado, setNombreProvEditado] = useState('');
+  const [rifProvEditado, setRifProvEditado] = useState('');
+  const [guardandoProveedor, setGuardandoProveedor] = useState(false);
+
+  // Modo de ensamblaje de factura estilo Valery Software
+  const [modoCaptura, setModoCaptura] = useState<'rapido' | 'valery'>('rapido');
+  const [renglonesValery, setRenglonesValery] = useState<RenglonValery[]>([]);
+
+  useEffect(() => {
+    if (!proveedorId) {
+      setTieneRetencionesPrevias(null);
+      setCantRetencionesPrevias(0);
+      setEditandoProveedor(false);
+      return;
+    }
+    let activo = true;
+    setVerificandoHistorialProv(true);
+    (async () => {
+      try {
+        const { count, error } = await supabase
+          .from('retenciones')
+          .select('id', { count: 'exact', head: true })
+          .eq('proveedor_id', proveedorId);
+        if (!activo) return;
+        if (error) {
+          console.warn('Error verificando retenciones previas:', error);
+          setTieneRetencionesPrevias(true);
+          return;
+        }
+        const c = count ?? 0;
+        setCantRetencionesPrevias(c);
+        setTieneRetencionesPrevias(c > 0);
+      } catch {
+        if (activo) setTieneRetencionesPrevias(true);
+      } finally {
+        if (activo) setVerificandoHistorialProv(false);
+      }
+    })();
+    return () => { activo = false; };
+  }, [proveedorId]);
+
+  function iniciarEdicionProveedor() {
+    setNombreProvEditado(contraparte);
+    setRifProvEditado(rif);
+    setEditandoProveedor(true);
+  }
+
+  async function guardarEdicionProveedor() {
+    if (!proveedorId) return;
+    const nom = nombreProvEditado.trim();
+    const r = rifProvEditado.trim().toUpperCase();
+    if (!nom) {
+      toast('La razón social no puede estar vacía.', 'error');
+      return;
+    }
+    if (!rifValido(r)) {
+      toast('El RIF ingresado no es válido (ej. J-12345678-9).', 'error');
+      return;
+    }
+    setGuardandoProveedor(true);
+    try {
+      await updateProveedor(proveedorId, { razon_social: nom, rif: r });
+      setProveedores((prev) => prev.map((p) => p.id === proveedorId ? { ...p, razon_social: nom, rif: r } : p));
+      setContraparte(nom);
+      setRif(r);
+      setEditandoProveedor(false);
+      toast('Datos del proveedor actualizados con éxito.', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al guardar el proveedor.';
+      toast(msg, 'error');
+    } finally {
+      setGuardandoProveedor(false);
+    }
+  }
+
   useEffect(() => {
     let activo = true;
     if (direccion === 'practicada') {
@@ -311,7 +402,91 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         path: o.factura_recepcion_path,
       });
     }
+    if (o.items && o.items.length > 0) {
+      setRenglonesValery(o.items.map((it, idx) => ({
+        id: `oc-item-${idx}-${Date.now()}`,
+        descripcion: it.nombre || it.sku || `Ítem ${idx + 1}`,
+        cantidad: Number(it.cantidad) || 1,
+        precioUnitario: (o.total_moneda === 'Bs' ? Number(it.precio) : Number(it.precio_usd || it.precio)) || 0,
+        alicuota: it.exento ? 0 : 16,
+      })));
+    }
   }
+
+  const ordenSeleccionadaObj = useMemo(() => {
+    if (!ordenSeleccionadaId) return null;
+    return ordenesPendientes.find((x) => x.orden.id === ordenSeleccionadaId)?.orden ?? null;
+  }, [ordenesPendientes, ordenSeleccionadaId]);
+
+  function cargarRenglonesDesdeOc() {
+    if (!ordenSeleccionadaObj || !ordenSeleccionadaObj.items || !ordenSeleccionadaObj.items.length) {
+      toast('La orden de compra seleccionada no contiene renglones detallados.', 'info');
+      return;
+    }
+    const nuevos: RenglonValery[] = ordenSeleccionadaObj.items.map((it, idx) => ({
+      id: `oc-item-${idx}-${Date.now()}`,
+      descripcion: it.nombre || it.sku || `Ítem ${idx + 1}`,
+      cantidad: Number(it.cantidad) || 1,
+      precioUnitario: (ordenSeleccionadaObj.total_moneda === 'Bs' ? Number(it.precio) : Number(it.precio_usd || it.precio)) || 0,
+      alicuota: it.exento ? 0 : 16,
+    }));
+    setRenglonesValery(nuevos);
+    marcarSucio();
+    toast(`Se cargaron ${nuevos.length} renglones de la orden de compra.`, 'success');
+  }
+
+  function agregarRenglon() {
+    marcarSucio();
+    setRenglonesValery((prev) => [
+      ...prev,
+      {
+        id: `renglon-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        descripcion: '',
+        cantidad: 1,
+        precioUnitario: 0,
+        alicuota: 16,
+      },
+    ]);
+  }
+
+  function actualizarRenglon(id: string, patch: Partial<RenglonValery>) {
+    marcarSucio();
+    setRenglonesValery((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
+  }
+
+  function eliminarRenglon(id: string) {
+    marcarSucio();
+    setRenglonesValery((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  const calculoValery = useMemo(() => {
+    let base16 = 0;
+    let base8 = 0;
+    let exento = 0;
+    for (const r of renglonesValery) {
+      const cant = Number(r.cantidad) || 0;
+      const pu = Number(r.precioUnitario) || 0;
+      const sub = Math.round(cant * pu * 100) / 100;
+      if (r.alicuota === 16) base16 += sub;
+      else if (r.alicuota === 8) base8 += sub;
+      else exento += sub;
+    }
+    base16 = Math.round(base16 * 100) / 100;
+    base8 = Math.round(base8 * 100) / 100;
+    exento = Math.round(exento * 100) / 100;
+    const iva16 = Math.round(base16 * 0.16 * 100) / 100;
+    const iva8 = Math.round(base8 * 0.08 * 100) / 100;
+    const totalIva = Math.round((iva16 + iva8) * 100) / 100;
+    const totalFactura = Math.round((base16 + base8 + exento + totalIva) * 100) / 100;
+    return { base16, base8, exento, iva16, iva8, totalIva, totalFactura };
+  }, [renglonesValery]);
+
+  useEffect(() => {
+    if (modoCaptura !== 'valery' || renglonesValery.length === 0) return;
+    setFacturaTotal(numeroATexto(calculoValery.totalFactura));
+    setIvaFacturaStr(numeroATexto(calculoValery.totalIva));
+    setExentoStr(calculoValery.exento > 0 ? numeroATexto(calculoValery.exento) : '');
+  }, [modoCaptura, calculoValery]);
 
   function elegirFacturaBuzon(id: string) {
     marcarSucio();
@@ -1038,9 +1213,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       {direccion === 'practicada' && !documento && (
         <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', borderColor: 'var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
-            <label style={{ margin: 0, fontWeight: 700, fontSize: '.88rem' }}>
-              ¿De dónde proviene esta factura?
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span style={{ fontSize: '.95rem' }}>📂</span>
+              <label style={{ margin: 0, fontWeight: 700, fontSize: '.86rem', color: 'var(--text-normal)' }}>
+                1. ¿De dónde proviene esta factura?
+              </label>
+            </div>
             <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
@@ -1178,62 +1356,114 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
       {/* ── 2. Soporte Digital Obligatorio ── */}
       {soporteActivo ? (
-        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', borderColor: 'var(--success, #22c55e)' }}>
-          <span>📄 Factura respaldada en el sistema: <strong>{soporteActivo.nombre}</strong></span>
-          <button type="button" className="btn btn-sm btn-ghost"
-            onClick={() => { urlFacturaDeOrigen(soporteActivo).then((u) => previewArchivo(u, soporteActivo.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
-            👁 Ver factura
-          </button>
-          <small className="muted">Enlazada automáticamente al expediente fiscal de la compra.</small>
-        </div>
-      ) : (
         <div className="card" style={{
           marginBottom: '.75rem',
-          background: archivoFactura ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.04)',
-          borderColor: archivoFactura ? 'var(--success, #22c55e)' : 'var(--danger, #ef4444)',
-          borderWidth: '1.5px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '.6rem',
+          borderColor: 'rgba(34, 197, 94, 0.4)',
+          background: 'rgba(34, 197, 94, 0.05)',
+          padding: '.8rem 1rem',
+          borderRadius: '10px',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.35rem' }}>
-            <label style={{ margin: 0, fontWeight: 700, fontSize: '.88rem', display: 'flex', alignItems: 'center', gap: '.4rem', color: archivoFactura ? 'var(--text-normal)' : 'var(--danger, #ef4444)' }}>
-              📎 Factura de respaldo (PDF o imagen) <span style={{ color: 'var(--danger, #ef4444)' }}>* OBLIGATORIO</span>
-            </label>
-            {archivoFactura && (
-              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={verArchivoLocal}
-                  title="Abrir visor para cotejar datos de la factura"
-                  style={{ color: 'var(--primary)', fontWeight: 600 }}
-                >
-                  👁 Ver factura cargada
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => onElegirArchivo(null)}
-                  title="Quitar archivo seleccionado"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  ✕ Quitar
-                </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <span style={{ fontSize: '1.4rem' }}>📄</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '.88rem', color: 'var(--text-normal)' }}>
+                Factura respaldada en el sistema: <span style={{ color: 'var(--primary)' }}>{soporteActivo.nombre}</span>
               </div>
-            )}
+              <small className="muted" style={{ fontSize: '.75rem' }}>
+                Enlazada automáticamente al expediente fiscal de la compra.
+              </small>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-            <input
-              className="input"
-              type="file"
-              accept="application/pdf,image/*"
-              style={{ flex: 1, borderColor: archivoFactura ? undefined : 'var(--danger, #ef4444)' }}
-              onChange={(e) => onElegirArchivo(e.target.files?.[0] ?? null)}
-            />
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ fontWeight: 600, color: 'var(--primary)' }}
+            onClick={() => { urlFacturaDeOrigen(soporteActivo).then((u) => previewArchivo(u, soporteActivo.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}
+          >
+            👁 Ver factura
+          </button>
+        </div>
+      ) : archivoFactura ? (
+        <div className="card" style={{
+          marginBottom: '.75rem',
+          border: '1.5px solid rgba(34, 197, 94, 0.4)',
+          borderRadius: '10px',
+          padding: '.8rem 1rem',
+          background: 'rgba(34, 197, 94, 0.06)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '.6rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem' }}>
+            <span style={{ fontSize: '1.5rem' }}>📄</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '.88rem', color: 'var(--text-normal)' }}>
+                {archivoFactura.name}
+              </div>
+              <small style={{ color: 'var(--success, #22c55e)', fontSize: '.76rem', fontWeight: 600 }}>
+                ✓ Archivo listo ({(archivoFactura.size / 1024).toFixed(1)} KB) · Respaldo digital adjunto
+              </small>
+            </div>
           </div>
-          <small className="hint" style={{ display: 'block', marginTop: '.25rem', color: archivoFactura ? 'var(--text-muted)' : 'var(--danger, #ef4444)' }}>
-            {archivoFactura
-              ? `Archivo listo: ${archivoFactura.name} (${(archivoFactura.size / 1024).toFixed(1)} KB). Puedes pulsar "Ver factura cargada" para revisar montos y números mientras registras.`
-              : '⚠️ Es obligatorio adjuntar el archivo de la factura en PDF o imagen para respaldar legal y fiscalmente la retención.'}
-          </small>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={verArchivoLocal}
+              title="Abrir visor para cotejar datos de la factura"
+              style={{ color: 'var(--primary)', fontWeight: 600 }}
+            >
+              👁 Ver factura cargada
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => onElegirArchivo(null)}
+              title="Quitar archivo seleccionado"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              ✕ Quitar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="card"
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            marginBottom: '.75rem',
+            border: '1.5px dashed rgba(245, 158, 11, 0.45)',
+            borderRadius: '10px',
+            padding: '1rem 1.2rem',
+            background: 'rgba(245, 158, 11, 0.03)',
+            cursor: 'pointer',
+            textAlign: 'center',
+            transition: 'all .2s ease',
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => onElegirArchivo(e.target.files?.[0] ?? null)}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.25rem' }}>
+            <span style={{ fontSize: '1.5rem' }}>📎</span>
+            <div style={{ fontWeight: 700, fontSize: '.88rem', color: 'var(--text-normal)' }}>
+              Factura de respaldo (PDF o imagen) <span style={{ color: 'var(--danger, #ef4444)', fontSize: '.76rem', padding: '1px 6px', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.1)', marginLeft: '.4rem' }}>* Obligatorio SENIAT</span>
+            </div>
+            <small style={{ color: 'var(--text-muted)', fontSize: '.76rem' }}>
+              Haz clic para seleccionar el archivo o arrástralo aquí para adjuntarlo al expediente de retención.
+            </small>
+          </div>
         </div>
       )}
 
@@ -1310,21 +1540,159 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       )}
 
       {/* ── 3. Proveedor y Moneda ── */}
-      <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)' }}>
+      <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <span style={{ fontSize: '.95rem' }}>🏢</span>
+            <label style={{ margin: 0, fontWeight: 700, fontSize: '.86rem', color: 'var(--text-normal)' }}>
+              {direccion === 'recibida' ? 'Cliente que nos retuvo' : 'Proveedor a retener'}
+            </label>
+          </div>
+          {direccion === 'practicada' && proveedorId && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+              {verificandoHistorialProv ? (
+                <small style={{ color: 'var(--text-muted)', fontSize: '.74rem' }}>⏳ Verificando historial fiscal...</small>
+              ) : tieneRetencionesPrevias === true ? (
+                <span style={{
+                  fontSize: '.72rem',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: 'var(--danger, #ef4444)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '.3rem',
+                }}>
+                  🔒 Con retenciones previas ({cantRetencionesPrevias}) · Datos protegidos (SENIAT)
+                </span>
+              ) : tieneRetencionesPrevias === false ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: '.72rem',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    background: 'rgba(34, 197, 94, 0.1)',
+                    color: 'var(--success, #22c55e)',
+                    border: '1px solid rgba(34, 197, 94, 0.25)',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '.3rem',
+                  }}>
+                    🟢 Sin retenciones previas · Editable
+                  </span>
+                  {!editandoProveedor && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '1px 7px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                      onClick={iniciarEdicionProveedor}
+                      title="Editar Razón Social o RIF del proveedor en el catálogo"
+                    >
+                      ✏️ Editar proveedor
+                    </button>
+                  )}
+                  {!documento && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '1px 7px', color: 'var(--text-muted)' }}
+                      onClick={() => { setProveedorId(''); setContraparte(''); setRif(''); setEditandoProveedor(false); }}
+                      title="Cambiar a otro proveedor"
+                    >
+                      🔄 Cambiar
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        {/* Panel inline de edición de proveedor (si no tiene retenciones previas) */}
+        {editandoProveedor && (
+          <div style={{
+            marginBottom: '.65rem',
+            padding: '.65rem .85rem',
+            borderRadius: '8px',
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+          }}>
+            <div style={{ fontWeight: 700, fontSize: '.82rem', color: 'var(--text-normal)', marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+              <span>✏️</span> Corregir Razón Social y RIF del proveedor
+              <small className="muted" style={{ fontWeight: 400, marginLeft: '.3rem' }}>(Este proveedor no tiene comprobantes históricos emitidos)</small>
+            </div>
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="form-row" style={{ flex: '2 1 200px', margin: 0 }}>
+                <label style={{ fontSize: '.76rem' }}>Razón social corregida</label>
+                <input
+                  className="input"
+                  style={{ fontSize: '.85rem', padding: '.4rem .6rem' }}
+                  value={nombreProvEditado}
+                  onChange={(e) => setNombreProvEditado(e.target.value)}
+                  placeholder="Nombre o razón social fiscal"
+                />
+              </div>
+              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
+                <label style={{ fontSize: '.76rem' }}>RIF corregido</label>
+                <input
+                  className="input mono"
+                  style={{ fontSize: '.85rem', padding: '.4rem .6rem' }}
+                  value={rifProvEditado}
+                  onChange={(e) => setRifProvEditado(e.target.value)}
+                  placeholder="J-12345678-9"
+                  maxLength={15}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={guardarEdicionProveedor}
+                  disabled={guardandoProveedor}
+                  style={{ fontSize: '.78rem', padding: '.4rem .8rem' }}
+                >
+                  {guardandoProveedor ? 'Guardando…' : '💾 Guardar'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setEditandoProveedor(false)}
+                  style={{ fontSize: '.78rem', padding: '.4rem .6rem' }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
           <div className="form-row" style={{ flex: '2 1 240px' }}>
             <label>{direccion === 'recibida' ? 'Quién nos retuvo' : 'A quién le retenemos'}</label>
             {direccion === 'practicada' ? (
-              <SearchSelect value={proveedorId} onChange={elegirProveedor} options={opcionesProveedor}
-                placeholder="Buscar proveedor por nombre o RIF…" disabled={!!s.contraparteId || !!documento} />
+              <SearchSelect
+                value={proveedorId}
+                onChange={elegirProveedor}
+                options={opcionesProveedor}
+                placeholder="Buscar proveedor por nombre o RIF…"
+                disabled={Boolean(documento || (s.contraparteId && tieneRetencionesPrevias === true))}
+              />
             ) : (
               <input className="input" value={contraparte} onChange={(e) => { marcarSucio(); setContraparte(e.target.value); }} placeholder="Razón social" />
             )}
           </div>
           <div className="form-row" style={{ flex: '1 1 150px' }}>
             <label>RIF</label>
-            <input className="input mono" value={rif} onChange={(e) => { marcarSucio(); setRif(e.target.value); }} placeholder="J-XXXXXXXX-X"
-              readOnly={direccion === 'practicada' && !!proveedorId} />
+            <input
+              className="input mono"
+              value={rif}
+              onChange={(e) => { marcarSucio(); setRif(e.target.value); }}
+              placeholder="J-XXXXXXXX-X"
+              readOnly={direccion === 'practicada' && Boolean(proveedorId) && tieneRetencionesPrevias !== false}
+            />
             {textoRif && (
               <small className="hint" style={{ color: 'var(--danger)' }}>
                 {textoRif.hint}
@@ -1352,6 +1720,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
 
       {/* ── 4. Datos del Documento e Importes ── */}
       <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.65rem' }}>
+          <span style={{ fontSize: '.95rem' }}>🧾</span>
+          <label style={{ margin: 0, fontWeight: 700, fontSize: '.86rem', color: 'var(--text-normal)' }}>
+            4. Datos Fiscales del Documento
+          </label>
+        </div>
         <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
           <div className="form-row" style={{ flex: '1 1 140px' }}>
             <label>Tipo de documento</label>
@@ -1412,58 +1786,272 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           </div>
         )}
 
-        {/* Fila de Importes con rótulos claros y desglose de IVA */}
-        <div style={{ paddingTop: '.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-            <div className="form-row" style={{ flex: '2 1 180px' }}>
-              <label style={{ fontWeight: 700, color: 'var(--text-normal)' }}>
-                Total de la factura <span style={{ color: 'var(--danger)' }}>*</span>
-              </label>
-              <input
-                className="input mono"
-                value={facturaTotal}
-                readOnly={!!documento}
-                onChange={(e) => {
-                  marcarSucio();
-                  setFacturaTotal(e.target.value);
+        {/* Fila de Importes: Selector entre Modo Rápido y Modo Avanzado (Valery) */}
+        <div style={{ paddingTop: '.65rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '.5rem',
+            marginBottom: '.75rem',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span style={{ fontSize: '1rem' }}>💰</span>
+              <strong style={{ fontSize: '.9rem', color: 'var(--text-normal)' }}>
+                Importes de la Factura y Desglose Fiscal
+              </strong>
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: '.3rem',
+              background: 'rgba(255, 255, 255, 0.04)',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+            }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoCaptura === 'rapido' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: '.78rem', padding: '3px 12px', borderRadius: '6px' }}
+                onClick={() => setModoCaptura('rapido')}
+              >
+                ⚡ Modo Rápido (Totales directos)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoCaptura === 'valery' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: '.78rem', padding: '3px 12px', borderRadius: '6px' }}
+                onClick={() => {
+                  setModoCaptura('valery');
+                  if (renglonesValery.length === 0 && ordenSeleccionadaObj?.items && ordenSeleccionadaObj.items.length > 0) {
+                    cargarRenglonesDesdeOc();
+                  }
                 }}
-                inputMode="decimal"
-                placeholder="0,00"
-              />
-              <SeLeyo texto={facturaTotal} />
-              <small className="hint muted">Monto total bruto a pagar (con IVA y exento incluidos).</small>
-            </div>
-
-            <div className="form-row" style={{ flex: '2 1 200px' }}>
-              <label style={{ fontWeight: 600 }}>IVA de la factura ({aliIvaPct}%)</label>
-              <input
-                className="input mono"
-                value={ivaFacturaStr}
-                readOnly={!!documento}
-                onChange={(e) => {
-                  marcarSucio();
-                  setIvaFacturaStr(e.target.value);
-                }}
-                inputMode="decimal"
-                placeholder="0,00"
-              />
-              <SeLeyo texto={ivaFacturaStr} />
-              <small className="hint muted">Monto del IVA impreso en la factura física (o 0 si no aplica).</small>
-            </div>
-
-            <div className="form-row" style={{ flex: '1 1 130px' }}>
-              <label>Monto exento</label>
-              <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
-              <SeLeyo texto={exentoStr} />
-            </div>
-
-            <div className="form-row" style={{ flex: '1 1 150px' }}>
-              <label>Sin derecho a crédito IVA</label>
-              <input className="input mono" value={sinDerechoStr} onChange={(e) => { marcarSucio(); setSinDerechoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
-              <SeLeyo texto={sinDerechoStr} />
-              <small className="hint muted">Dato interno; no deducible.</small>
+              >
+                🛠️ Modo Avanzado (Ensamblar Factura · Valery)
+              </button>
             </div>
           </div>
+
+          {modoCaptura === 'valery' ? (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: '8px',
+              padding: '.75rem',
+              border: '1px solid var(--border)',
+              marginBottom: '.6rem',
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '.5rem',
+                marginBottom: '.6rem',
+              }}>
+                <small className="muted" style={{ fontSize: '.78rem' }}>
+                  💡 <strong>Ensamblador de factura estilo Valery Software:</strong> Ingresa o importa renglones. Las bases imponibles y el IVA se calculan automáticamente con exactitud al centavo.
+                </small>
+                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                  {ordenSeleccionadaObj?.items && ordenSeleccionadaObj.items.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={cargarRenglonesDesdeOc}
+                      style={{ fontSize: '.75rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                    >
+                      📥 Cargar renglones desde OC ({ordenSeleccionadaObj.items.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={agregarRenglon}
+                    style={{ fontSize: '.75rem' }}
+                  >
+                    + Agregar renglón
+                  </button>
+                </div>
+              </div>
+
+              {/* Tabla de Renglones Valery */}
+              <div style={{ overflowX: 'auto', marginBottom: '.6rem' }}>
+                <table className="table" style={{ width: '100%', fontSize: '.82rem', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255, 255, 255, 0.04)', color: 'var(--text-muted)' }}>
+                      <th style={{ width: '32px', textAlign: 'center', padding: '6px' }}>#</th>
+                      <th style={{ padding: '6px' }}>Descripción / Concepto</th>
+                      <th style={{ width: '75px', textAlign: 'right', padding: '6px' }}>Cant.</th>
+                      <th style={{ width: '110px', textAlign: 'right', padding: '6px' }}>Precio Unit. ({moneda})</th>
+                      <th style={{ width: '130px', padding: '6px' }}>Alícuota IVA</th>
+                      <th style={{ width: '110px', textAlign: 'right', padding: '6px' }}>Total Renglón</th>
+                      <th style={{ width: '36px', textAlign: 'center', padding: '6px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {renglonesValery.map((r, i) => {
+                      const tot = (Number(r.cantidad) || 0) * (Number(r.precioUnitario) || 0);
+                      return (
+                        <tr key={r.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                          <td style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '4px' }}>{i + 1}</td>
+                          <td style={{ padding: '4px' }}>
+                            <input
+                              className="input"
+                              style={{ fontSize: '.8rem', padding: '3px 7px' }}
+                              value={r.descripcion}
+                              onChange={(e) => actualizarRenglon(r.id, { descripcion: e.target.value })}
+                              placeholder="Ej. Tornillos 3/8, Filtro de aceite, Servicio técnico…"
+                            />
+                          </td>
+                          <td style={{ padding: '4px' }}>
+                            <input
+                              className="input mono"
+                              type="number"
+                              step="any"
+                              min="0"
+                              style={{ fontSize: '.8rem', padding: '3px 7px', textAlign: 'right' }}
+                              value={r.cantidad}
+                              onChange={(e) => actualizarRenglon(r.id, { cantidad: Math.max(0, parseFloat(e.target.value) || 0) })}
+                            />
+                          </td>
+                          <td style={{ padding: '4px' }}>
+                            <input
+                              className="input mono"
+                              type="number"
+                              step="any"
+                              min="0"
+                              style={{ fontSize: '.8rem', padding: '3px 7px', textAlign: 'right' }}
+                              value={r.precioUnitario}
+                              onChange={(e) => actualizarRenglon(r.id, { precioUnitario: Math.max(0, parseFloat(e.target.value) || 0) })}
+                            />
+                          </td>
+                          <td style={{ padding: '4px' }}>
+                            <select
+                              className="select"
+                              style={{ fontSize: '.78rem', padding: '3px 5px' }}
+                              value={r.alicuota}
+                              onChange={(e) => actualizarRenglon(r.id, { alicuota: Number(e.target.value) as 16 | 8 | 0 })}
+                            >
+                              <option value={16}>16% (General)</option>
+                              <option value={8}>8% (Reducido)</option>
+                              <option value={0}>Exento (0%)</option>
+                            </select>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', padding: '4px', fontSize: '.82rem' }}>
+                            {money(tot, moneda)}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '4px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              style={{ padding: '2px 5px', color: 'var(--danger, #ef4444)', fontSize: '.85rem' }}
+                              onClick={() => eliminarRenglon(r.id)}
+                              title="Eliminar renglón"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {renglonesValery.length === 0 && (
+                      <tr>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '1.2rem', color: 'var(--text-muted)' }}>
+                          No hay renglones cargados. Haz clic en <strong>+ Agregar renglón</strong> o pulsa <strong>📥 Cargar renglones desde OC</strong> para ensamblar la factura automáticamente.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totales Valery Calculados */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '.5rem',
+                padding: '.6rem',
+                borderRadius: '6px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border)',
+              }}>
+                <div>
+                  <small className="muted" style={{ fontSize: '.72rem', display: 'block' }}>Base Gravada 16%</small>
+                  <strong className="mono" style={{ fontSize: '.85rem' }}>{money(calculoValery.base16, moneda)}</strong>
+                </div>
+                <div>
+                  <small className="muted" style={{ fontSize: '.72rem', display: 'block' }}>IVA 16% Calculado</small>
+                  <strong className="mono" style={{ fontSize: '.85rem', color: 'var(--primary)' }}>{money(calculoValery.iva16, moneda)}</strong>
+                </div>
+                {calculoValery.base8 > 0 && (
+                  <div>
+                    <small className="muted" style={{ fontSize: '.72rem', display: 'block' }}>Base 8% / IVA 8%</small>
+                    <strong className="mono" style={{ fontSize: '.85rem' }}>{money(calculoValery.base8, moneda)} / {money(calculoValery.iva8, moneda)}</strong>
+                  </div>
+                )}
+                <div>
+                  <small className="muted" style={{ fontSize: '.72rem', display: 'block' }}>Subtotal Exento</small>
+                  <strong className="mono" style={{ fontSize: '.85rem' }}>{money(calculoValery.exento, moneda)}</strong>
+                </div>
+                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '.6rem' }}>
+                  <small style={{ fontSize: '.72rem', display: 'block', color: 'var(--success, #22c55e)', fontWeight: 700 }}>Total Factura Ensamblada</small>
+                  <strong className="mono" style={{ fontSize: '.98rem', color: 'var(--success, #22c55e)' }}>{money(calculoValery.totalFactura, moneda)}</strong>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+              <div className="form-row" style={{ flex: '2 1 180px' }}>
+                <label style={{ fontWeight: 700, color: 'var(--text-normal)' }}>
+                  Total de la factura <span style={{ color: 'var(--danger)' }}>*</span>
+                </label>
+                <input
+                  className="input mono"
+                  value={facturaTotal}
+                  readOnly={!!documento}
+                  onChange={(e) => {
+                    marcarSucio();
+                    setFacturaTotal(e.target.value);
+                  }}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                />
+                <SeLeyo texto={facturaTotal} />
+                <small className="hint muted">Monto total bruto a pagar (con IVA y exento incluidos).</small>
+              </div>
+
+              <div className="form-row" style={{ flex: '2 1 200px' }}>
+                <label style={{ fontWeight: 600 }}>IVA de la factura ({aliIvaPct}%)</label>
+                <input
+                  className="input mono"
+                  value={ivaFacturaStr}
+                  readOnly={!!documento}
+                  onChange={(e) => {
+                    marcarSucio();
+                    setIvaFacturaStr(e.target.value);
+                  }}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                />
+                <SeLeyo texto={ivaFacturaStr} />
+                <small className="hint muted">Monto del IVA impreso en la factura física (o 0 si no aplica).</small>
+              </div>
+
+              <div className="form-row" style={{ flex: '1 1 130px' }}>
+                <label>Monto exento</label>
+                <input className="input mono" value={exentoStr} readOnly={!!documento} onChange={(e) => { marcarSucio(); setExentoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+                <SeLeyo texto={exentoStr} />
+              </div>
+
+              <div className="form-row" style={{ flex: '1 1 150px' }}>
+                <label>Sin derecho a crédito IVA</label>
+                <input className="input mono" value={sinDerechoStr} onChange={(e) => { marcarSucio(); setSinDerechoStr(e.target.value); }} inputMode="decimal" placeholder="0,00" />
+                <SeLeyo texto={sinDerechoStr} />
+                <small className="hint muted">Dato interno; no deducible.</small>
+              </div>
+            </div>
+          )}
 
           {/* Tarjeta de resumen de base gravable y liquidación */}
           {totalFacturaNum > 0 && (
