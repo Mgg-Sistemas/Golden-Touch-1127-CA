@@ -238,6 +238,13 @@
   border-top: 1px solid var(--border);
 }
 
+@media (max-width: 480px) {
+  .buzon-card-acciones {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+}
+
 /* Cuadrícula de adjuntos en formulario de carga */
 .buzon-adjuntos-cont {
   border: 1px dashed var(--border-strong);

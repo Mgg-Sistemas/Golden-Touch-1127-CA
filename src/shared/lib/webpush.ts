@@ -65,7 +65,8 @@ export type ModuloNotifKey =
   | 'combustible'
   | 'tesoreria'
   | 'cocina'
-  | 'compras';
+  | 'compras'
+  | 'retenciones';
 
 export interface ModuloNotifConfig {
   key: ModuloNotifKey;
@@ -84,6 +85,7 @@ export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
   { key: 'tesoreria', label: 'Tesorería', icono: '🏦', hint: 'Cuentas por pagar, aprobaciones y movimientos' },
   { key: 'cocina', label: 'Cocina / Comidas', icono: '🍽️', hint: 'Reposición de mercado y comensales' },
   { key: 'compras', label: 'Compras / Pedidos', icono: '🛒', hint: 'Órdenes de compra nuevas y cotizaciones' },
+  { key: 'retenciones', label: 'Retenciones / Facturas', icono: '🧾', hint: 'Facturas recibidas en buzón móvil y retenciones pendientes' },
 ];
 
 const STORAGE_KEY_MODULOS_NOTIF = 'gt.notif_modulos_activos';
@@ -97,6 +99,7 @@ const MODULOS_DEFECTO: Record<ModuloNotifKey, boolean> = {
   tesoreria: true,
   cocina: true,
   compras: true,
+  retenciones: true,
 };
 
 let _modulosMemoria: Record<ModuloNotifKey, boolean> = { ...MODULOS_DEFECTO };

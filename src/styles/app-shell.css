@@ -596,16 +596,25 @@ body:has(.app--inmersivo) {
 .tl-title { font-size: .88rem; color: var(--text); font-weight: 500; }
 .tl-meta  { font-size: .72rem; color: var(--text-muted); margin-top: .15rem; font-family: var(--font-mono); }
 
-/* View toggle (Lista | Kanban) */
+/* View toggle (Lista | Kanban / Tabs del módulo) */
 .view-toggle {
   display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 3px;
   margin-left: auto;
 }
+.view-toggle::-webkit-scrollbar {
+  display: none;
+}
 .view-toggle button {
+  flex-shrink: 0;
+  white-space: nowrap;
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -927,8 +936,8 @@ tr.row-selectable:active { transform: scale(0.998); }
   .kpi .icon { width: 28px; height: 28px; font-size: .95rem; }
 
   .filterbar .search { min-width: 100%; }
-  .view-toggle { width: 100%; margin-left: 0; }
-  .view-toggle button { flex: 1; justify-content: center; }
+  .view-toggle { width: auto; max-width: 100%; margin-left: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .view-toggle button { flex-shrink: 0; justify-content: center; white-space: nowrap; }
 
   .detail-row {
     grid-template-columns: 1fr;

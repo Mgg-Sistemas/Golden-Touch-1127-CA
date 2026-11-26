@@ -44,6 +44,7 @@ import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal
 import { ReportesView } from './ReportesView';
 import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
 import { listFacturasBuzon, ultimaCreacionBuzon, actualizarEstatusFacturaBuzon, type FacturaBuzon } from './facturasBuzon.repository';
+import { lanzarAvisoFactura } from './notificacionesDispositivo';
 // Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
 // sin efecto mientras la base no traiga la empresa en las retenciones.
 import { useEmpresaActual, esEmpresaGt } from './empresaActual';
@@ -107,7 +108,8 @@ export function RetencionesPage() {
   const [buzonNuevas, setBuzonNuevas] = useState(0);
   const buzonVistoRef = useRef<string | null>(leerBuzonVisto());
   const buzonUltimaRef = useRef<string>('');
-  const refrescarBuzonNuevas = useCallback(async () => {
+  const prevUltimaBuzonAlertaRef = useRef<string | null>(null);
+  const refrescarBuzonNuevas = useCallback(async (emitirAlerta = false) => {
     try {
       const facs = await listFacturasBuzon();
       const ultima = ultimaCreacionBuzon(facs);
@@ -116,9 +118,22 @@ export function RetencionesPage() {
       if (buzonVistoRef.current === null) { buzonVistoRef.current = ultima; guardarBuzonVisto(ultima); }
       const visto = buzonVistoRef.current ?? '';
       setBuzonNuevas(facs.filter((f) => f.createdAt > visto).length);
+
+      // Si entró una factura nueva por realtime: alertar con sonido, vibración y push
+      if (emitirAlerta && prevUltimaBuzonAlertaRef.current !== null && ultima > prevUltimaBuzonAlertaRef.current && facs.length > 0) {
+        const facReciente = facs[0];
+        lanzarAvisoFactura(facReciente, { conSonido: true });
+        notify(`🧾 Factura recibida de ${facReciente.proveedorNombre || 'Proveedor'}: ${facReciente.facturaNumero || 'S/N'}`, 'info', {
+          push: true,
+          modulo: 'retenciones',
+          link: '/retenciones',
+          detail: `Monto: ${facReciente.moneda === 'USD' ? '$' : 'Bs'} ${Number(facReciente.montoTotal || 0).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
+        });
+      }
+      prevUltimaBuzonAlertaRef.current = ultima;
     } catch { /* el badge es best-effort: sin lectura, queda como estaba */ }
   }, []);
-  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(); }, [conBuzon, refrescarBuzonNuevas]);
+  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(false); }, [conBuzon, refrescarBuzonNuevas]);
   // Al abrir el buzón (teléfono o vista PC) se marca lo visto y el badge se limpia.
   const marcarBuzonVisto = useCallback(() => {
     if (buzonUltimaRef.current) { buzonVistoRef.current = buzonUltimaRef.current; guardarBuzonVisto(buzonUltimaRef.current); }
@@ -324,7 +339,7 @@ export function RetencionesPage() {
     cargarImpuestosActivos();
     void reload();
     cargarPractica();
-    if (conBuzon) void refrescarBuzonNuevas();
+    if (conBuzon) void refrescarBuzonNuevas(true);
   });
 
   // Cola unificada «Por hacer»: facturas con archivo adjunto listas para retener, por empresa.

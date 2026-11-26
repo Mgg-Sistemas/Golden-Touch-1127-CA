@@ -244,19 +244,24 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-per-chip .muted { font-size: .74rem; color: var(--text-muted); }
 
 /* ── Responsive ── */
-@media (max-width: 640px) {
-  .lfv8-totales { grid-template-columns: 1fr; gap: .5rem; }
+@media (max-width: 768px) {
+  .lfv8-totales { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .5rem; }
   .lfv8-filtros-cuerpo { flex-direction: column; align-items: stretch; }
   .lfv8-view-switch { width: 100%; }
   .lfv8-view-switch button { flex: 1; padding: .5rem .4rem; min-height: 44px; }
   .lfv8-factura { grid-template-columns: 1fr; gap: .55rem; }
   .lfv8-factura .lfv8-tot { text-align: left; display: flex; gap: .5rem; align-items: baseline; }
   .lfv8-factura .lfv8-tot small { display: inline; }
-  .lfv8-tira.cuatro { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lfv8-tira { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .lfv8-casilla { min-height: 84px; }
   .lfv8-cuenta, .lfv8-chip { min-height: 44px; }
   .lfv8-columnas { grid-template-columns: 1fr; }
   .lfv8-buscar input { font-size: .95rem; padding-left: 2.2rem; }
+}
+
+@media (max-width: 480px) {
+  .lfv8-totales { grid-template-columns: 1fr; }
+  .lfv8-tira { grid-template-columns: 1fr; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -456,7 +461,7 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 /* ═══════════════════════════════════════════════════════════════
    v8 · Por realizar — grid table, pills, tarjeta-pagar, alertas
    ═══════════════════════════════════════════════════════════════ */
-.lfv8-sis { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.lfv8-sis { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .lfv8-sis-fila { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; border-top: 1px solid var(--border); font-size: .82rem; }
 .lfv8-sis-cab { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; color: var(--text-dim); font-size: .72rem; font-weight: 600; background: var(--bg-1, var(--surface-2)); text-transform: uppercase; letter-spacing: .03em; }
 .lfv8-sis-fila .n { font-family: var(--font-mono, monospace); text-align: right; }
@@ -490,12 +495,38 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 
 .lfv8-huella { font-size: .74rem; color: var(--text-dim); margin: .2rem 0 .4rem; }
 
-@media (max-width: 640px) {
-  .lfv8-sis-fila { grid-template-columns: 1fr 1fr; }
-  .lfv8-sis-cab { display: none; }
-  .lfv8-sis-fila [data-l]::before { content: attr(data-l) ': '; color: var(--text-dim); font-size: .72rem; }
+@media (max-width: 900px) {
+  .lfv8-sis-cab { display: none !important; }
+  .lfv8-sis-fila {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+  }
+  .lfv8-sis-fila > span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+  }
+  .lfv8-sis-fila [data-l]::before {
+    content: attr(data-l);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.15rem;
+  }
   .lfv8-sis-fila .n { text-align: left; }
-  .lfv8-sis-acc { grid-column: 1 / -1; justify-content: flex-start; }
+  .lfv8-sis-acc {
+    width: 100%;
+    justify-content: flex-start;
+    padding-top: 0.5rem;
+    margin-top: 0.25rem;
+    border-top: 1px dashed var(--border);
+    gap: 0.45rem;
+  }
   .lfv8-buscar-q { flex-basis: 100%; max-width: none; }
   .lfv8-barra-filtros .lfv8-campo { min-width: 100%; }
 }

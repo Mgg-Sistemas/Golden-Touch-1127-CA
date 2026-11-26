@@ -21,7 +21,7 @@
 
    La cuenta no se hace aquí: viene de `retencionesCalculo.ts`.
    ============================================================ */
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -526,6 +526,44 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el documento de respaldo adjunto', 'error'); }
   }
 
+  const [subiendoSoporteRetId, setSubiendoSoporteRetId] = useState<string | null>(null);
+  const fileInputSoporteRef = useRef<HTMLInputElement>(null);
+  const retencionParaSubirRef = useRef<{ ret: RetencionPracticada; factura?: FacturaAgrupada } | null>(null);
+
+  function pedirSubirSoporte(r: RetencionPracticada, factura?: FacturaAgrupada) {
+    retencionParaSubirRef.current = { ret: r, factura };
+    if (fileInputSoporteRef.current) {
+      fileInputSoporteRef.current.value = '';
+      fileInputSoporteRef.current.click();
+    }
+  }
+
+  async function handleArchivoSoporteSeleccionado(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const target = retencionParaSubirRef.current;
+    if (!file || !target) return;
+    const { ret, factura } = target;
+    try {
+      setSubiendoSoporteRetId(ret.id);
+      toast('Subiendo soporte digital...', 'info');
+      await adjuntarComprobante(ret.id, file, 'Factura');
+      if (factura && factura.retenciones) {
+        for (const rv of factura.retenciones.values()) {
+          if (rv.id !== ret.id && !rv.comprobantePath && !rv.anulada) {
+            await adjuntarComprobante(rv.id, file, 'Factura').catch(() => {});
+          }
+        }
+      }
+      toast('Documento de respaldo adjuntado exitosamente', 'success');
+      await reload().catch(() => {});
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo adjuntar el soporte digital', 'error');
+    } finally {
+      setSubiendoSoporteRetId(null);
+      retencionParaSubirRef.current = null;
+    }
+  }
+
   async function verLibroPdf() {
     try {
       const { verLibroFiscalPdf } = await import('./libroFiscalPdf');
@@ -879,7 +917,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                   </div>
                 </header>
                 {facturasVis.map((f) => {
-                  const nCasillas = impuestosTarjeta.length;
+                  const casillasValidas = impuestosTarjeta.filter((t) => f.retenciones.has(t.key as TipoImpuesto) || puedePracticarEmpresa(t.key as TipoImpuesto, config));
+                  const nCasillas = casillasValidas.length || 1;
                   const totalRet = [...f.retenciones.values()].reduce((a, r) => a + (!r.anulada ? enBs(r) : 0), 0);
                   return (
                     <Fragment key={f.key}>
@@ -910,17 +949,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                       </div>
                       <div className="lfv8-tira" style={{ '--n': nCasillas } as React.CSSProperties}
                         role="group" aria-label={`Retenciones de la factura ${f.num}`}>
-                        {impuestosTarjeta.map((t) => {
+                        {casillasValidas.map((t) => {
                           const r = f.retenciones.get(t.key as TipoImpuesto);
                           const aplica = puedePracticarEmpresa(t.key as TipoImpuesto, config);
                           if (!r) {
                             if (!aplica) {
-                              return (
-                                <div key={t.key} className="lfv8-casilla nc" style={{ opacity: 0.45 }} title={`La empresa no practica retenciones de ${t.corto} según su configuración fiscal`}>
-                                  <span className="lfv8-imp">{t.corto}</span>
-                                  <span className="lfv8-est muted">— No aplica</span>
-                                </div>
-                              );
+                              return null;
                             }
                             return (
                               <div key={t.key} className="lfv8-casilla falta">
@@ -1018,9 +1052,20 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                   </button>
                                 )}
                                 <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante generado">📄</button>
-                                {r.comprobantePath && (
+                                {r.comprobantePath ? (
                                   <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver documento de respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
-                                )}
+                                ) : canWrite && !r.anulada ? (
+                                  <button
+                                    type="button"
+                                    className="lfv8-mini"
+                                    disabled={subiendoSoporteRetId === r.id}
+                                    onClick={() => pedirSubirSoporte(r, f)}
+                                    title="Cargar documento de respaldo (PDF o imagen de la factura)"
+                                    style={{ color: 'var(--primary, #f59e0b)', fontWeight: 'bold' }}
+                                  >
+                                    {subiendoSoporteRetId === r.id ? '⏳' : '📎+'}
+                                  </button>
+                                ) : null}
                                 {canWrite && !r.anulada && (
                                   <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
                                 )}
@@ -1188,9 +1233,20 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                   {r.numeroComprobante && (
                     <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Ver comprobante generado">📄</button>
                   )}
-                  {r.comprobantePath && (
+                  {r.comprobantePath ? (
                     <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
-                  )}
+                  ) : canWrite && !r.anulada ? (
+                    <button
+                      type="button"
+                      className="lfv8-mini"
+                      disabled={subiendoSoporteRetId === r.id}
+                      onClick={() => pedirSubirSoporte(r)}
+                      title="Cargar documento de respaldo (PDF o imagen de la factura)"
+                      style={{ color: 'var(--primary, #f59e0b)', fontWeight: 'bold' }}
+                    >
+                      {subiendoSoporteRetId === r.id ? '⏳' : '📎+'}
+                    </button>
+                  ) : null}
                 </span>
                 <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
                 <span data-l="Contraparte">{r.contraparteNombre ?? '—'}<small className="mono">{r.contraparteRif ?? ''}{fueraDelSistema(r) ? ' · Fuera del sistema' : ''}</small></span>
@@ -1474,6 +1530,13 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
           />
         </Modal>
       )}
+      <input
+        type="file"
+        ref={fileInputSoporteRef}
+        accept="image/*,.pdf"
+        style={{ display: 'none' }}
+        onChange={(e) => void handleArchivoSoporteSeleccionado(e)}
+      />
     </div>
   );
 }
@@ -2641,7 +2704,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
         const imps = [
           cfg.esAgenteRetencionIva ? 'IVA' : null,
           cfg.retieneIslr !== false ? 'ISLR' : null,
-          cfg.retieneMunicipal !== false ? 'ISAE' : null,
+          cfg.retieneMunicipal === true ? 'ISAE' : null,
         ].filter(Boolean);
         return `${nEstados} estatus kanban · Retiene: ${imps.length ? imps.join(', ') : 'ninguno'}`;
       }
@@ -2834,12 +2897,18 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
               <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '1rem', border: '1px solid var(--border)' }}>
                 <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.92rem' }}>
-                  🏛️ Impuestos que practica la empresa en compras
+                  🏛️ Retención de Impuesto Municipal (ISAE) en compras
                 </strong>
-                <p className="muted" style={{ margin: 0, fontSize: '.82rem', lineHeight: 1.4 }}>
-                  D2b: qué impuestos retiene la empresa (agente de IVA, ISLR, municipal) se define en
-                  {' '}<strong>Parámetros → Régimen</strong>, por empresa y con fecha. Una sola fuente: el tablero
-                  {' '}«Por realizar» y el registro lo leen de ahí. (Antes se marcaba aquí, al JSON; eso era un espejo que divergía del régimen.)
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={cfg.retieneMunicipal === true}
+                    onChange={(e) => set('retieneMunicipal', e.target.checked)}
+                  />
+                  <span>La empresa practica retenciones de Impuesto Municipal (ISAE) a proveedores</span>
+                </label>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
+                  Por defecto desactivado. Activar únicamente si la Alcaldía ha designado formalmente a la empresa como Agente de Retención de Actividades Económicas (ISAE). Si está desactivado, el sistema no considerará el ISAE como pendiente en las facturas de compras.
                 </p>
               </div>
 
