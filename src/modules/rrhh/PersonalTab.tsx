@@ -1124,11 +1124,11 @@ export function PersonalTab({ empresa, canWrite, actor }: { empresa: EmpresaRrhh
                           grado_instruccion: e.target.checked ? g.value : null,
                           titulo_obtenido: e.target.checked ? f.titulo_obtenido : '',
                         }))} />
-                      {g.label}
+                      <span className="mono muted">{g.codigo}</span> {g.label}
                     </label>
                   ))}
                 </div>
-                <small className="muted">Es una sola: marcar otra desmarca la anterior.</small>
+                <small className="muted">Es una sola: marcar otra desmarca la anterior. El número es el código oficial del banco (01 Primaria, 02 Bachiller, 05 Universitario); los 7 niveles completos están en Catálogos.</small>
               </div>
               <div className="form-row">
                 <label>Título obtenido</label>

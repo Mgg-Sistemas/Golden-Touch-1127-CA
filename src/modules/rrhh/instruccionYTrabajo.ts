@@ -21,10 +21,11 @@
 /** Los tres grados que pide la hoja de ingreso. */
 export type GradoInstruccion = 'primaria' | 'bachiller' | 'universitario';
 
-export const GRADOS: { value: GradoInstruccion; label: string }[] = [
-  { value: 'primaria', label: 'Primaria' },
-  { value: 'bachiller', label: 'Bachiller' },
-  { value: 'universitario', label: 'Universitario' },
+/** Los códigos son los oficiales del catálogo bancario (Nivel de educación). */
+export const GRADOS: { value: GradoInstruccion; label: string; codigo: string }[] = [
+  { value: 'primaria', label: 'Primaria', codigo: '01' },
+  { value: 'bachiller', label: 'Bachiller', codigo: '02' },
+  { value: 'universitario', label: 'Universitario', codigo: '05' },
 ];
 
 const ETIQUETA = GRADOS.reduce<Record<string, string>>((a, g) => { a[g.value] = g.label; return a; }, {});

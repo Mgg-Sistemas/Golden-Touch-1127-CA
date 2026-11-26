@@ -18,51 +18,56 @@
 import type { Personal, PersonalFamiliar } from '@/shared/lib/types';
 import { leerCuentas } from './datosBancarios';
 
-/* ───────────── Catálogos Oficiales (extraídos del XLS) ───────────── */
+/* ───────────── Catálogos Oficiales (extraídos del XLS) ─────────────
 
-export interface ItemCatalogo {
-  codigo: string;
-  descripcion: string;
-}
+   Los catálogos completos del Banco del Tesoro (223 países, 129
+   municipios, 1.128 parroquias, 184 profesiones, 79 cargos, 7 niveles
+   de educación, …) viven en `catalogosOficiales.ts`. Antes este
+   archivo tenía copias parciales; aquí se reexportan para que los
+   reportes y las pantallas usen siempre la lista completa.
+   ──────────────────────────────────────────────────────────────── */
 
-export const CATALOGO_REGIONES: ItemCatalogo[] = [
-  { codigo: '01', descripcion: 'REGION CAPITAL' },
-  { codigo: '02', descripcion: 'REGION CENTRAL' },
-  { codigo: '03', descripcion: 'REGION LOS LLANOS' },
-  { codigo: '04', descripcion: 'REGION CENTRO OCCIDENTAL' },
-  { codigo: '05', descripcion: 'REGION ZULIANA' },
-  { codigo: '06', descripcion: 'REGION LOS ANDES' },
-  { codigo: '07', descripcion: 'REGION NOR-ORIENTAL' },
-  { codigo: '08', descripcion: 'REGION INSULAR' },
-  { codigo: '09', descripcion: 'REGION GUAYANA' },
-];
+import {
+  CATALOGO_PAISES,
+  CATALOGO_MUNICIPIOS,
+  CATALOGO_PARROQUIAS,
+  CATALOGO_PROFESIONES,
+  CATALOGO_TIPOS_CARGO,
+  type ItemCatalogo,
+} from './catalogosOficiales';
 
-export const CATALOGO_ESTADOS: ItemCatalogo[] = [
-  { codigo: '01', descripcion: 'DISTRITO CAPITAL' },
-  { codigo: '02', descripcion: 'AMAZONAS' },
-  { codigo: '03', descripcion: 'ANZOATEGUI' },
-  { codigo: '04', descripcion: 'APURE' },
-  { codigo: '05', descripcion: 'ARAGUA' },
-  { codigo: '06', descripcion: 'BARINAS' },
-  { codigo: '07', descripcion: 'BOLIVAR' },
-  { codigo: '08', descripcion: 'CARABOBO' },
-  { codigo: '09', descripcion: 'COJEDES' },
-  { codigo: '10', descripcion: 'DELTA AMACURO' },
-  { codigo: '11', descripcion: 'FALCON' },
-  { codigo: '12', descripcion: 'GUARICO' },
-  { codigo: '13', descripcion: 'LARA' },
-  { codigo: '14', descripcion: 'MERIDA' },
-  { codigo: '15', descripcion: 'MIRANDA' },
-  { codigo: '16', descripcion: 'MONAGAS' },
-  { codigo: '17', descripcion: 'NUEVA ESPARTA' },
-  { codigo: '18', descripcion: 'PORTUGUESA' },
-  { codigo: '19', descripcion: 'SUCRE' },
-  { codigo: '20', descripcion: 'TACHIRA' },
-  { codigo: '21', descripcion: 'TRUJILLO' },
-  { codigo: '22', descripcion: 'YARACUY' },
-  { codigo: '23', descripcion: 'ZULIA' },
-  { codigo: '24', descripcion: 'VARGAS' },
-];
+export type { ItemCatalogo } from './catalogosOficiales';
+export {
+  CATALOGO_TIPO_DOCUMENTO,
+  CATALOGO_PAISES,
+  CATALOGO_NACIONALIDADES,
+  CATALOGO_EDO_CIVIL,
+  CATALOGO_REGIONES,
+  CATALOGO_ESTADOS,
+  CATALOGO_CODIGOS_POSTALES,
+  CATALOGO_CONDICION_INMUEBLE,
+  CATALOGO_TIPO_VIVIENDA,
+  CATALOGO_NIVEL_EDUCACION,
+  CATALOGO_PROFESIONES,
+  CATALOGO_CODIGO_INDUSTRIA,
+  CATALOGO_FUENTE_INGRESO,
+  CATALOGO_TIEMPO_CONTRATO,
+  CATALOGO_TIPO_NOMINA,
+  CATALOGO_TIPO_CUENTA,
+  CATALOGO_TIPOS_CARGO,
+  CATALOGO_OFICINAS_TESORO,
+  CATALOGO_TIPO_SOLICITUD,
+  CATALOGOS_OFICIALES,
+} from './catalogosOficiales';
+
+/** Alias históricos: los reportes siguen pidiendo los nombres viejos. */
+export const CATALOGO_PAISES_ISO2: ItemCatalogo[] = CATALOGO_PAISES;
+export const CATALOGO_MUNICIPIOS_PRINCIPALES: ItemCatalogo[] = CATALOGO_MUNICIPIOS;
+export const CATALOGO_PARROQUIAS_PRINCIPALES: ItemCatalogo[] = CATALOGO_PARROQUIAS;
+export const CATALOGO_PROFESIONES_MAP: Record<string, string> = CATALOGO_PROFESIONES.reduce<Record<string, string>>(
+  (mapa, item) => { mapa[item.codigo] = item.descripcion; return mapa; },
+  {},
+);
 
 export const CATALOGO_CIUDADES_PRINCIPALES: (ItemCatalogo & { estado: string; zonaPostal: string })[] = [
   { codigo: '7029', descripcion: 'PUERTO ORDAZ', estado: '07', zonaPostal: '8050' },
@@ -86,320 +91,6 @@ export const CATALOGO_CIUDADES_PRINCIPALES: (ItemCatalogo & { estado: string; zo
   { codigo: '16036', descripcion: 'MATURIN', estado: '16', zonaPostal: '6201' },
 ];
 
-export const CATALOGO_MUNICIPIOS_PRINCIPALES: ItemCatalogo[] = [
-  { codigo: '0701', descripcion: 'PUERTO ORDAZ (CARONI · BOLIVAR)' },
-  { codigo: '0702', descripcion: 'SAN FELIX (CARONI · BOLIVAR)' },
-  { codigo: '0703', descripcion: 'CIUDAD BOLIVAR (HERES · BOLIVAR)' },
-  { codigo: '0101', descripcion: 'CARACAS (DISTRITO CAPITAL)' },
-  { codigo: '0301', descripcion: 'BARCELONA (ANZOATEGUI)' },
-  { codigo: '0302', descripcion: 'PUERTO LA CRUZ (ANZOATEGUI)' },
-  { codigo: '1001', descripcion: 'TUCUPITA (DELTA AMACURO)' },
-  { codigo: '1601', descripcion: 'MATURIN (MONAGAS)' },
-];
-
-export const CATALOGO_PARROQUIAS_PRINCIPALES: ItemCatalogo[] = [
-  { codigo: '070106', descripcion: 'UNARE (CIUDAD GUAYANA)' },
-  { codigo: '070101', descripcion: 'CACHAMAY (CIUDAD GUAYANA)' },
-  { codigo: '070107', descripcion: 'UNIVERSIDAD (CIUDAD GUAYANA)' },
-  { codigo: '070102', descripcion: 'CHIRICA (CIUDAD GUAYANA)' },
-  { codigo: '070103', descripcion: 'DALLA COSTA (CIUDAD GUAYANA)' },
-  { codigo: '070104', descripcion: 'ONCE DE ABRIL (CIUDAD GUAYANA)' },
-  { codigo: '070105', descripcion: 'SIMON BOLIVAR (CIUDAD GUAYANA)' },
-  { codigo: '070108', descripcion: 'VISTA AL SOL (CIUDAD GUAYANA)' },
-  { codigo: '070109', descripcion: 'POZO VERDE (CARONI)' },
-  { codigo: '070110', descripcion: 'YOCOIMA (CARONI)' },
-  { codigo: '070201', descripcion: 'AGUA SALADA (CIUDAD BOLIVAR)' },
-  { codigo: '070202', descripcion: 'CATEDRAL (CIUDAD BOLIVAR)' },
-  { codigo: '070203', descripcion: 'JOSE ANTONIO PAEZ (CIUDAD BOLIVAR)' },
-  { codigo: '070204', descripcion: 'LA SABANITA (CIUDAD BOLIVAR)' },
-  { codigo: '070205', descripcion: 'MARHUANTA (CIUDAD BOLIVAR)' },
-  { codigo: '070206', descripcion: 'VISTA HERMOSA (CIUDAD BOLIVAR)' },
-  { codigo: '070501', descripcion: 'EL CALLAO' },
-  { codigo: '070801', descripcion: 'PIAR (UPATA)' },
-  { codigo: '070901', descripcion: 'RAUL LEONI (CIUDAD PIAR)' },
-  { codigo: '071001', descripcion: 'ROSCIO (GUASIPATI)' },
-  { codigo: '071101', descripcion: 'SIFONTES (TUMEREMO)' },
-  { codigo: '071102', descripcion: 'DALLA COSTA (EL DORADO)' },
-  { codigo: '071103', descripcion: 'SAN ISIDRO (LAS CLARITAS / KM 88)' },
-  { codigo: '010105', descripcion: 'CATEDRAL (CARACAS)' },
-];
-
-export const CATALOGO_OFICINAS_TESORO: ItemCatalogo[] = [
-  { codigo: '0405', descripcion: 'PUERTO ORDAZ' },
-  { codigo: '0410', descripcion: 'SANTA ELENA DE UAIREN' },
-  { codigo: '0402', descripcion: 'MATURIN' },
-  { codigo: '0408', descripcion: 'MATURIN CONTRIBUYENTES ESPECIALES' },
-  { codigo: '0404', descripcion: 'LECHERIAS' },
-  { codigo: '0403', descripcion: 'CUMANA' },
-  { codigo: '0401', descripcion: 'PORLAMAR' },
-  { codigo: '0406', descripcion: 'EL YAQUE' },
-  { codigo: '0407', descripcion: 'GUAMACHE' },
-  { codigo: '0002', descripcion: 'MARACAIBO' },
-  { codigo: '0202', descripcion: 'CCCT' },
-  { codigo: '0203', descripcion: 'CHACAITO' },
-  { codigo: '0204', descripcion: 'SANTA TERESA' },
-  { codigo: '0205', descripcion: 'MACARACUAY' },
-  { codigo: '0206', descripcion: 'LA CASTELLANA' },
-  { codigo: '0208', descripcion: 'CHARALLAVE NORTE' },
-  { codigo: '0209', descripcion: 'CHARALLAVE SUR' },
-  { codigo: '0210', descripcion: 'CUA' },
-  { codigo: '0211', descripcion: 'LA RINCONADA' },
-  { codigo: '0212', descripcion: 'TAQUILLA FRANCISCO SOLANO' },
-  { codigo: '0213', descripcion: 'SANTA PAULA' },
-  { codigo: '0214', descripcion: 'PARAISO PLAZA' },
-  { codigo: '0215', descripcion: 'VICTORIA PLAZA' },
-  { codigo: '0216', descripcion: 'MINEP' },
-  { codigo: '0217', descripcion: 'SAN DIEGO' },
-  { codigo: '0218', descripcion: 'VALLE DE LA PASCUA' },
-  { codigo: '0219', descripcion: 'CATIA LA MAR' },
-  { codigo: '0220', descripcion: 'PROPATRIA' },
-  { codigo: '0221', descripcion: 'LA CALIFORNIA' },
-  { codigo: '0222', descripcion: 'COCHE ARAGUA' },
-  { codigo: '0223', descripcion: 'GUACARA' },
-  { codigo: '0224', descripcion: 'METRO VALENCIA' },
-  { codigo: '0225', descripcion: 'COTIZA' },
-  { codigo: '0226', descripcion: 'MARACAY CENTRO' },
-  { codigo: '0227', descripcion: 'EL TAMBOR' },
-  { codigo: '0228', descripcion: 'SAN FERNANDO' },
-  { codigo: '0229', descripcion: 'VTV' },
-  { codigo: '0230', descripcion: 'VICEPRESIDENCIA' },
-  { codigo: '0231', descripcion: 'COMANDANCIA GENERAL' },
-  { codigo: '0232', descripcion: 'KPMG' },
-  { codigo: '0234', descripcion: 'LOS PROCERES' },
-  { codigo: '0235', descripcion: 'IND' },
-  { codigo: '0237', descripcion: 'KPMG ESPECIALES' },
-  { codigo: '0238', descripcion: 'ACADEMIA MILITAR' },
-  { codigo: '0239', descripcion: 'ACARIGUA' },
-  { codigo: '0241', descripcion: 'TAQUILLA CHUAO' },
-  { codigo: '0242', descripcion: 'GUATIRE CENTER' },
-  { codigo: '0244', descripcion: 'TAQUILLA URDANETA' },
-  { codigo: '0245', descripcion: 'TINAQUILLO' },
-  { codigo: '0247', descripcion: 'TAQUILLA MARACAY' },
-  { codigo: '0301', descripcion: 'BARQUISIMETO' },
-  { codigo: '0303', descripcion: 'MARACAIBO KIRINET' },
-  { codigo: '0304', descripcion: 'BARRIO OBRERO' },
-  { codigo: '0305', descripcion: 'MERIDA' },
-  { codigo: '0306', descripcion: 'CORO' },
-  { codigo: '0307', descripcion: 'CRP' },
-  { codigo: '0308', descripcion: 'VALERA' },
-  { codigo: '0309', descripcion: 'BARINAS' },
-  { codigo: '0310', descripcion: 'PUNTO FIJO' },
-  { codigo: '0311', descripcion: 'SAN CRISTOBAL ESPECIALES' },
-  { codigo: '0312', descripcion: 'PARAGUACHON' },
-  { codigo: '0601', descripcion: 'PUERTO LA GUAIRA' },
-  { codigo: '0602', descripcion: 'TAQ. AEROPUERTO' },
-  { codigo: '0605', descripcion: 'PLAZA MORELOS' },
-  { codigo: '0606', descripcion: 'GAMMA' },
-  { codigo: '0913', descripcion: 'EL ROSAL' },
-];
-
-export const CATALOGO_EDO_CIVIL: ItemCatalogo[] = [
-  { codigo: '1', descripcion: 'SOLTERO(A)' },
-  { codigo: '2', descripcion: 'CASADO(A)' },
-  { codigo: '3', descripcion: 'DIVORCIADO(A)' },
-  { codigo: '4', descripcion: 'VIUDO(A)' },
-  { codigo: '5', descripcion: 'CONCUBINO(A)' },
-];
-
-export const CATALOGO_NIVEL_EDUCACION: ItemCatalogo[] = [
-  { codigo: '01', descripcion: 'PRIMARIA' },
-  { codigo: '02', descripcion: 'BACHILLERATO' },
-  { codigo: '03', descripcion: 'TECNICO MEDIO' },
-  { codigo: '04', descripcion: 'TECNICO SUPERIOR' },
-  { codigo: '05', descripcion: 'UNIVERSITARIO' },
-  { codigo: '06', descripcion: 'POST GRADO' },
-  { codigo: '07', descripcion: 'DOCTORADO' },
-];
-
-export const CATALOGO_CONDICION_INMUEBLE: ItemCatalogo[] = [
-  { codigo: '1', descripcion: 'PROPIA' },
-  { codigo: '2', descripcion: 'ALQUILADA' },
-  { codigo: '3', descripcion: 'DE UN FAMILIAR' },
-];
-
-export const CATALOGO_TIPO_VIVIENDA: ItemCatalogo[] = [
-  { codigo: '1', descripcion: 'CASA' },
-  { codigo: '2', descripcion: 'QUINTA' },
-  { codigo: '3', descripcion: 'APARTAMENTO' },
-];
-
-export const CATALOGO_FUENTE_INGRESO: ItemCatalogo[] = [
-  { codigo: '1', descripcion: 'SUELDO' },
-  { codigo: '2', descripcion: 'SALARIO' },
-  { codigo: '3', descripcion: 'JUBILACION' },
-  { codigo: '4', descripcion: 'INDEPENDIENTE' },
-];
-
-export const CATALOGO_TIEMPO_CONTRATO: ItemCatalogo[] = [
-  { codigo: '1', descripcion: 'FIJO' },
-  { codigo: '2', descripcion: 'INDEFINIDO' },
-];
-
-export const CATALOGO_TIPO_NOMINA: ItemCatalogo[] = [
-  { codigo: 'W', descripcion: 'SEMANAL' },
-  { codigo: 'B', descripcion: 'QUINCENAL' },
-  { codigo: 'M', descripcion: 'MENSUAL' },
-  { codigo: 'S', descripcion: 'SEMESTRAL' },
-  { codigo: 'Y', descripcion: 'ANUAL' },
-];
-
-export const CATALOGO_TIPO_CUENTA: ItemCatalogo[] = [
-  { codigo: 'CCVI', descripcion: 'CUENTA CORRIENTE VIRTUAL' },
-  { codigo: 'VI01', descripcion: 'CUENTA NOMINA' },
-];
-
-export const CATALOGO_TIPO_SOLICITUD: ItemCatalogo[] = [
-  { codigo: 'I', descripcion: 'INGRESO NUEVO' },
-  { codigo: 'M', descripcion: 'CAMBIOS' },
-  { codigo: 'D', descripcion: 'DESINCORPORAR' },
-];
-
-export const CATALOGO_TIPOS_CARGO: ItemCatalogo[] = [
-  { codigo: '001', descripcion: 'PRESIDENTE' },
-  { codigo: '002', descripcion: 'DIRECTOR' },
-  { codigo: '003', descripcion: 'GERENTE' },
-  { codigo: '004', descripcion: 'SUBGERENTE' },
-  { codigo: '005', descripcion: 'SUPERVISOR' },
-  { codigo: '006', descripcion: 'COORDINADOR(A)' },
-  { codigo: '007', descripcion: 'ANALISTA' },
-  { codigo: '008', descripcion: 'SECRETARIA' },
-  { codigo: '009', descripcion: 'ENCARGADO(A)' },
-  { codigo: '010', descripcion: 'VENDEDOR(A)' },
-  { codigo: '011', descripcion: 'OBRERO' },
-  { codigo: '012', descripcion: 'ESPECIALISTA' },
-  { codigo: '013', descripcion: 'ASISTENTE' },
-  { codigo: '014', descripcion: 'PROMOTOR(A)' },
-  { codigo: '015', descripcion: 'JEFE DE AREA' },
-  { codigo: '016', descripcion: 'TECNICO' },
-  { codigo: '017', descripcion: 'OPERADOR' },
-  { codigo: '018', descripcion: 'CAJERO(A)' },
-  { codigo: '019', descripcion: 'EJECUTIVO' },
-  { codigo: '020', descripcion: 'AUXILIAR' },
-  { codigo: '021', descripcion: 'CHOFER' },
-  { codigo: '022', descripcion: 'CONSERJE' },
-  { codigo: '023', descripcion: 'VIGILANTE' },
-  { codigo: '024', descripcion: 'RECEPCIONISTA' },
-  { codigo: '025', descripcion: 'PERITO' },
-  { codigo: '026', descripcion: 'ASESOR' },
-  { codigo: '027', descripcion: 'AUDITOR' },
-  { codigo: '028', descripcion: 'PROGRAMADOR' },
-  { codigo: '029', descripcion: 'VICEPRESIDENTE' },
-  { codigo: '030', descripcion: 'OFICINISTA' },
-  { codigo: '031', descripcion: 'INGENIERO' },
-  { codigo: '032', descripcion: 'ABOGADO' },
-  { codigo: '033', descripcion: 'MEDICO/CIRUJANO' },
-  { codigo: '034', descripcion: 'DIBUJANTE/PINTOR' },
-  { codigo: '035', descripcion: 'ARQUITECTO' },
-  { codigo: '037', descripcion: 'ECONOMISTA' },
-  { codigo: '038', descripcion: 'DOCENTE' },
-  { codigo: '041', descripcion: 'ADMINISTRADOR' },
-  { codigo: '045', descripcion: 'CONSULTOR' },
-  { codigo: '046', descripcion: 'CHEF' },
-  { codigo: '047', descripcion: 'MESONERO' },
-  { codigo: '050', descripcion: 'VETERINARIO' },
-  { codigo: '053', descripcion: 'TRABAJADOR SOCIAL' },
-  { codigo: '067', descripcion: 'QUIMICO/FISICO' },
-  { codigo: '068', descripcion: 'GEOLOGO' },
-  { codigo: '074', descripcion: 'COMPRADOR' },
-  { codigo: '075', descripcion: 'GERENTE GENERAL' },
-  { codigo: '077', descripcion: 'ADJUNTO' },
-  { codigo: '078', descripcion: 'OTROS' },
-];
-
-export const CATALOGO_PROFESIONES_MAP: Record<string, string> = {
-  ABOG: 'ABOGADO',
-  LADM: 'ADMINISTRACION',
-  LAEM: 'ADMINISTRACION DE EMPRESAS',
-  LARH: 'ADMINISTRACION DE RECURSOS HUMANOS',
-  LAIN: 'ADMINISTRACION INDUSTRIAL',
-  LATR: 'ADMINISTRACION TRIBUTARIA',
-  ANAL: 'ANALISTA',
-  ARQU: 'ARQUITECTO',
-  ASIS: 'ASISTENTE',
-  CAJE: 'CAJERO BANCARIO',
-  CHEF: 'CHEF/COCINERO (A)',
-  CHOF: 'CHOFER',
-  COMP: 'COMPRADOR',
-  LCOM: 'COMPUTACION',
-  CONS: 'CONSERJE',
-  COSL: 'CONSULTOR/ASESOR',
-  LCPU: 'CONTADURIA PUBLICA',
-  COOR: 'COORDINADOR',
-  DIBU: 'DIBUJANTE/PINTOR',
-  ECON: 'ECONOMISTA',
-  LEDU: 'EDUCACION',
-  ELEC: 'ELECTRONICA',
-  ENFE: 'ENFERMERA',
-  GEOL: 'GEOLOGO',
-  HERR: 'HERRERO',
-  LINF: 'INFORMATICA',
-  INGE: 'INGENIERO',
-  INGA: 'INGENIERO AMBIENTAL',
-  INCI: 'INGENIERO CIVIL',
-  INGM: 'INGENIERO DE MATERIALES',
-  INSI: 'INGENIERO DE SISTEMAS',
-  INEL: 'INGENIERO ELECTRICO',
-  INET: 'INGENIERO ELECTRONICO',
-  INCO: 'INGENIERO EN COMPUTACION',
-  ININ: 'INGENIERO EN INFORMATICA',
-  INGO: 'INGENIERO GEODESTA',
-  INID: 'INGENIERO INDUSTRIAL',
-  INME: 'INGENIERO MECANICO',
-  INQU: 'INGENIERO QUIMICO',
-  JARD: 'JARDINERO',
-  LATO: 'LATONERO',
-  MECA: 'MECANICO',
-  MEDI: 'MEDICO (A)',
-  MENS: 'MENSAJERO',
-  MESO: 'MESONERO/BARMAN',
-  OBRE: 'OBRERO',
-  OTRO: 'OTROS',
-  LPSI: 'PSICOLOGIA',
-  RECE: 'RECEPCIONISTA',
-  LRIN: 'RELACIONES INDUSTRIALES',
-  SECR: 'SECRETARIA',
-  SERV: 'SERVICIOS DE MANTENIMIENTO',
-  SINE: 'SIN ESTUDIOS',
-  LSIS: 'SISTEMAS',
-  SUPE: 'SUPERVISOR',
-  TOPO: 'TOPOGRAFO',
-  TADE: 'TSU ADMINISTRACION DE EMPRESAS',
-  TACF: 'TSU ADMON CONTABILIDAD Y FINANZAS',
-  TSUG: 'TSU GEOLOGIA',
-  TINF: 'TSU INFORMATICA',
-  TMIN: 'TSU MANTENIMIENTO INDUSTRIAL',
-  TMEC: 'TSU MECANICA',
-  TSUO: 'TSU OBRAS CIVILES',
-  TRIN: 'TSU RELACIONES INDUSTRIALES',
-  TMEL: 'TSU TECNICO ELECTRICISTA',
-  TTAU: 'TSU TECNOLOGIA AUTOMOTRIZ',
-  VEND: 'VENDEDOR (A)',
-  VIGI: 'VIGILANTE',
-};
-
-export const CATALOGO_PROFESIONES: ItemCatalogo[] = Object.entries(CATALOGO_PROFESIONES_MAP)
-  .map(([codigo, descripcion]) => ({ codigo, descripcion }))
-  .sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'));
-
-export const CATALOGO_PAISES_ISO2: ItemCatalogo[] = [
-  { codigo: 'VE', descripcion: 'VENEZUELA' },
-  { codigo: 'CO', descripcion: 'COLOMBIA' },
-  { codigo: 'PE', descripcion: 'PERU' },
-  { codigo: 'EC', descripcion: 'ECUADOR' },
-  { codigo: 'BR', descripcion: 'BRASIL' },
-  { codigo: 'CU', descripcion: 'CUBA' },
-  { codigo: 'DO', descripcion: 'REPUBLICA DOMINICANA' },
-  { codigo: 'CL', descripcion: 'CHILE' },
-  { codigo: 'AR', descripcion: 'ARGENTINA' },
-  { codigo: 'MX', descripcion: 'MEXICO' },
-  { codigo: 'ES', descripcion: 'ESPANA' },
-  { codigo: 'PT', descripcion: 'PORTUGAL' },
-  { codigo: 'IT', descripcion: 'ITALIA' },
-  { codigo: 'CN', descripcion: 'CHINA' },
-  { codigo: 'GY', descripcion: 'GUYANA' },
-  { codigo: 'TT', descripcion: 'TRINIDAD Y TOBAGO' },
-  { codigo: 'US', descripcion: 'ESTADOS UNIDOS' },
-];
 
 /**
  * Datos domiciliarios y bancarios de nómina guardados en la ficha de cada

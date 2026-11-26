@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  esGradoValido, labelGrado, normalizarInstruccion, normalizarTrabajo, resumenTrabajo,
+  esGradoValido, GRADOS, labelGrado, normalizarInstruccion, normalizarTrabajo, resumenTrabajo,
   tieneTrabajoAnterior, TRABAJO_VACIO,
 } from './instruccionYTrabajo';
 
@@ -16,6 +16,14 @@ describe('grado de instrucción', () => {
   it('los dice en palabras', () => {
     expect(labelGrado('bachiller')).toBe('Bachiller');
     expect(labelGrado(null)).toBe('—');
+  });
+
+  it('muestra el código bancario oficial de cada grado', () => {
+    expect(GRADOS.map((g) => `${g.codigo} ${g.label}`)).toEqual([
+      '01 Primaria',
+      '02 Bachiller',
+      '05 Universitario',
+    ]);
   });
 
   it('el título cuelga del grado: sin grado no se guarda título', () => {

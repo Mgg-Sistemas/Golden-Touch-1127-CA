@@ -18,8 +18,9 @@ import { VacacionesTab } from './VacacionesTab';
 import { DescansosTab } from './DescansosTab';
 import { AdministrativoTab } from './AdministrativoTab';
 import { MinutasTab } from './MinutasTab';
+import { CatalogosOficialesPanel } from './CatalogosOficialesPanel';
 
-type Vista = 'personal' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo' | 'minutas';
+type Vista = 'personal' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo' | 'minutas' | 'catalogos';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'personal', label: 'Personal', icon: '👥' },
@@ -29,6 +30,7 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
   { key: 'administrativo', label: 'Administrativo', icon: '🗂' },
   { key: 'minutas', label: 'Minutas', icon: '📝' },
+  { key: 'catalogos', label: 'Catálogos', icon: '📚' },
 ];
 
 
@@ -163,6 +165,8 @@ export function RrhhPage() {
       {vista === 'administrativo' && <AdministrativoTab key={empresa} empresa={empresa} canWrite={canWrite} actor={actor} actorName={actorName} />}
       {/* Sin `key`: las minutas son de toda la organización, no dependen de la nómina. */}
       {vista === 'minutas' && <MinutasTab canWrite={canWrite} actor={actor} />}
+      {/* Catálogos completos del Banco del Tesoro, con sus códigos oficiales. */}
+      {vista === 'catalogos' && <CatalogosOficialesPanel />}
     </div>
   );
 }
