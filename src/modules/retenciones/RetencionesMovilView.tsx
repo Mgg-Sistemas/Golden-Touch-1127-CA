@@ -1251,23 +1251,28 @@ function FormularioCargaFactura({
           />
         </div>
         <div className="surt-campo">
-          <label>Moneda *</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+            <label style={{ margin: 0 }}>Moneda *</label>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary, #f59e0b)' }}>
+              ● {moneda === 'USD' ? 'Dólares ($)' : 'Bolívares (Bs)'}
+            </span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
             <button
               type="button"
-              className={`btn ${moneda === 'USD' ? 'primario' : ''}`}
-              style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
+              className={`buzon-moneda-btn ${moneda === 'USD' ? 'sel' : ''}`}
               onClick={() => setMoneda('USD')}
             >
-              💵 Dólares ($)
+              {moneda === 'USD' && <span className="moneda-dot" />}
+              <span>💵 Dólares ($)</span>
             </button>
             <button
               type="button"
-              className={`btn ${moneda === 'Bs' ? 'primario' : ''}`}
-              style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
+              className={`buzon-moneda-btn ${moneda === 'Bs' ? 'sel' : ''}`}
               onClick={() => setMoneda('Bs')}
             >
-              🇻🇪 Bolívares (Bs)
+              {moneda === 'Bs' && <span className="moneda-dot" />}
+              <span>🇻🇪 Bolívares (Bs)</span>
             </button>
           </div>
         </div>

@@ -501,6 +501,47 @@
   flex-shrink: 0;
 }
 
+/* Botones de moneda en formulario móvil */
+.buzon-moneda-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 52px;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.buzon-moneda-btn:active {
+  transform: scale(0.98);
+}
+
+.buzon-moneda-btn.sel {
+  border: 2px solid var(--primary, #f59e0b);
+  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.16));
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.buzon-moneda-btn .moneda-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary, #f59e0b);
+  box-shadow: 0 0 6px var(--primary, #f59e0b);
+  flex-shrink: 0;
+}
+
 /* Ficha fiscal en escritorio */
 .buzon-ficha-fiscal-seccion {
   background: var(--surface-2);
