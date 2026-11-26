@@ -24,8 +24,9 @@ const COLOR_POR_DEFECTO = '#2563eb';
 const esColorValido = (c: string | null | undefined) => /^#[0-9a-fA-F]{6}$/.test(String(c ?? ''));
 
 /** 'rapido' = alta/edición mínima del teléfono · 'identidad' = ficha identidad+contacto (buzón PC)
- *  · 'fiscal' = lo por-empresa del comprobante (alícuota municipal, licencia, original y copia). */
-export type ModoEmpresaEditor = 'rapido' | 'identidad' | 'fiscal';
+ *  · 'fiscal' = lo por-empresa del comprobante (alícuota municipal, licencia, original y copia)
+ *  · 'completo' = editor integral con identidad, contacto y ficha fiscal para PC. */
+export type ModoEmpresaEditor = 'rapido' | 'identidad' | 'fiscal' | 'completo';
 
 export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm }: {
   /** undefined = crear; definida = editar. El modo 'fiscal' siempre es edición. */
@@ -38,8 +39,9 @@ export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm }: {
   idForm?: string;
 }) {
   const esEdicion = !!empresa;
-  const verContacto = modo === 'identidad';
-  const verFiscal = modo === 'fiscal';
+  const verContacto = modo === 'identidad' || modo === 'completo';
+  const verFiscal = modo === 'fiscal' || modo === 'completo';
+  const esModoCompleto = modo === 'completo';
 
   const [nombre, setNombre] = useState(empresa?.nombre ?? '');
   const [nombreCorto, setNombreCorto] = useState(empresa?.nombreCorto ?? '');
@@ -72,6 +74,27 @@ export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm }: {
     // Parámetros → Valores (R3), no esta ficha. Los campos que el modo no edita se conservan
     // de la empresa para no blanquearlos al guardar.
     const prev = empresa;
+
+    if (esModoCompleto) {
+      return {
+        id: prev?.id,
+        clave: prev?.clave,
+        orden: prev?.orden,
+        nombre: nombre.trim(),
+        nombreCorto: nombreCorto.trim() || undefined,
+        rif: rif.trim(),
+        colorBadge: colorBadge,
+        activo: activo,
+        email: email.trim() || undefined,
+        telefono: telefono.trim() || undefined,
+        direccionFiscal: direccionFiscal.trim() || undefined,
+        municipio: municipio.trim() || undefined,
+        estado: estado.trim() || undefined,
+        licenciaMunicipal: licenciaMunicipal.trim() || undefined,
+        alicuotaMunicipal: alicuotaMunicipal.trim() === '' ? undefined : Number(alicuotaMunicipal),
+        imprimirOriginalYCopia,
+      };
+    }
 
     if (verFiscal) {
       // Modo fiscal: edita alícuota municipal, licencia y original/copia; la identidad se
@@ -140,11 +163,11 @@ export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm }: {
 
   return (
     <form id={idForm} onSubmit={submit} style={{ display: 'grid', gap: '.7rem' }}>
-      {verFiscal && empresa && (
+      {verFiscal && !esModoCompleto && empresa && (
         <div style={{ fontWeight: 700 }}>{empresa.nombreCorto || empresa.nombre} <span className="muted mono" style={{ fontWeight: 400 }}>· {empresa.rif}</span></div>
       )}
 
-      {!verFiscal && (
+      {(!verFiscal || esModoCompleto) && (
         <>
           <div className="surt-grid2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.6rem' }}>
             <div>

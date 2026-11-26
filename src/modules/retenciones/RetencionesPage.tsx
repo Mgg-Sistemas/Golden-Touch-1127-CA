@@ -52,6 +52,7 @@ import { rifValido } from '@/shared/lib/rif';
 import { list as listProveedores, insert as insertProveedor } from '@/modules/proveedores/proveedores.repository';
 import { EmpresaActualSelector } from './EmpresaActualSelector';
 import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
+import { GestionEmpresasModal } from './GestionEmpresasModal';
 import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
@@ -79,6 +80,7 @@ export function RetencionesPage() {
 
   const [vista, setVista] = useState<Vista>('agrupada');
   const [parametros, setParametros] = useState(false);
+  const [modalGestionEmpresas, setModalGestionEmpresas] = useState(false);
   const [configFiscal, setConfigFiscal] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
@@ -495,6 +497,7 @@ export function RetencionesPage() {
             empresaId={empresaId}
             onChange={setEmpresaId}
             conteos={conteosPorEmpresa}
+            onGestionarEmpresas={() => setModalGestionEmpresas(true)}
           />
         )}
         <div className="lfv8-cabeza-acciones">
@@ -547,7 +550,14 @@ export function RetencionesPage() {
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
-      {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView onRegistrar={abrirDesdeBuzon} />}
+      {vista === 'buzon' && buzonVisible && (
+        <BuzonFacturasExternasView
+          empresaId={empresaId}
+          onEmpresaChange={setEmpresaId}
+          onRegistrar={abrirDesdeBuzon}
+          onAbrirGestionEmpresas={() => setModalGestionEmpresas(true)}
+        />
+      )}
 
       {/* ── Por hacer: cola unificada con archivo obligatorio por empresa ── */}
       {vista === 'pendientes' && (
@@ -658,12 +668,36 @@ export function RetencionesPage() {
       {parametros && (
         <ConfiguracionFiscalModal
           puedeEditar={canWrite}
-          editorFiscalEmpresas={multiempresa ? <EditorFichasFiscalesEmpresa puedeEditar={canWrite} /> : null}
+          editorFiscalEmpresas={
+            multiempresa ? (
+              <EditorFichasFiscalesEmpresa
+                puedeEditar={canWrite}
+                onAbrirGestionEmpresas={() => {
+                  setParametros(false);
+                  setModalGestionEmpresas(true);
+                }}
+              />
+            ) : null
+          }
           empresasRegimen={multiempresa ? empresas.map((e) => ({ id: e.id, nombre: e.nombreCorto || e.nombre })) : []}
           empresaRegimenId={empresaId}
           puedeBorrarRegimen={isAdmin}
           onClose={() => {
             setParametros(false);
+            void reload();
+          }}
+        />
+      )}
+      {modalGestionEmpresas && (
+        <GestionEmpresasModal
+          isOpen={modalGestionEmpresas}
+          empresaActualId={empresaId}
+          onEmpresaSeleccionada={(id) => {
+            setEmpresaId(id);
+            void reload();
+          }}
+          onClose={() => {
+            setModalGestionEmpresas(false);
             void reload();
           }}
         />
