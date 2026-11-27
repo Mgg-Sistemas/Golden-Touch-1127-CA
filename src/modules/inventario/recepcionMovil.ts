@@ -64,7 +64,7 @@ export function cantidadesRecibidas(p: Pick<PorRecepcionar, 'items'>, cants: Can
 }
 
 /** Lo que impide recepcionar; `null` = se puede. */
-export function errorRecepcion(p: Pick<PorRecepcionar, 'items'>, cants: CantidadesRecepcion): string | null {
+export function errorRecepcion(p: Pick<PorRecepcionar, 'items'>, cants: CantidadesRecepcion, nota = ''): string | null {
   if (!p.items.length) return 'La orden no tiene renglones.';
   for (let i = 0; i < p.items.length; i++) {
     const t = cants[i];
@@ -74,7 +74,7 @@ export function errorRecepcion(p: Pick<PorRecepcionar, 'items'>, cants: Cantidad
     if (!Number.isFinite(n) || n < 0) return `Revisa la cantidad de ${p.items[i].nombre}.`;
     if (n > pedida) return `De ${p.items[i].nombre} se pidieron ${num(pedida)}: no se puede recibir más.`;
   }
-  if (cantidadesRecibidas(p, cants).every((n) => n <= 0)) return 'No llegó nada: si la orden no vino, no la recepciones.';
+  if (cantidadesRecibidas(p, cants).every((n) => n <= 0) && !nota.trim()) return 'Indica el motivo por el que no llegó ningún producto.';
   return null;
 }
 

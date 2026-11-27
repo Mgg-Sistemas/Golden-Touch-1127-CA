@@ -24,7 +24,8 @@ describe('Inventario (teléfono) · recepción de lo que entrega el delivery', (
   it('valida lo que se escribe', () => {
     expect(errorRecepcion(p, ['', ''])).toBeNull();
     expect(errorRecepcion(p, ['12', ''])).toBe('De TUBO 2" se pidieron 10: no se puede recibir más.');
-    expect(errorRecepcion(p, ['0', '0'])).toBe('No llegó nada: si la orden no vino, no la recepciones.');
+    expect(errorRecepcion(p, ['0', '0'])).toBe('Indica el motivo por el que no llegó ningún producto.');
+    expect(errorRecepcion(p, ['0', '0'], 'El proveedor no suministró los productos')).toBeNull();
     expect(errorRecepcion(p, ['abc', ''])).toBe('Revisa la cantidad de TUBO 2".');
   });
   it('el WhatsApp y el PDF', () => {

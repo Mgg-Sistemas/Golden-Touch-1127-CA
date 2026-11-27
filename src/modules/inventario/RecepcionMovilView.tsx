@@ -76,7 +76,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
   const [fotosArchivos, setFotosArchivos] = useState<File[]>([]);
   // La factura del proveedor es opcional al recepcionar (foto o PDF).
   const [facturas, setFacturas] = useState<File[]>([]);
-  const problema = errorRecepcion(p, cants);
+  const problema = errorRecepcion(p, cants, nota);
   const parcial = esParcial(p, cants);
 
   async function guardar(e: FormEvent) {
@@ -89,7 +89,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
         try { await subirFacturasAlmacen(p.orden_id, facturas, actor); }
         catch (e2) { toast(`Recepcionada, pero la factura no se pudo subir: ${errMsg(e2, 'error')}. Pide a Compras que la cargue en «🧾 Factura».`, 'warning'); }
       }
-      toast(r.resultado === 'ya_recibida' ? 'La OC ya estaba recibida en Compras.' : `OC ${p.oc ?? p.sp} recepcionada: ya está en el inventario.`, 'success');
+      toast(r.resultado === 'ya_recibida' ? 'La OC ya estaba recibida en Compras.' : `OC ${p.oc ?? p.sp}: recepción registrada en Compras.`, 'success');
       setHecha({ at: r.at || new Date().toISOString(), quien: r.recepcionado_nombre || actorName });
       void descargarFotosRecepcion([...p.fotos_entrega, ...p.fotos_recibo]).then(setFotosArchivos);
     } catch (err) {
