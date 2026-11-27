@@ -112,7 +112,10 @@ begin
  select id into v_id from public.ordenes where reposicion_origen_id=p_orden;
  if found then return v_id; end if;
  select jsonb_agg((x - 'cantidad_recibida' - 'marca_recibida' - 'modelo_recibido' - 'precio_usd' - 'precio_eur' - 'descuento') ||
-   jsonb_build_object('cantidad',(x->>'cantidad')::numeric-coalesce((x->>'cantidad_recibida')::numeric,0),'precio',0))
+   jsonb_build_object(
+     'cantidad',(x->>'cantidad')::numeric-(x->>'cantidad_recibida')::numeric,
+     'cantidad_solicitada_original',(x->>'cantidad')::numeric-(x->>'cantidad_recibida')::numeric,
+     'cubierto_almacen',0,'cubierto_por_almacen',null,'comprar',true,'precio',0))
  into v_items from jsonb_array_elements(o.items) x
  where x->>'cantidad_recibida' is not null and (x->>'cantidad')::numeric > (x->>'cantidad_recibida')::numeric;
  if v_items is null then raise exception 'La OC no tiene faltantes'; end if;
