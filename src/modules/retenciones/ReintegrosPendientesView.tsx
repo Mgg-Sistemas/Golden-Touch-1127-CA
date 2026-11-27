@@ -31,7 +31,32 @@ export interface ReintegroPersistido {
   registradoEn: string;
 }
 
+export interface ReintegroManual {
+  id: string;
+  empresaId: string | null;
+  ordenId?: string | null;
+  codigoOc?: string | null;
+  numeroComprobante?: string | null;
+  proveedor: string;
+  proveedorRif?: string | null;
+  proveedorTelefono?: string | null;
+  facturas: string[];
+  fechaEmision: string;
+  fechaReintegro?: string | null;
+  moneda: string;
+  montoBs: number;
+  montoUsd?: number | null;
+  tipoRetencion: string;
+  estado: 'esperando_reintegro' | 'reintegrado';
+  referencia?: string | null;
+  cuentaBanco?: string | null;
+  nota?: string | null;
+  registradoEn: string;
+  registradoPor?: string | null;
+}
+
 const CLAVE_LOCAL_REINTEGROS = 'gt.retenciones.reintegros';
+const CLAVE_REINTEGROS_MANUALES = 'gt.retenciones.pendientes_reintegro';
 
 export function leerReintegrosLocales(): ReintegroPersistido[] {
   try {
@@ -48,6 +73,55 @@ function guardarReintegrosLocales(items: ReintegroPersistido[]) {
   } catch {
     // best-effort
   }
+}
+
+export function leerReintegrosManuales(): ReintegroManual[] {
+  try {
+    const raw = localStorage.getItem(CLAVE_REINTEGROS_MANUALES);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function guardarReintegrosManuales(items: ReintegroManual[]): void {
+  try {
+    localStorage.setItem(CLAVE_REINTEGROS_MANUALES, JSON.stringify(items));
+  } catch {
+    // best-effort
+  }
+}
+
+export function registrarReintegroManual(
+  item: Omit<ReintegroManual, 'id' | 'registradoEn' | 'estado'> & { id?: string; estado?: 'esperando_reintegro' | 'reintegrado' },
+): ReintegroManual {
+  const items = leerReintegrosManuales();
+  const nuevo: ReintegroManual = {
+    ...item,
+    id: item.id || `reint-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    estado: item.estado || 'esperando_reintegro',
+    registradoEn: new Date().toISOString(),
+  };
+  items.unshift(nuevo);
+  guardarReintegrosManuales(items);
+  return nuevo;
+}
+
+/**
+ * Calcula con rigor matemático los días transcurridos entre la fecha de emisión y hoy.
+ * Valida estrictamente formato ISO AAAA-MM-DD y rango 2020..2050 para evitar años irreales.
+ */
+export function calcularDiasEspera(fechaStr?: string | null): number {
+  if (!fechaStr || typeof fechaStr !== 'string') return 0;
+  const limpio = fechaStr.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(limpio)) return 0;
+  const anio = parseInt(limpio.slice(0, 4), 10);
+  if (anio < 2020 || anio > 2050) return 0;
+  const fechaMs = new Date(limpio + 'T12:00:00Z').getTime();
+  if (isNaN(fechaMs)) return 0;
+  const hoyMs = Date.now();
+  if (fechaMs > hoyMs) return 0;
+  return Math.floor((hoyMs - fechaMs) / 86400000);
 }
 
 export interface ReintegroItemFila {
@@ -110,6 +184,8 @@ export function ReintegrosPendientesView({
   const [regNota, setRegNota] = useState('');
   const [guardando, setGuardando] = useState(false);
 
+  const esGt = !empresaId || empresaId === 'empresa-golden-touch' || empresaId === 'golden_touch';
+
   const cargarDatos = useCallback(async () => {
     setCargando(true);
     try {
@@ -121,8 +197,10 @@ export function ReintegrosPendientesView({
         localesMap.set(loc.id, loc);
       }
 
-      // 1. Órdenes con retención 'despues_de_pagar'
-      const ordenesEspera = await cargarOrdenesEsperandoReintegro().catch(() => [] as FilaConciliacionEntrada[]);
+      // 1. Órdenes con retención 'despues_de_pagar' (SOLO PARA GOLDEN TOUCH)
+      const ordenesEspera = esGt
+        ? await cargarOrdenesEsperandoReintegro().catch(() => [] as FilaConciliacionEntrada[])
+        : [];
 
       // 2. Comprobantes emitidos en libro fiscal practicado
       const libroRet = await listRetenciones({ direccion: 'practicada' }).catch(() => [] as RetencionPracticada[]);
@@ -131,43 +209,80 @@ export function ReintegrosPendientesView({
         if (r.docId) retPorOrdenId.set(r.docId, r);
       }
 
-      const hoy = Date.now();
       const resultado: ReintegroItemFila[] = [];
 
-      for (const oe of ordenesEspera) {
-        const claveId = oe.ordenId ? `id:${oe.ordenId}` : '';
-        const claveOc = oe.codigoOc ? `oc:${oe.codigoOc.trim().toUpperCase()}` : '';
-        const loc = (claveId && localesMap.get(claveId)) || (claveOc && localesMap.get(claveOc)) || localesMap.get(oe.id);
+      // Procesar órdenes de GT (solo cuando la empresa activa es Golden Touch)
+      if (esGt) {
+        for (const oe of ordenesEspera) {
+          const claveId = oe.ordenId ? `id:${oe.ordenId}` : '';
+          const claveOc = oe.codigoOc ? `oc:${oe.codigoOc.trim().toUpperCase()}` : '';
+          const loc = (claveId && localesMap.get(claveId)) || (claveOc && localesMap.get(claveOc)) || localesMap.get(oe.id);
 
-        const retAsoc = oe.ordenId ? retPorOrdenId.get(oe.ordenId) : null;
-        const fechaRef = oe.fechaReintegro || retAsoc?.fecha || retAsoc?.facturaFecha || oe.id.slice(0, 10);
-        const fechaEmisionMs = new Date(fechaRef).getTime();
-        const diasEspera = isNaN(fechaEmisionMs)
-          ? 0
-          : Math.max(0, Math.floor((hoy - fechaEmisionMs) / 86400000));
+          const retAsoc = oe.ordenId ? retPorOrdenId.get(oe.ordenId) : null;
+          const fechaValida = (oe.fechaReintegro && /^\d{4}-\d{2}-\d{2}$/.test(oe.fechaReintegro.slice(0, 10)))
+            ? oe.fechaReintegro.slice(0, 10)
+            : (retAsoc?.fecha && /^\d{4}-\d{2}-\d{2}$/.test(retAsoc.fecha.slice(0, 10)))
+            ? retAsoc.fecha.slice(0, 10)
+            : (retAsoc?.facturaFecha && /^\d{4}-\d{2}-\d{2}$/.test(retAsoc.facturaFecha.slice(0, 10)))
+            ? retAsoc.facturaFecha.slice(0, 10)
+            : null;
 
-        const esReintegrado = !!loc || oe.estado === 'reintegrado';
+          const diasEspera = calcularDiasEspera(fechaValida);
+          const esReintegrado = !!loc || oe.estado === 'reintegrado';
 
+          resultado.push({
+            id: oe.id,
+            ordenId: oe.ordenId,
+            codigoOc: oe.codigoOc,
+            numeroComprobante: retAsoc?.numeroComprobante ?? null,
+            proveedor: oe.proveedor,
+            proveedorRif: retAsoc?.contraparteRif ?? null,
+            proveedorTelefono: null,
+            facturas: retAsoc?.facturaNumero ? [retAsoc.facturaNumero] : oe.facturas,
+            fechaEmision: fechaValida || '—',
+            fechaReintegro: loc?.fechaReintegro ?? oe.fechaReintegro ?? null,
+            moneda: oe.moneda || 'Bs',
+            montoBs: loc?.montoBs ?? oe.montoRetenidoBs ?? oe.montoBs,
+            montoUsd: oe.montoRetenidoUsd ?? oe.montoUsd,
+            tipoRetencion: oe.tipoRetencion || (retAsoc ? retAsoc.tipo.toUpperCase() : 'Retención'),
+            estado: esReintegrado ? 'reintegrado' : 'esperando_reintegro',
+            referencia: loc?.referencia ?? oe.referencia ?? null,
+            cuentaBanco: loc?.cuentaBanco ?? oe.cuentaBanco ?? null,
+            diasEspera,
+            empresaId: 'empresa-golden-touch',
+          });
+        }
+      }
+
+      // 3. Reintegros registrados para la empresa activa
+      const manuales = leerReintegrosManuales().filter((m) => {
+        if (esGt) {
+          return !m.empresaId || m.empresaId === 'empresa-golden-touch' || m.empresaId === 'golden_touch';
+        }
+        return m.empresaId === empresaId;
+      });
+
+      for (const m of manuales) {
         resultado.push({
-          id: oe.id,
-          ordenId: oe.ordenId,
-          codigoOc: oe.codigoOc,
-          numeroComprobante: retAsoc?.numeroComprobante ?? null,
-          proveedor: oe.proveedor,
-          proveedorRif: retAsoc?.contraparteRif ?? null,
-          proveedorTelefono: null,
-          facturas: retAsoc?.facturaNumero ? [retAsoc.facturaNumero] : oe.facturas,
-          fechaEmision: retAsoc?.fecha || oe.fechaReintegro || '—',
-          fechaReintegro: loc?.fechaReintegro ?? oe.fechaReintegro ?? null,
-          moneda: oe.moneda || 'Bs',
-          montoBs: loc?.montoBs ?? oe.montoRetenidoBs ?? oe.montoBs,
-          montoUsd: oe.montoRetenidoUsd ?? oe.montoUsd,
-          tipoRetencion: oe.tipoRetencion || (retAsoc ? retAsoc.tipo.toUpperCase() : 'Retención'),
-          estado: esReintegrado ? 'reintegrado' : 'esperando_reintegro',
-          referencia: loc?.referencia ?? oe.referencia ?? null,
-          cuentaBanco: loc?.cuentaBanco ?? oe.cuentaBanco ?? null,
-          diasEspera,
-          empresaId: retAsoc?.empresaId ?? null,
+          id: m.id,
+          ordenId: m.ordenId,
+          codigoOc: m.codigoOc,
+          numeroComprobante: m.numeroComprobante,
+          proveedor: m.proveedor,
+          proveedorRif: m.proveedorRif,
+          proveedorTelefono: m.proveedorTelefono,
+          facturas: m.facturas,
+          fechaEmision: m.fechaEmision || '—',
+          fechaReintegro: m.fechaReintegro,
+          moneda: m.moneda || 'Bs',
+          montoBs: m.montoBs,
+          montoUsd: m.montoUsd,
+          tipoRetencion: m.tipoRetencion || 'Retención',
+          estado: m.estado,
+          referencia: m.referencia,
+          cuentaBanco: m.cuentaBanco,
+          diasEspera: calcularDiasEspera(m.fechaEmision),
+          empresaId: m.empresaId,
         });
       }
 
@@ -178,7 +293,7 @@ export function ReintegrosPendientesView({
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [esGt, empresaId]);
 
   useEffect(() => {
     void cargarDatos();
@@ -187,9 +302,15 @@ export function ReintegrosPendientesView({
   // Filtrado por empresa actual + filtros de cabecera
   const filtradas = useMemo(() => {
     return filas.filter((f) => {
-      // Filtro multiempresa (si empresaId está definida y no es GT universal)
-      if (empresaId && f.empresaId && f.empresaId !== empresaId) {
-        return false;
+      // Filtro multiempresa estricto: Golden Touch solo ve GT; empresas externas solo ven lo propio
+      if (esGt) {
+        if (f.empresaId && f.empresaId !== 'empresa-golden-touch' && f.empresaId !== 'golden_touch') {
+          return false;
+        }
+      } else {
+        if (f.empresaId !== empresaId) {
+          return false;
+        }
       }
 
       if (filtroEstado !== 'todas' && f.estado !== filtroEstado) {
@@ -212,7 +333,7 @@ export function ReintegrosPendientesView({
 
       return true;
     });
-  }, [filas, empresaId, filtroEstado, desde, hasta, busqueda]);
+  }, [filas, esGt, empresaId, filtroEstado, desde, hasta, busqueda]);
 
   // Indicadores de resumen
   const kpis = useMemo(() => {
@@ -265,21 +386,35 @@ export function ReintegrosPendientesView({
 
     setGuardando(true);
     try {
-      const nuevoReintegro: ReintegroPersistido = {
-        id: modalItem.id,
-        ordenId: modalItem.ordenId,
-        codigoOc: modalItem.codigoOc,
-        fechaReintegro: regFecha,
-        referencia: regRef.trim(),
-        cuentaBanco: regCuenta,
-        montoBs: monto,
-        nota: regNota.trim() || null,
-        registradoEn: new Date().toISOString(),
-      };
+      if (modalItem.id.startsWith('reint-')) {
+        const items = leerReintegrosManuales();
+        const idx = items.findIndex((x) => x.id === modalItem.id);
+        if (idx !== -1) {
+          items[idx].estado = 'reintegrado';
+          items[idx].fechaReintegro = regFecha;
+          items[idx].referencia = regRef.trim();
+          items[idx].cuentaBanco = regCuenta;
+          items[idx].nota = regNota.trim() || null;
+          items[idx].montoBs = monto;
+          guardarReintegrosManuales(items);
+        }
+      } else {
+        const nuevoReintegro: ReintegroPersistido = {
+          id: modalItem.id,
+          ordenId: modalItem.ordenId,
+          codigoOc: modalItem.codigoOc,
+          fechaReintegro: regFecha,
+          referencia: regRef.trim(),
+          cuentaBanco: regCuenta,
+          montoBs: monto,
+          nota: regNota.trim() || null,
+          registradoEn: new Date().toISOString(),
+        };
 
-      const existentes = leerReintegrosLocales().filter((x) => x.id !== modalItem.id && x.codigoOc !== modalItem.codigoOc);
-      existentes.push(nuevoReintegro);
-      guardarReintegrosLocales(existentes);
+        const existentes = leerReintegrosLocales().filter((x) => x.id !== modalItem.id && x.codigoOc !== modalItem.codigoOc);
+        existentes.unshift(nuevoReintegro);
+        guardarReintegrosLocales(existentes);
+      }
 
       toast(`✅ Reintegro de ${modalItem.proveedor} registrado con éxito (${bs(monto)})`, 'success');
       setModalItem(null);
@@ -292,11 +427,17 @@ export function ReintegrosPendientesView({
   };
 
   const copiarMensajeCobro = (item: ReintegroItemFila) => {
+    const ordenDoc = item.codigoOc
+      ? `orden *${item.codigoOc}*`
+      : item.numeroComprobante
+      ? `retención con comprobante *N° ${item.numeroComprobante}*`
+      : `factura ${item.facturas.join(', ') || 'de compra'}`;
+
     const txt = [
       `*🔔 AVISO DE REINTEGRO PENDIENTE · ${empresaNombre || 'GOLDEN TOUCH'}*`,
       `Estimado proveedor *${item.proveedor}*,`,
-      `Le informamos que tenemos pendiente el reembolso de la retención correspondiente a la orden *${item.codigoOc || 'S/N'}*${item.facturas.length ? ` (Factura ${item.facturas.join(', ')})` : ''}.`,
-      item.numeroComprobante ? `Comprobante de retención emitido: *N° ${item.numeroComprobante}*` : '',
+      `Le informamos que tenemos pendiente el reembolso de la retención correspondiente a la ${ordenDoc}${item.facturas.length && item.codigoOc ? ` (Factura ${item.facturas.join(', ')})` : ''}.`,
+      item.numeroComprobante && item.codigoOc ? `Comprobante de retención emitido: *N° ${item.numeroComprobante}*` : '',
       `*Monto por reintegrar:* ${bs(item.montoBs)}${item.montoUsd ? ` (${usd(item.montoUsd)})` : ''}`,
       `Días transcurridos: *${item.diasEspera} día(s)*`,
       `Favor realizar el reintegro a nuestras cuentas autorizadas y remitir el soporte correspondiente.`,
@@ -425,29 +566,73 @@ export function ReintegrosPendientesView({
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            className="input"
-            type="date"
-            value={desde}
-            onChange={(e) => setDesde(e.target.value)}
-            title="Desde fecha de emisión"
-          />
-          <span className="muted">a</span>
-          <input
-            className="input"
-            type="date"
-            value={hasta}
-            onChange={(e) => setHasta(e.target.value)}
-            title="Hasta fecha de emisión"
-          />
-          {(desde || hasta || busqueda) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'nowrap' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '.35rem',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '4px 8px',
+            }}
+          >
+            <span style={{ fontSize: '.76rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              📅 Rango:
+            </span>
+            <input
+              type="date"
+              className="input sm"
+              style={{
+                width: '130px',
+                padding: '2px 6px',
+                fontSize: '.78rem',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'rgba(0, 0, 0, 0.25)',
+              }}
+              value={desde}
+              onChange={(e) => setDesde(e.target.value)}
+              title="Fecha inicial de emisión"
+              aria-label="Desde fecha de emisión"
+            />
+            <span style={{ fontSize: '.76rem', color: 'var(--text-muted)' }}>–</span>
+            <input
+              type="date"
+              className="input sm"
+              style={{
+                width: '130px',
+                padding: '2px 6px',
+                fontSize: '.78rem',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'rgba(0, 0, 0, 0.25)',
+              }}
+              value={hasta}
+              onChange={(e) => setHasta(e.target.value)}
+              title="Fecha final de emisión"
+              aria-label="Hasta fecha de emisión"
+            />
+            {(desde || hasta) && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                onClick={() => { setDesde(''); setHasta(''); }}
+                title="Limpiar rango de fechas"
+                style={{ padding: '2px 6px', fontSize: '.72rem', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {busqueda && (
             <button
               type="button"
-              className="btn btn-xs"
-              onClick={() => { setDesde(''); setHasta(''); setBusqueda(''); }}
+              className="btn btn-xs btn-ghost"
+              onClick={() => setBusqueda('')}
+              title="Limpiar búsqueda"
+              style={{ fontSize: '.74rem' }}
             >
-              Limpiar
+              Limpiar búsqueda
             </button>
           )}
         </div>

@@ -53,6 +53,7 @@ import {
   registrarFactura, type FacturaNueva, type LineaFacturaNueva, type TipoDocumento,
 } from './retencionFacturas.repository';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { registrarReintegroManual } from '@/modules/retenciones/ReintegrosPendientesView';
 import { soloImpuestosActivos, admiteDireccion, type ImpuestosActivos, type FichaRetencionVista } from '@/modules/retenciones/impuestosVista';
 import { usePuedePracticarEmpresa } from './practicaEmpresa';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
@@ -197,6 +198,11 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [reglas, setReglas] = useState<Record<number, CalculoConRegla | null>>({});
   const [avisoRegla, setAvisoRegla] = useState<string | null>(null);
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
+
+  // Modalidad de liquidación / retención:
+  // - deduccion_pago: Retención deducida del pago (pago neto al proveedor, no genera reintegro).
+  // - espera_reintegro: Pago completo al 100% al proveedor (espera reembolso post-pago, genera reintegro pendiente).
+  const [modalidadLiquidacion, setModalidadLiquidacion] = useState<'deduccion_pago' | 'espera_reintegro'>('deduccion_pago');
 
   const [direccion, setDireccion] = useState<DireccionRetencion>(OFRECER_DIRECCION ? (s.direccion ?? 'practicada') : 'practicada');
   const verProveedores = usePermissions().can('proveedores');
@@ -1246,6 +1252,25 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       }
       if (modoOrigen === 'buzon' && buzonSeleccionadaId) {
         void actualizarEstatusFacturaBuzon(buzonSeleccionadaId, 'retenida').catch(() => {});
+      }
+      // Reintegro pendiente (post-pago): si se pagó el 100% al proveedor, se genera la devolución en Reintegros
+      if (modalidadLiquidacion === 'espera_reintegro') {
+        const empresaTargetId = empresaId || (empresaFicha as unknown as { id?: string })?.id || null;
+        registrarReintegroManual({
+          empresaId: empresaTargetId,
+          ordenId: finalDocKind === 'oc' ? finalDocId : null,
+          codigoOc: finalDocKind === 'oc' && ordenSeleccionadaObj?.oc_codigo ? ordenSeleccionadaObj.oc_codigo : null,
+          numeroComprobante: res.lineas.map((l) => l.numeroComprobante).filter(Boolean).join(', ') || null,
+          proveedor: contraparte || 'Proveedor',
+          proveedorRif: rif || null,
+          facturas: facturaNro ? [facturaNro] : [],
+          fechaEmision: facturaFecha || hoyIso(),
+          moneda: moneda,
+          montoBs: totalRetenidoBs,
+          montoUsd: moneda === 'USD' ? totalRetenido : (tasa > 0 ? totalRetenidoBs / tasa : null),
+          tipoRetencion: res.lineas.map((l) => l.tipo.toUpperCase()).join(', ') || 'Retención',
+          nota: `Retención registrada con pago al 100% · Espera reintegro de ${contraparte || 'proveedor'}`,
+        });
       }
       // No se cierra aún: se muestra el éxito con «Compartir por WhatsApp».
       setResultado(res);
@@ -2315,8 +2340,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   style={{
                     padding: '.55rem .75rem',
                     borderRadius: '8px',
-                    background: 'rgba(34, 197, 94, 0.06)',
-                    border: '1px solid rgba(34, 197, 94, 0.25)',
+                    background: modalidadLiquidacion === 'deduccion_pago' ? 'rgba(34, 197, 94, 0.06)' : 'rgba(56, 189, 248, 0.07)',
+                    border: `1px solid ${modalidadLiquidacion === 'deduccion_pago' ? 'rgba(34, 197, 94, 0.25)' : 'rgba(56, 189, 248, 0.3)'}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -2329,19 +2354,117 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                     <strong className="mono">{money(totalFacturaNum, moneda)}</strong>
                     <span className="muted"> − Retención: </span>
                     <strong className="mono" style={{ color: 'var(--danger, #ef4444)' }}>− {money(totalRetenido, moneda)}</strong>
-                    <span style={{ color: 'var(--success, #22c55e)', fontWeight: 700 }}> = Neto a pagar al proveedor: </span>
-                    <strong className="mono" style={{ color: 'var(--success, #22c55e)', fontSize: '1.02rem' }}>
-                      {money(Math.max(0, totalFacturaNum - totalRetenido), moneda)}
-                    </strong>
+                    {modalidadLiquidacion === 'deduccion_pago' ? (
+                      <>
+                        <span style={{ color: 'var(--success, #22c55e)', fontWeight: 700 }}> = Neto a pagar al proveedor: </span>
+                        <strong className="mono" style={{ color: 'var(--success, #22c55e)', fontSize: '1.02rem' }}>
+                          {money(Math.max(0, totalFacturaNum - totalRetenido), moneda)}
+                        </strong>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ color: '#38bdf8', fontWeight: 700 }}> = Por recuperar de reintegro: </span>
+                        <strong className="mono" style={{ color: '#38bdf8', fontSize: '1.02rem' }}>
+                          {money(totalRetenido, moneda)}
+                        </strong>
+                      </>
+                    )}
                   </div>
                   <small className="muted" style={{ fontSize: '.75rem' }}>
-                    💡 Monto neto exacto que Tesorería transferirá por banco al proveedor.
+                    {modalidadLiquidacion === 'deduccion_pago'
+                      ? '💡 Pago neto transferido al proveedor (retención descontada al pagar).'
+                      : '🔄 Pago realizado al 100%. El proveedor debe devolver la retención a banco o caja.'}
                   </small>
                 </div>
               )}
             </div>
           )}
         </div>
+
+        {/* ── Modalidad de Liquidación / Retención (Deducción vs Reintegro) ── */}
+        {direccion === 'practicada' && (
+          <div
+            style={{
+              marginTop: '.65rem',
+              padding: '.7rem .85rem',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              background: 'rgba(255, 255, 255, 0.02)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+                <span style={{ fontSize: '.95rem' }}>⚖️</span>
+                <strong style={{ fontSize: '.84rem', color: 'var(--text-normal)' }}>
+                  Modalidad de liquidación del pago al proveedor:
+                </strong>
+              </div>
+              <span className="muted" style={{ fontSize: '.74rem' }}>
+                {modalidadLiquidacion === 'deduccion_pago' ? '🔻 Retiene ahora (pago neto)' : '🔺 Retiene después (reembolso post-pago)'}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.5rem' }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '.55rem',
+                  padding: '.55rem .75rem',
+                  borderRadius: '6px',
+                  border: modalidadLiquidacion === 'deduccion_pago' ? '1.5px solid var(--primary, #f59e0b)' : '1px solid var(--border)',
+                  background: modalidadLiquidacion === 'deduccion_pago' ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="modalidad_retencion"
+                  checked={modalidadLiquidacion === 'deduccion_pago'}
+                  onChange={() => setModalidadLiquidacion('deduccion_pago')}
+                  style={{ marginTop: '2px' }}
+                />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '.82rem', color: modalidadLiquidacion === 'deduccion_pago' ? 'var(--primary, #f59e0b)' : 'var(--text-normal)' }}>
+                    🔻 Deducción al pagar (Pago neto)
+                  </div>
+                  <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', lineHeight: 1.35, marginTop: '2px' }}>
+                    Se descontó la retención al pagarle al proveedor. Monto neto cancelado. La cuenta queda saldada inmediatamente (sin reintegro pendiente).
+                  </div>
+                </div>
+              </label>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '.55rem',
+                  padding: '.55rem .75rem',
+                  borderRadius: '6px',
+                  border: modalidadLiquidacion === 'espera_reintegro' ? '1.5px solid #38bdf8' : '1px solid var(--border)',
+                  background: modalidadLiquidacion === 'espera_reintegro' ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="modalidad_retencion"
+                  checked={modalidadLiquidacion === 'espera_reintegro'}
+                  onChange={() => setModalidadLiquidacion('espera_reintegro')}
+                  style={{ marginTop: '2px' }}
+                />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '.82rem', color: modalidadLiquidacion === 'espera_reintegro' ? '#38bdf8' : 'var(--text-normal)' }}>
+                    🔺 Espera reintegro del proveedor (Pago 100%)
+                  </div>
+                  <div style={{ fontSize: '.74rem', color: 'var(--text-muted)', lineHeight: 1.35, marginTop: '2px' }}>
+                    Se canceló el 100% de la factura antes de retener. La emisión genera una devolución pendiente en el módulo de Reintegros para cobranza y conciliación.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── 5. Impuestos a retener al proveedor ── */}

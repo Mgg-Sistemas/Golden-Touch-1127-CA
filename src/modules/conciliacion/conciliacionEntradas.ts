@@ -813,6 +813,7 @@ export function ordenAFilaEsperandoReintegro(
 
   const cod = o.oc_codigo ?? o.codigo;
   const subcod = (o as unknown as { solicitud_codigo?: string }).solicitud_codigo ?? null;
+  const fechaCreada = o.created_at ? o.created_at.slice(0, 10) : ((o as unknown as { fecha?: string }).fecha ? String((o as unknown as { fecha?: string }).fecha).slice(0, 10) : '');
   return {
     item,
     id: `espera-${o.id}`,
@@ -820,7 +821,7 @@ export function ordenAFilaEsperandoReintegro(
     codigoOc: cod,
     subcodigo: subcod,
     proveedor: provNombre,
-    fechaReintegro: '',
+    fechaReintegro: fechaCreada,
     moneda: 'Bs',
     montoBs: r2(montoBs),
     montoUsd: montoUsd ? r2(montoUsd) : null,

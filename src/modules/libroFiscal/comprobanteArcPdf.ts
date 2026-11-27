@@ -479,7 +479,7 @@ export async function anexarPaginasArcPdf(
   opciones: OpcionesArcPdf = {},
   docExistente?: any,
 ): Promise<any> {
-  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const permitirDoble = (opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia) === true;
   const modo: ModoEjemplar = opciones.modoEjemplar || (!permitirDoble ? 'estandar' : 'ambos');
   let doc = docExistente;
 
@@ -523,7 +523,7 @@ export async function verComprobanteArcPdf(
   }
   const disp = await consultarElementosDigitales();
 
-  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const permitirDoble = (opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia) === true;
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
     ?? (!permitirDoble ? 'estandar' : ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos'));
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (config?.incluirLogo ?? true));

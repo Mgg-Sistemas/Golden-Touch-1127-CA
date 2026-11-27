@@ -52,7 +52,7 @@ import { rifValido } from '@/shared/lib/rif';
 import { list as listProveedores, insert as insertProveedor } from '@/modules/proveedores/proveedores.repository';
 import { EmpresaActualSelector } from './EmpresaActualSelector';
 import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
-import { ReintegrosPendientesView, leerReintegrosLocales } from './ReintegrosPendientesView';
+import { ReintegrosPendientesView, leerReintegrosLocales, leerReintegrosManuales } from './ReintegrosPendientesView';
 import { cargarOrdenesEsperandoReintegro, type FilaConciliacionEntrada } from '@/modules/conciliacion/conciliacionEntradas';
 import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
@@ -249,13 +249,19 @@ export function RetencionesPage() {
       facturasPorRegistrar().catch(() => [] as FacturaDeOrigen[]),
       listFacturasBuzon().catch(() => [] as FacturaBuzon[]),
       cargarSoportesFisicos().catch(() => ({} as SoportesFisicosMap)),
-      cargarOrdenesEsperandoReintegro().catch(() => [] as FilaConciliacionEntrada[]),
+      esGt ? cargarOrdenesEsperandoReintegro().catch(() => [] as FilaConciliacionEntrada[]) : Promise.resolve([] as FilaConciliacionEntrada[]),
     ]);
     const localesReint = new Set(leerReintegrosLocales().map((x: { codigoOc?: string | null; id?: string }) => x.codigoOc || x.id));
-    const pendientesReint = reintegrosEsperando.filter(
-      (r) => !localesReint.has(r.codigoOc || '') && !localesReint.has(r.id)
-    ).length;
-    setReintegrosCount(pendientesReint);
+    const pendientesGt = esGt
+      ? reintegrosEsperando.filter((r) => !localesReint.has(r.codigoOc || '') && !localesReint.has(r.id)).length
+      : 0;
+    const manualesPendientes = leerReintegrosManuales().filter((m) => {
+      if (m.estado !== 'esperando_reintegro') return false;
+      return esGt
+        ? (!m.empresaId || m.empresaId === 'empresa-golden-touch' || m.empresaId === 'golden_touch')
+        : (m.empresaId === empresaId);
+    }).length;
+    setReintegrosCount(pendientesGt + manualesPendientes);
     const reg: Registradas = new Map();
     for (const r of libro) {
       if (!r.docId) continue;
