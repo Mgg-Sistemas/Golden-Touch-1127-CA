@@ -85,17 +85,26 @@ describe('mensajeConfirmarRetiroWhatsapp', () => {
     expect(t.toUpperCase()).not.toContain('SUBELO');
   });
 
-  it('en carga pesada destaca CARGA PESADA y NO incluye la palabra SUBELO', () => {
+  it('en carga pesada dice CARGA PESADA en encabezado, entrega y pie; nunca DELIVERY', () => {
     const t = mensaje(base, 'carga_pesada');
+    expect(t).toContain('*CONFIRMAR RETIRO POR SISTEMAS - CARGA PESADA*');
     expect(t).toContain('🚚 *Entrega:* Carga pesada');
     expect(t).toContain('🚛 *CARGA PESADA*');
+    expect(t).toContain('🏢 *GOLDEN TOUCH 1127 C.A.* · Carga pesada');
+    expect(t.toUpperCase()).not.toContain('DELIVERY');
     expect(t.toUpperCase()).not.toContain('SUBELO');
   });
 
-  it('a domicilio y en delivery no dice carga pesada', () => {
-    expect(mensaje(base, 'proveedor')).toContain('🚚 *Entrega:* Con entrega a domicilio');
-    expect(mensaje(base, 'proveedor')).not.toContain('CARGA PESADA');
-    expect(mensaje(base)).not.toContain('CARGA PESADA');
+  it('en delivery dice DELIVERY en encabezado y pie; a domicilio dice su etiqueta', () => {
+    const delivery = mensaje(base);
+    expect(delivery).toContain('*CONFIRMAR RETIRO POR SISTEMAS - DELIVERY*');
+    expect(delivery).toContain('🏢 *GOLDEN TOUCH 1127 C.A.* · Delivery');
+    const domicilio = mensaje(base, 'proveedor');
+    expect(domicilio).toContain('*CONFIRMAR RETIRO POR SISTEMAS - CON ENTREGA A DOMICILIO*');
+    expect(domicilio).toContain('🚚 *Entrega:* Con entrega a domicilio');
+    expect(domicilio).toContain('🏢 *GOLDEN TOUCH 1127 C.A.* · Con entrega a domicilio');
+    expect(domicilio).not.toContain('CARGA PESADA');
+    expect(delivery).not.toContain('CARGA PESADA');
   });
 
   it('al reabrir una OC ya confirmada usa quien confirmó y no el usuario actual', () => {

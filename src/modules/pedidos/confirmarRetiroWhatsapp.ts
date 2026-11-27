@@ -9,18 +9,21 @@
    con separadores, igual que los otros avisos del sistema. En carga pesada
    se destaca además la modalidad para que no pase desapercibida.
 
-   Los renglones y el pie son los mismos de `delivery.ts` (🔹 Orden, 🏭
-   Proveedor, 🚨 Requerimiento, 🚚 Entrega, 🕒 y pie GT), para que quien lo lee
-   en el chat reconozca el formato de una vez. Los productos NO se enumeran:
+   Los renglones son los mismos de `delivery.ts` (🔹 Orden, 🏭 Proveedor, 🚨
+   Requerimiento, 🚚 Entrega, 🕒 y sello GT), para que quien lo lee en el chat
+   reconozca el formato de una vez. Encabezado y pie dicen la modalidad real.
+   Los productos NO se enumeran:
    el mensaje manda expresamente a revisarlos en el sistema.
    ============================================================ */
 import type { ModalidadEntrega, Orden, Proveedor } from '@/shared/lib/types';
 import { MODALIDADES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
-import { fechaHoraVE, montoTxt, PIE_DELIVERY } from '@/modules/delivery/delivery';
+import { fechaHoraVE, montoTxt } from '@/modules/delivery/delivery';
 import { nombrePersonaCompras } from './personasCompras';
 
-/** Encabezado exacto que pidió Compras. En negrita, con separadores. */
-export const TEXTO_CONFIRMAR_RETIRO = 'CONFIRMAR RETIRO POR SISTEMAS - DELIVERY';
+/** Encabezado que pidió Compras; la modalidad se agrega según la OC. */
+export const TEXTO_CONFIRMAR_RETIRO = 'CONFIRMAR RETIRO POR SISTEMAS';
+/** Pie con el sello de la empresa; la modalidad se agrega según la OC. */
+export const PIE_EMPRESA = '🏢 *GOLDEN TOUCH 1127 C.A.*';
 /** Solo se agrega cuando la modalidad es carga pesada. */
 export const TEXTO_CARGA_PESADA = 'CARGA PESADA';
 /** En lugar del listado: los productos se consultan en el sistema, nunca en el chat. */
@@ -47,11 +50,15 @@ export function mensajeConfirmarRetiroWhatsapp(
   personas?: Map<string, string>,
 ): string {
   const etiquetaModalidad = MODALIDADES_ENTREGA.find((x) => x.key === modalidad)?.label ?? 'Delivery';
+  // 27/11/2026: el encabezado y el pie tienen que decir la modalidad real de la OC.
+  // Antes quedaba fijo «DELIVERY» incluso en carga pesada.
+  const encabezado = `*${TEXTO_CONFIRMAR_RETIRO} - ${etiquetaModalidad.toUpperCase()}*`;
+  const pie = `${PIE_EMPRESA} · ${etiquetaModalidad}`;
   const cuando = o.retiro_confirmado_en ?? new Date().toISOString();
   const por = nombrePersonaCompras(o.retiro_confirmado_por || actor, personas);
 
   const L: string[] = [
-    `*${TEXTO_CONFIRMAR_RETIRO}*`,
+    encabezado,
     SEPARADOR,
     '',
     `🔹 *ORDEN:* ${o.oc_codigo || o.codigo || '—'}`,
@@ -83,6 +90,6 @@ export function mensajeConfirmarRetiroWhatsapp(
   // ver qué se retira, la persona debe abrir el sistema. Nada de «SUBELO».
   L.push('', `📦 *Productos:* ${TEXTO_VER_PRODUCTOS}`);
 
-  L.push('', SEPARADOR, `✅ *Retiro confirmado:* ${por || '—'} · 🕒 ${fechaHoraVE(cuando)}`, PIE_DELIVERY);
+  L.push('', SEPARADOR, `✅ *Retiro confirmado:* ${por || '—'} · 🕒 ${fechaHoraVE(cuando)}`, pie);
   return L.join('\n');
 }
