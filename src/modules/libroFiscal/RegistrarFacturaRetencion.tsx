@@ -358,12 +358,20 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           }
         })
         .catch(() => {});
-      listFacturasBuzon({ estatus: 'recibida' })
-        .then((items) => { if (activo) setBuzonPendientes(items); })
+      listFacturasBuzon(empresaId ? { estatus: 'recibida', empresaId } : { estatus: 'recibida' })
+        .then((items) => {
+          if (activo) {
+            // Aislamiento estricto multiempresa: no mezclar facturas de una empresa en otra
+            const filtradas = empresaId
+              ? items.filter((b) => b.empresaId === empresaId || (empresaId === 'empresa-golden-touch' && !b.empresaId))
+              : items;
+            setBuzonPendientes(filtradas);
+          }
+        })
         .catch(() => {});
     }
     return () => { activo = false; };
-  }, [direccion]);
+  }, [direccion, empresaId]);
 
   const ordenesPendientesFiltradas = useMemo(() => {
     if (!proveedorId) return ordenesPendientes;
@@ -707,7 +715,10 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   }, [ordenesPendientesFiltradas]);
 
   const opcionesBuzon = useMemo(() => {
-    return buzonPendientes.map((b) => {
+    const candidatas = empresaId
+      ? buzonPendientes.filter((b) => b.empresaId === empresaId || (empresaId === 'empresa-golden-touch' && !b.empresaId))
+      : buzonPendientes;
+    return candidatas.map((b) => {
       const nro = b.facturaNumero ? `Factura ${b.facturaNumero}` : 'Sin N°';
       const prov = b.proveedorNombre || b.proveedorRif || 'Proveedor';
       const totalTxt = money(b.montoTotal, b.moneda);
@@ -733,7 +744,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         keywords,
       };
     });
-  }, [buzonPendientes]);
+  }, [buzonPendientes, empresaId]);
 
   /** El proveedor llena razón social y RIF. El sujeto del ISLR no se toca: se sugiere en cada línea. */
   function elegirProveedor(id: string) {

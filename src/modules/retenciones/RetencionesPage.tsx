@@ -102,9 +102,18 @@ export function RetencionesPage() {
   const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
   // C4a (D6): el buzón se muestra si está en la base Y activado en Parámetros (config.buzonActivo).
+  // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
+  // queda inerte (multiempresa=false) y el selector no se muestra.
+  const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId } = useEmpresaActual(configFiscal.multiempresaActivo !== false);
+  // La ficha fiscal a usar para config/régimen: solo para una empresa NO-GT. GT (o
+  // single-empresa) → null, y el libro/registro/reportes usan la config global (R1), como hoy.
+  const empresaFicha = multiempresa && empresaActual && !esEmpresaGt(empresaActual) ? empresaActual : null;
+  // «Por realizar» nace del flujo de compras de Golden Touch; una empresa NO-GT
+  // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
+  const esGt = empresaFicha == null;
+
   const buzonVisible = conBuzon && configFiscal.buzonActivo !== false;
-  // C-g: contador PERSISTENTE de facturas nuevas en el buzón (no depende de tener la vista
-  // abierta). «Nuevas» = creadas después de la última vez que se abrió el buzón.
+  // C-g: contador PERSISTENTE de facturas nuevas en el buzón, segregado por la empresa activa
   const [buzonNuevas, setBuzonNuevas] = useState(0);
   const buzonVistoRef = useRef<string | null>(leerBuzonVisto());
   const buzonUltimaRef = useRef<string>('');
@@ -112,16 +121,20 @@ export function RetencionesPage() {
   const refrescarBuzonNuevas = useCallback(async (emitirAlerta = false) => {
     try {
       const facs = await listFacturasBuzon();
-      const ultima = ultimaCreacionBuzon(facs);
+      // Filtrar estrictamente por la empresa seleccionada: no atribuir facturas de GT a MTO ni viceversa
+      const facsEmpresa = multiempresa && empresaId
+        ? facs.filter((f) => f.empresaId === empresaId || (empresaId === 'empresa-golden-touch' && !f.empresaId))
+        : facs;
+      const ultima = ultimaCreacionBuzon(facsEmpresa);
       buzonUltimaRef.current = ultima;
       // Primera vez (sin marca): se toma lo actual como ya visto, el badge no alarma de golpe.
       if (buzonVistoRef.current === null) { buzonVistoRef.current = ultima; guardarBuzonVisto(ultima); }
       const visto = buzonVistoRef.current ?? '';
-      setBuzonNuevas(facs.filter((f) => f.createdAt > visto).length);
+      setBuzonNuevas(facsEmpresa.filter((f) => f.createdAt > visto).length);
 
       // Si entró una factura nueva por realtime: alertar con sonido, vibración y push
-      if (emitirAlerta && prevUltimaBuzonAlertaRef.current !== null && ultima > prevUltimaBuzonAlertaRef.current && facs.length > 0) {
-        const facReciente = facs[0];
+      if (emitirAlerta && prevUltimaBuzonAlertaRef.current !== null && ultima > prevUltimaBuzonAlertaRef.current && facsEmpresa.length > 0) {
+        const facReciente = facsEmpresa[0];
         lanzarAvisoFactura(facReciente, { conSonido: true });
         notify(`🧾 Factura recibida de ${facReciente.proveedorNombre || 'Proveedor'}: ${facReciente.facturaNumero || 'S/N'}`, 'info', {
           push: true,
@@ -132,22 +145,13 @@ export function RetencionesPage() {
       }
       prevUltimaBuzonAlertaRef.current = ultima;
     } catch { /* el badge es best-effort: sin lectura, queda como estaba */ }
-  }, []);
-  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(false); }, [conBuzon, refrescarBuzonNuevas]);
+  }, [multiempresa, empresaId]);
+  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(false); }, [conBuzon, refrescarBuzonNuevas, empresaId]);
   // Al abrir el buzón (teléfono o vista PC) se marca lo visto y el badge se limpia.
   const marcarBuzonVisto = useCallback(() => {
     if (buzonUltimaRef.current) { buzonVistoRef.current = buzonUltimaRef.current; guardarBuzonVisto(buzonUltimaRef.current); }
     setBuzonNuevas(0);
   }, []);
-  // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
-  // queda inerte (multiempresa=false) y el selector no se muestra.
-  const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId } = useEmpresaActual();
-  // La ficha fiscal a usar para config/régimen: solo para una empresa NO-GT. GT (o
-  // single-empresa) → null, y el libro/registro/reportes usan la config global (R1), como hoy.
-  const empresaFicha = multiempresa && empresaActual && !esEmpresaGt(empresaActual) ? empresaActual : null;
-  // «Por realizar» nace del flujo de compras de Golden Touch; una empresa NO-GT
-  // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
-  const esGt = empresaFicha == null;
   const [loading, setLoading] = useState(true);
   // El detalle puede venir de la cola «Por hacer»: ahí el soporte no es siempre
   // factura_recepcion_path (puede ser del Buzón o un archivo subido por Compras).

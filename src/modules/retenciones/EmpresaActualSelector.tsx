@@ -210,18 +210,22 @@ export function EmpresaActualSelector({
         </div>
       )}
 
-      {/* ── 3. Carrusel / Tira Horizontal Deslizable para N Empresas ── */}
+      {/* ── 3. Carrusel de Píldoras Compacto y Elegante para N Empresas (Scrollbar nativo oculto) ── */}
       {lista.length > 1 && (
-        <div>
+        <div style={{ marginTop: '.4rem' }}>
+          <style>{`
+            .gt-pill-rail::-webkit-scrollbar { display: none; }
+            .gt-pill-rail { -ms-overflow-style: none; scrollbar-width: none; }
+          `}</style>
           <div
             style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '.4rem',
+              marginBottom: '.35rem',
             }}
           >
-            <span style={{ fontSize: '.74rem', fontWeight: 600, color: '#94a3b8' }}>
+            <span style={{ fontSize: '.73rem', fontWeight: 600, color: '#94a3b8' }}>
               Cambiar a otra empresa receptora ({lista.length}):
             </span>
             {lista.length > 3 && (
@@ -229,8 +233,8 @@ export function EmpresaActualSelector({
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"
-                  style={{ padding: '1px 7px', fontSize: '.75rem', lineHeight: 1 }}
-                  onClick={() => scrollRail(-280)}
+                  style={{ padding: '1px 8px', fontSize: '.75rem', lineHeight: 1, borderRadius: '4px' }}
+                  onClick={() => scrollRail(-240)}
                   title="Desplazar a la izquierda"
                   aria-label="Desplazar izquierda"
                 >
@@ -239,8 +243,8 @@ export function EmpresaActualSelector({
                 <button
                   type="button"
                   className="btn btn-sm btn-ghost"
-                  style={{ padding: '1px 7px', fontSize: '.75rem', lineHeight: 1 }}
-                  onClick={() => scrollRail(280)}
+                  style={{ padding: '1px 8px', fontSize: '.75rem', lineHeight: 1, borderRadius: '4px' }}
+                  onClick={() => scrollRail(240)}
                   title="Desplazar a la derecha"
                   aria-label="Desplazar derecha"
                 >
@@ -252,19 +256,18 @@ export function EmpresaActualSelector({
 
           <div
             ref={railRef}
+            className="gt-pill-rail"
             style={{
               display: 'flex',
-              gap: '.55rem',
+              gap: '.45rem',
               overflowX: 'auto',
-              paddingBottom: '4px',
+              paddingBottom: '2px',
               scrollSnapType: 'x mandatory',
               WebkitOverflowScrolling: 'touch',
-              scrollbarWidth: 'thin',
             }}
           >
             {lista.map((e) => {
               const esActiva = e.id === empresaId;
-              const esGt = esEmpresaGt(e);
               const cantidad = conteos?.[e.id];
 
               return (
@@ -277,92 +280,81 @@ export function EmpresaActualSelector({
                   aria-pressed={esActiva}
                   style={{
                     flex: '0 0 auto',
-                    minWidth: '240px',
-                    maxWidth: '280px',
                     textAlign: 'left',
-                    padding: '.55rem .75rem',
-                    borderRadius: '8px',
+                    padding: '.35rem .75rem',
+                    borderRadius: '20px',
                     cursor: esActiva ? 'default' : 'pointer',
                     transition: 'all 0.15s ease-in-out',
                     scrollSnapAlign: 'start',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '.3rem',
+                    alignItems: 'center',
+                    gap: '.5rem',
                     color: '#f8fafc',
                     border: esActiva
                       ? '1.5px solid var(--primary, #f59e0b)'
-                      : '1px solid var(--border)',
+                      : '1px solid rgba(255, 255, 255, 0.12)',
                     background: esActiva
-                      ? 'rgba(245, 158, 11, 0.08)'
+                      ? 'rgba(245, 158, 11, 0.14)'
                       : 'rgba(255, 255, 255, 0.03)',
+                    boxShadow: esActiva ? '0 0 10px rgba(245, 158, 11, 0.25)' : 'none',
                   }}
                 >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: '.4rem',
-                      width: '100%',
-                    }}
-                  >
-                    <div
+                  <span style={{ fontSize: '.85rem' }}>🏢</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                    <span
                       style={{
-                        fontWeight: 700,
-                        fontSize: '.84rem',
+                        fontWeight: esActiva ? 800 : 600,
+                        fontSize: '.82rem',
                         color: esActiva ? 'var(--primary, #f59e0b)' : '#f8fafc',
                         whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        maxWidth: '170px',
                       }}
-                      title={e.nombre}
                     >
                       {e.nombreCorto?.trim() || e.nombre}
-                    </div>
-                    {esActiva ? (
-                      <span
-                        style={{
-                          fontSize: '.68rem',
-                          fontWeight: 700,
-                          color: '#22c55e',
-                          background: 'rgba(34, 197, 94, 0.15)',
-                          border: '1px solid rgba(34, 197, 94, 0.3)',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                        }}
-                      >
-                        ✓ Activa
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: '.68rem',
-                          fontWeight: 600,
-                          color: '#94a3b8',
-                          background: 'rgba(255, 255, 255, 0.06)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                        }}
-                      >
-                        Activar
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.72rem', color: '#94a3b8' }}>
-                    <code style={{ fontSize: '.71rem', color: '#cbd5e1' }}>{e.rif}</code>
-                    <span style={{ color: esGt ? '#94a3b8' : 'var(--info, #38bdf8)' }}>
-                      {esGt ? 'Compras + Buzón' : 'Solo Buzón'}
                     </span>
+                    <code
+                      style={{
+                        fontSize: '.68rem',
+                        color: esActiva ? '#fde68a' : '#94a3b8',
+                        background: 'rgba(0,0,0,0.3)',
+                        padding: '0 4px',
+                        borderRadius: '3px',
+                      }}
+                    >
+                      {e.rif}
+                    </code>
                   </div>
 
-                  {cantidad !== undefined && (
-                    <div style={{ fontSize: '.71rem', fontWeight: 600, color: cantidad > 0 ? 'var(--warning, #eab308)' : '#94a3b8' }}>
-                      {cantidad > 0 ? `⚡ ${cantidad} por retener` : '✓ Sin pendientes'}
-                    </div>
-                  )}
+                  {esActiva ? (
+                    <span
+                      style={{
+                        fontSize: '.65rem',
+                        fontWeight: 700,
+                        color: '#22c55e',
+                        background: 'rgba(34, 197, 94, 0.15)',
+                        border: '1px solid rgba(34, 197, 94, 0.3)',
+                        padding: '1px 5px',
+                        borderRadius: '999px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ● Activa
+                    </span>
+                  ) : cantidad !== undefined && cantidad > 0 ? (
+                    <span
+                      style={{
+                        fontSize: '.65rem',
+                        fontWeight: 700,
+                        color: 'var(--warning, #eab308)',
+                        background: 'rgba(234, 179, 8, 0.15)',
+                        border: '1px solid rgba(234, 179, 8, 0.3)',
+                        padding: '1px 5px',
+                        borderRadius: '999px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ⚡ {cantidad}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

@@ -114,6 +114,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     incluirSello: bool('comprobante_sello', true),
     incluirQr: bool('comprobante_qr', true),
     buzonActivo: bool('buzon_activo', true),
+    multiempresaActivo: bool('multiempresa_activo', true),
   };
 }
 
@@ -144,6 +145,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     comprobante_sello: c.incluirSello !== false,
     comprobante_qr: c.incluirQr !== false,
     buzon_activo: c.buzonActivo !== false,
+    multiempresa_activo: c.multiempresaActivo !== false,
   };
 }
 

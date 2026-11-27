@@ -55,6 +55,8 @@ const nueva = (over: Partial<NuevaRetencion> = {}): NuevaRetencion => ({
   actor: 'prueba@ejemplo.com', ...over,
 });
 
+const configConIva: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
+
 beforeEach(() => { cola.length = 0; llamadas.length = 0; rpc.mockReset(); });
 
 describe('traducciones entre el módulo y las tablas de GT', () => {
@@ -100,9 +102,9 @@ describe('traducciones entre el módulo y las tablas de GT', () => {
 });
 
 describe('la configuración es el JSON de Parámetros', () => {
-  it('sin datos: agente de IVA sí, especial no, y los datos de la empresa', () => {
+  it('sin datos: agente de IVA no, especial no, y los datos de la empresa', () => {
     const c = configDeJson(null);
-    expect(c.esAgenteRetencionIva).toBe(true);
+    expect(c.esAgenteRetencionIva).toBe(false);
     expect(c.esContribuyenteEspecial).toBe(false);
     expect(c.rif).toBe(EMPRESA_RIF);
     expect(c.razonSocial).toBe(EMPRESA_NOMBRE);
@@ -136,7 +138,7 @@ describe('la configuración es el JSON de Parámetros', () => {
     expect(j.iva_alicuota).toBe(16);
     expect(j.otra_clave).toBe('x');
     expect(j.unidad_tributaria).toBe(43);
-    expect(j.agente_retencion_iva).toBe(true);
+    expect(j.agente_retencion_iva).toBe(false);
   });
 });
 
@@ -203,7 +205,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('practica un IVA: no pide ni arma el número; lo lee de la fila devuelta', async () => {
     cola.push({ data: [], error: null });                                    // doble registro: nada
     cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007', numero: 7, numero_origen: 'sistema' }, error: null });
-    const r = await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
+    const r = await registrarRetencion(nueva(), configConIva);
     expect(rpc).not.toHaveBeenCalled();
     const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
     expect(insert.comprobante_nro).toBeNull();
@@ -236,7 +238,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('RET_NUMERO_FORMATO de la base se explica con los dos formatos', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FORMATO: el comprobante de ISLR lleva 10 dígitos.' } });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('10 dígitos');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('10 dígitos');
   });
 
   it('operacion_numero (ISAE) se lee como dato informativo', () => {
@@ -247,7 +249,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('el doble registro busca solo lo no anulado, con el rol y el impuesto de GT', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada' }, error: null });
-    await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
+    await registrarRetencion(nueva(), configConIva);
     const m = llamadas[0].metodos;
     expect(m).toContainEqual(['eq', 'rol', 'practicada']);
     expect(m).toContainEqual(['eq', 'tipo', 'IVA']);
@@ -256,7 +258,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
 
   it('si la factura ya tiene una retención vigente, no inserta', async () => {
     cola.push({ data: [{ id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', rif: RIF, factura_nro: '000123' }], error: null });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('ya tiene una retención');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('ya tiene una retención');
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -267,9 +269,9 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   });
 
   it('sin factura, sin monto o con un RIF mal escrito no toca la base', async () => {
-    await expect(registrarRetencion(nueva({ facturaNumero: '' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('N° de factura');
-    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('debe llevar el motivo');
-    await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('RIF');
+    await expect(registrarRetencion(nueva({ facturaNumero: '' }), configConIva)).rejects.toThrow('N° de factura');
+    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), configConIva)).rejects.toThrow('debe llevar el motivo');
+    await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), configConIva)).rejects.toThrow('RIF');
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -316,7 +318,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('serie manual sin número (V2 · RET_NUMERO_FALTA): mensaje legible', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FALTA: la serie es manual.' } });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('escribe el número del comprobante');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('escribe el número del comprobante');
   });
 
   it('numero_origen (V2) se lee como dato informativo', () => {

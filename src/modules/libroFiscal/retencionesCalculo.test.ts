@@ -26,12 +26,12 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
     expect(r.explicacion).toContain('no está marcada como agente de retención de IVA');
   });
 
-  it('el valor por defecto tiene agente sí y especial no: retiene el IVA', () => {
-    expect(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva).toBe(true);
+  it('el valor por defecto tiene agente no y especial no: no retiene IVA salvo configuración', () => {
+    expect(CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva).toBe(false);
     expect(CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial).toBe(false);
-    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO).montoRetenido).toBe(120);
-    const ordinario = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: false };
-    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, ordinario).montoRetenido).toBe(0);
+    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO).montoRetenido).toBe(0);
+    const conAgente = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
+    expect(calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, conAgente).montoRetenido).toBe(120);
   });
 
   it('el especial retiene IVA aunque la casilla de agente esté apagada', () => {
@@ -40,7 +40,9 @@ describe('quién retiene · dos marcas separadas (D2)', () => {
   });
 
   it('el agente practica IVA pero no IGTF; el especial practica los dos', () => {
-    expect(puedePracticar('iva', CONFIG_RETENCION_DEFECTO)).toBe(true);
+    const conAgente = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
+    expect(puedePracticar('iva', CONFIG_RETENCION_DEFECTO)).toBe(false);
+    expect(puedePracticar('iva', conAgente)).toBe(true);
     expect(puedePracticar('igtf', CONFIG_RETENCION_DEFECTO)).toBe(false);
     expect(puedePracticar('igtf', especial)).toBe(true);
     expect(motivoNoPuedePracticar('igtf', CONFIG_RETENCION_DEFECTO)).toContain('contribuyente especial');

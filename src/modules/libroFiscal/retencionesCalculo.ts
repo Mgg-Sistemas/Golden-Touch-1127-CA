@@ -116,6 +116,8 @@ export interface ConfigRetencion {
   incluirQr?: boolean;
   /** C4a (D6): el buzón / vista teléfono está activo (visible) para el módulo. Default true. */
   buzonActivo?: boolean;
+  /** Gobernanza multi-empresa: si false, el módulo opera en modo Empresa Única (Single) */
+  multiempresaActivo?: boolean;
 }
 
 /** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
@@ -125,17 +127,18 @@ export const ESTADOS_KANBAN_RETENCION_DEFECTO: EstadoOrden[] = [
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
- * Es el DEFAULT de CAPACIDAD del cálculo (puede IVA), NO el régimen de una empresa:
+ * Es el DEFAULT de CAPACIDAD del cálculo, NO el régimen de una empresa:
  * quién practica IVA lo decide L6 (Parámetros → Régimen), que el app lee por el JSON
  * de configuración; este default solo aplica si esa config no carga.
- * GT es contribuyente ordinario: NO es agente de retención de IVA ni especial por defecto.
+ * GT y toda empresa nueva nace como contribuyente ordinario: NO es agente de retención de IVA
+ * ni especial por defecto (Providencia SNAT/2025/000054).
  * Tampoco retiene ISAE a menos que sea designada expresamente por ordenanza municipal.
  * Lo que vale es lo gobernado y guardado en Parámetros.
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
   email: 'info@goldentouch1127.com',
-  esAgenteRetencionIva: true,
+  esAgenteRetencionIva: false,
   esContribuyenteEspecial: false,
   retieneIslr: true,
   retieneMunicipal: false,
@@ -150,6 +153,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   incluirSello: true,
   incluirQr: true,
   buzonActivo: true,
+  multiempresaActivo: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */

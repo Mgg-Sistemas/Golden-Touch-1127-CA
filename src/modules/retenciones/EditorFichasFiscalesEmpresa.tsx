@@ -22,6 +22,7 @@ import {
 } from './empresasReceptoras.repository';
 import { esEmpresaGt } from './empresaActual';
 import { EmpresaEditor } from './EmpresaEditor';
+import { getConfigRetencion, guardarConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
 
 export interface EditorFichasFiscalesEmpresaProps {
   puedeEditar: boolean;
@@ -36,6 +37,7 @@ export function EditorFichasFiscalesEmpresa({
   const [disponible, setDisponible] = useState<boolean | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [multiempresaActivo, setMultiempresaActivo] = useState(true);
 
   // Modos de edición inline
   const [creandoNueva, setCreandoNueva] = useState(false);
@@ -43,17 +45,38 @@ export function EditorFichasFiscalesEmpresa({
   const [modoEditor, setModoEditor] = useState<'completo' | 'fiscal'>('completo');
 
   const cargar = useCallback(async () => {
-    const [hay, lista] = await Promise.all([
+    const [hay, lista, cfg] = await Promise.all([
       fichaFiscalEmpresaDisponible().catch(() => false),
       listEmpresasReceptoras().catch(() => [] as EmpresaReceptora[]),
+      getConfigRetencion().catch(() => null),
     ]);
     setDisponible(hay);
     setEmpresas(lista);
+    if (cfg) {
+      setMultiempresaActivo(cfg.multiempresaActivo !== false);
+    }
   }, []);
 
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  const handleToggleMultiempresa = async (activo: boolean) => {
+    try {
+      const cfg = await getConfigRetencion();
+      await guardarConfigRetencion({ ...cfg, multiempresaActivo: activo });
+      setMultiempresaActivo(activo);
+      toast(
+        activo
+          ? 'Modo Multi-Empresa activado: conmutador y buzones segregados disponibles.'
+          : 'Modo Empresa Única activado: módulo anclado a Golden Touch 1127 C.A.',
+        'info'
+      );
+      onEmpresaCambiada?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error al cambiar modo de operación.', 'error');
+    }
+  };
 
   const handleSincronizar = async () => {
     setSincronizando(true);
@@ -142,6 +165,43 @@ export function EditorFichasFiscalesEmpresa({
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
+      {/* ── Gobernanza: Interruptor Maestro de Operación Multi-Empresa ── */}
+      <div
+        className="card"
+        style={{
+          background: multiempresaActivo ? 'rgba(245, 158, 11, 0.05)' : 'rgba(255, 255, 255, 0.02)',
+          border: `1.5px solid ${multiempresaActivo ? 'var(--primary, #f59e0b)' : 'var(--border)'}`,
+          padding: '.85rem 1.15rem',
+          borderRadius: '10px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.8rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <span style={{ fontSize: '1.25rem' }}>🌐</span>
+              <strong style={{ fontSize: '.95rem', color: '#f8fafc' }}>
+                Gobernanza del Modo de Operación: {multiempresaActivo ? 'Multi-Empresa Activo' : 'Empresa Única (Single-Empresa)'}
+              </strong>
+            </div>
+            <p className="muted" style={{ margin: '.25rem 0 0', fontSize: '.8rem', maxWidth: '650px', lineHeight: 1.4 }}>
+              {multiempresaActivo
+                ? 'El módulo opera con selector de empresas, segregación de buzón móvil y libros fiscales independientes para cada RIF.'
+                : 'El módulo opera anclado exclusivamente a Golden Touch 1127 C.A. (Empresa Base). Se oculta el banner de cambio de empresa en la vista principal para simplificar la interfaz.'}
+            </p>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: puedeEditar ? 'pointer' : 'default', fontWeight: 700, fontSize: '.88rem', color: '#f8fafc' }}>
+            <input
+              type="checkbox"
+              checked={multiempresaActivo}
+              disabled={!puedeEditar}
+              onChange={(e) => void handleToggleMultiempresa(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--primary, #f59e0b)', cursor: 'pointer' }}
+            />
+            <span>{multiempresaActivo ? 'Multi-Empresa Activado' : 'Empresa Única'}</span>
+          </label>
+        </div>
+      </div>
+
       {/* ── Barra de encabezado y acciones superiores ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '.8rem' }}>
         <div>
