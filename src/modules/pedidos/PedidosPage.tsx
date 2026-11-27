@@ -1,4 +1,5 @@
 import { Quien } from '@/shared/ui/Quien';
+import { ReintegrosProveedor } from './ReintegrosProveedor';
 import { supabase } from '@/shared/lib/supabase';
 import { ivaDesdePorcentaje, montoExentoDeItems, porcentajeDesdeIva } from './impuestosOc';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -850,6 +851,7 @@ export function PedidosPage() {
           </p>
         </div>
         <div className="actions">
+          {canVerCompras && <ReintegrosProveedor canWrite={canManageProcurement} />}
           {/* El Histórico lista TODAS las órdenes: solo para quien ve Compras (31/10/2026). */}
           {canVerCompras && (
             <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
@@ -2854,7 +2856,7 @@ function RecepcionParcialModal({
       sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
       ...(orden.tipo === 'servicio' ? {} : { marca: marcas[it.sku]?.marca ?? null, modelo: marcas[it.sku]?.modelo ?? null }),
     }));
-    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indica al menos una cantidad recibida.'); return; }
+    if (recepciones.every((r) => r.cantidad_recibida <= 0) && (orden.tipo === 'servicio' || !nota.trim())) { setError(orden.tipo === 'servicio' ? 'Indica al menos una cantidad recibida.' : 'Indica el motivo por el que no llegó ningún producto.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
     // El despiece se revisa aquí también (no solo en el servidor) para que el aviso
     // salga al lado de la tabla de cortes y no como un error suelto al final.
@@ -4198,6 +4200,12 @@ function OrdenDetailModal({
           <div className="v">
             {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap)}</span>
             {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {montoMoneda(o.recibido_total, o.total_moneda)}{o.recibido_total < o.total && <span className="muted"> · de {montoMoneda(o.total, o.total_moneda)}</span>}</div>}
+            {o.recibida_en && o.items.some(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)) && <div>
+              <strong>Faltantes de esta OC</strong>
+              {o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map((i, n) =>
+                <div key={n}>{i.sku} · {i.nombre} · Recibidos {i.cantidad_recibida ?? 0} de {i.cantidad} · Faltan {Number(i.cantidad) - Number(i.cantidad_recibida ?? 0)}</div>)}
+              <span className="muted">Gestiona la reposición y devolución en Reintegros de proveedores.</span>
+            </div>}
           </div>
         </div>
       )}

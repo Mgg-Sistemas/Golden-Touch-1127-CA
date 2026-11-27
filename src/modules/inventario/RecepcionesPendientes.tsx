@@ -154,7 +154,7 @@ function RecibirOrdenModal({
       sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
       ...(esServicio ? {} : { marca: marcas[it.sku]?.marca ?? null, modelo: marcas[it.sku]?.modelo ?? null }),
     }));
-    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indica al menos una cantidad recibida.'); return; }
+    if (recepciones.every((r) => r.cantidad_recibida <= 0) && (esServicio || !nota.trim())) { setError(esServicio ? 'Indica al menos una cantidad recibida.' : 'Indica el motivo por el que no llegó ningún producto.'); return; }
     // Un servicio no entra a ningún almacén: no se le pide destino.
     if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }

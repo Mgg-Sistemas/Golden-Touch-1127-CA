@@ -1,4 +1,5 @@
 import { skuVisible } from '@/modules/pedidos/nombresGenericos';
+import { ReintegrosProveedor } from '@/modules/pedidos/ReintegrosProveedor';
 import { Quien } from '@/shared/ui/Quien';
 import { LEYENDA_AL_DIA, TITULO_AL_DIA, textoWhatsappTesoreriaAlDia } from './tesoreriaAlDia';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -152,7 +153,7 @@ const CAT_LABEL: Record<string, string> = {
   viatico_chofer: 'Viático de chofer', pago_viaje_chofer: 'Pago de viajes (chofer)',
   // Ventas: el cobro de una venta es el PRIMER ingreso clasificado del sistema
   // (hasta hoy todas las entradas de dinero venían sin categoría). Que se lea.
-  cobro_venta: 'Cobro de venta', reverso_venta: 'Reverso de venta',
+  cobro_venta: 'Cobro de venta', reverso_venta: 'Reverso de venta', reintegro_proveedor: 'Reintegro de proveedor',
   // Lo pagado de más, que sale en un egreso aparte desde las mismas cuentas.
   reembolso_oc: 'Reembolso de OC', reembolso_compra_directa: 'Reembolso de compra directa',
   reembolso_servicio_directo: 'Reembolso de servicio directo',
@@ -461,6 +462,7 @@ export function TesoreriaPage({ movil = false }: { movil?: boolean }) {
       )}
 
       {vista === 'tasas' && <TasasView />}
+      <ReintegrosProveedor tesoreria canWrite={canWrite} />
 
       {!movil && vista === 'tesoreria' && (
       <>

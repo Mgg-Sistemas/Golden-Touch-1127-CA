@@ -3138,8 +3138,8 @@ async function recibirOrdenParcialApartada(
     const rec = recMap.get(it.sku) ?? 0;
     if (rec > Number(it.cantidad)) throw new Error(`No puedes recibir más de lo pedido en ${it.sku}.`);
   }
-  if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
-    throw new Error('Indica al menos una cantidad recibida.');
+  if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0) && (o.tipo === 'servicio' || !nota?.trim()))
+    throw new Error('Indica el motivo por el que no llegó ningún producto.');
   // «Se guarda en inventario como» (03/11/2026): un renglón con nombre genérico de la SP o
   // un repuesto de Maquinaria que nunca recibió su producto NO se da por recibido. Abajo el
   // alta de stock se salta los renglones sin `productoId`: la mercancía quedaba «recibida»
