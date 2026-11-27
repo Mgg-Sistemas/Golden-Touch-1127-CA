@@ -184,14 +184,15 @@ export function RetencionesPage() {
     ];
     impuestosQuePractica(claves, hoyVE(), empresaId ?? 'empresa-golden-touch')
       .then((s) => {
-        if (s && esGt && configFiscal.esContribuyenteEspecial !== true) {
+        const esEspecial = esGt ? (configFiscal.esContribuyenteEspecial === true) : Boolean(empresaActual?.esContribuyenteEspecial);
+        if (s && !esEspecial) {
           s.delete('IVA');
         }
         setPracticaClaves(s);
         setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
       })
       .catch(() => { setPracticaClaves(null); setPractica(null); });
-  }, [empresaId, esGt, configFiscal.esContribuyenteEspecial]);
+  }, [empresaId, esGt, configFiscal.esContribuyenteEspecial, empresaActual?.esContribuyenteEspecial]);
   useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
   // Las vistas (tarjetas, filtros y columnas por impuesto) salen de los impuestos
@@ -545,11 +546,28 @@ export function RetencionesPage() {
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
       {/* Períodos solo con V3R en la base: generar el año, declarar y reabrir. */}
       {vista === 'periodos' && conV3 && (
-        <PeriodosRetencion puedeEditar={canWrite} impuestosActivos={impuestosActivos} practicaClaves={practicaClaves} />
+        <PeriodosRetencion
+          puedeEditar={canWrite}
+          impuestosActivos={impuestosActivos}
+          practicaClaves={practicaClaves}
+          empresaId={empresaId}
+          empresaNombre={empresaActual?.nombre}
+        />
       )}
 
       {/* ── Reportes ── */}
-      {vista === 'reportes' && <ReportesView actor={actor} empresaId={empresaId} empresaFicha={empresaFicha} />}
+      {vista === 'reportes' && (
+        <ReportesView
+          actor={actor}
+          empresaId={empresaId}
+          empresaFicha={empresaFicha}
+          empresaNombre={empresaActual?.nombre}
+          esGt={esGt}
+          practicaClaves={practicaClaves}
+          esEspecial={esGt ? (configFiscal.esContribuyenteEspecial === true) : Boolean(empresaActual?.esContribuyenteEspecial)}
+          onCambiarEmpresa={setEmpresaId}
+        />
+      )}
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
