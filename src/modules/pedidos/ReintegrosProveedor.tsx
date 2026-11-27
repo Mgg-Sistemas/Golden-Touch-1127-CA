@@ -18,6 +18,7 @@ interface Reintegro {
   estado: string;
   referencia: string | null;
   comprobante_url: string | null;
+  generado_por_recepcion: boolean;
   ordenes: { codigo: string; oc_codigo: string | null };
 }
 
@@ -158,6 +159,14 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
     finally { setSaving(false); }
   }
 
+  function cantidadSinReintegro(o: Orden, indice: number): number {
+    const item = o.items[indice];
+    if (item.cantidad_recibida == null) return 0;
+    const solicitada = lista.filter(r => r.orden_id === o.id).flatMap(r => r.detalle)
+      .filter(d => d.indice === indice).reduce((total, d) => total + Number(d.cantidad), 0);
+    return Math.max(0, Number(item.cantidad) - Number(item.cantidad_recibida) - solicitada);
+  }
+
   return <Modal title="Reintegros de proveedores" onClose={onClose}>
     {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
     {!tesoreria && faltantes.length > 0 && <section className="card" style={{ padding: '1rem' }}>
@@ -168,9 +177,9 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
           <li key={n}>{i.sku} · {i.nombre} · Pedidos {i.cantidad} · Recibidos {i.cantidad_recibida ?? 0} · Faltan {Number(i.cantidad) - Number(i.cantidad_recibida ?? 0)}</li>)}</ul>
         <p>{o.nota_recepcion}</p>
         {canWrite && <button className="btn" disabled={saving} onClick={() => void recotizar(o)}>Cotizar faltantes / consultar reposición</button>}
-        {canWrite && <button className="btn btn-ghost" disabled={saving} onClick={() => {
+        {canWrite && o.items.some((_, indice) => cantidadSinReintegro(o, indice) > 0) && <button className="btn btn-ghost" disabled={saving} onClick={() => {
           setOrden(o); setOpciones([]); setMonto(''); setMoneda(o.total_moneda || 'USD');
-          setCantidades(Object.fromEntries(o.items.map((i, n) => [n, String(i.cantidad_recibida == null ? 0 : Math.max(0, Number(i.cantidad) - Number(i.cantidad_recibida)))])));
+          setCantidades(Object.fromEntries(o.items.map((_, n) => [n, String(cantidadSinReintegro(o, n))])));
         }}>Solicitar reintegro</button>}
       </div>)}
     </section>}
@@ -209,6 +218,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
     {lista.map(r => <section key={r.id} className="card" style={{ padding: '1rem', marginTop: '.7rem' }}>
       <strong>{r.ordenes.oc_codigo || r.ordenes.codigo} · {Number(r.monto).toFixed(2)} {r.moneda}</strong>
       <p>{r.estado === 'recibido' ? 'Recibido en Tesorería' : 'Pendiente de devolución'} · {r.motivo}</p>
+      {r.generado_por_recepcion && <p className="muted">Generado automáticamente al recibir. Importe de los faltantes al precio unitario de la OC.</p>}
       <ul>{r.detalle.map(d => <li key={d.indice}>{d.sku} · {d.nombre} · {d.cantidad}</li>)}</ul>
       {r.referencia && <p>Referencia {r.referencia}</p>}
       {r.comprobante_url && <button className="btn btn-ghost" onClick={() => void verComprobante(r.comprobante_url!)}>Ver comprobante</button>}

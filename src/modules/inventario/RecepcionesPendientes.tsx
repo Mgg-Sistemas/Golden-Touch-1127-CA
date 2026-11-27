@@ -206,7 +206,7 @@ function RecibirOrdenModal({
       ) : (
         <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
           Confirma cuánto entró realmente por ítem y elige el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
-          Si llegó menos de lo pedido, deja una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+          Si llegó menos de lo pedido, deja una <strong>nota</strong>. Al confirmar se genera automáticamente el reintegro pendiente en Compras y Tesorería por los faltantes, al precio unitario de la OC.
         </p>
       )}
       <div
