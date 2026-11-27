@@ -39,13 +39,14 @@ const RENGLONES: { impuesto: ClaveImpuesto | null; condicion: CondicionAgente; t
   },
 ];
 
-export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial = null, puedeBorrar = false }: {
+export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial = null, puedeBorrar = false, onRegimenCambiado }: {
   puedeEditar: boolean;
   /** D2: empresas (datos planos) para elegir de quién se edita el régimen. Vacío = single-empresa. */
   empresas?: { id: string; nombre: string }[];
   empresaIdInicial?: string | null;
   /** Borrar una fila del régimen es admin-only (la tabla no tiene política DELETE para otros). */
   puedeBorrar?: boolean;
+  onRegimenCambiado?: () => void;
 }) {
   const [historial, setHistorial] = useState<CondicionRegistrada[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +84,8 @@ export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial
       {!historial && !error && <p className="muted">Leyendo el régimen…</p>}
       {historial && RENGLONES.map((r) => (
         <RenglonRegimen key={`${r.condicion}:${r.impuesto ?? '*'}`} {...r} historial={historial.filter((h) => h.condicion === r.condicion && h.impuestoClave === r.impuesto)}
-          puedeEditar={puedeEditar} puedeBorrar={puedeBorrar} porEmpresa={porEmpresa} empresaId={porEmpresa ? empresaId : null} onCambio={() => void cargar()} />
+          puedeEditar={puedeEditar} puedeBorrar={puedeBorrar} porEmpresa={porEmpresa} empresaId={porEmpresa ? empresaId : null}
+          onCambio={() => { void cargar(); onRegimenCambiado?.(); }} />
       ))}
     </div>
   );

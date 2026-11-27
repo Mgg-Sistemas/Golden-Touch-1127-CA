@@ -208,6 +208,21 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
     });
   }
   if (!data?.length) throw new Error('No se actualizó el régimen: sin permiso de escritura en Retenciones, o el registro ya no existe.');
+  try {
+    const { data: row } = await supabase.from(T_CONDICIONES).select('condicion, impuesto_clave, valor').eq('id', id).maybeSingle();
+    if (row) {
+      const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+      if (cfgRow?.value) {
+        const v = { ...(cfgRow.value as Record<string, unknown>) };
+        if (row.condicion === 'agente_retencion' && row.impuesto_clave === 'IVA') v.agente_retencion_iva = row.valor;
+        if (row.condicion === 'contribuyente_especial') v.contribuyente_especial = row.valor;
+        if (row.condicion === 'agente_retencion' && row.impuesto_clave === 'MUNICIPAL') v.retiene_municipal = row.valor;
+        await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+      }
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
 }
 
 /** Elimina un registro del régimen. */

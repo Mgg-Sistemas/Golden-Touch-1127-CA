@@ -3006,7 +3006,15 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
           {seccion === 'regimen' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
               {/* Con R1, las dos condiciones llevan fecha e historial y las escribe su propia pantalla. */}
-              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} empresas={empresasRegimen} empresaIdInicial={empresaRegimenId} puedeBorrar={puedeBorrarRegimen} />}
+              {r1 && (
+                <ParametrosRegimen
+                  puedeEditar={puedeEditar}
+                  empresas={empresasRegimen}
+                  empresaIdInicial={empresaRegimenId}
+                  puedeBorrar={puedeBorrarRegimen}
+                  onRegimenCambiado={() => void recargar()}
+                />
+              )}
               <div className="card" style={{ background: 'var(--bg-2)' }}>
                 {/* D2b: el régimen se edita arriba, en Parámetros → Régimen (L6). Se quitó el
                     fallback de casillas al JSON (solo aparecía sin R1): escribía un espejo que
