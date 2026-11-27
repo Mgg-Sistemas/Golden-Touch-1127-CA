@@ -255,6 +255,13 @@ export function OfertasComparativa({
     modalidadPago: ModalidadPagoAnalista,
   ) {
     try {
+      const itemsElegidos = override?.items ?? s.oferta.items;
+      if (orden.tipo !== 'servicio' && !itemsElegidos.some(it =>
+        it.comprar !== false && Number(it.cantidad) > 0 &&
+        (Number(it.precio) > 0 || (modalidadPago === 'divisa' && Number(it.precio_usd) > 0)))) {
+        toast('La oferta no tiene productos cotizados con precio. Los productos siguen pendientes de cotizar.', 'error');
+        return;
+      }
       if (pideSede && !sedeAceptar) { toast('Elige a dónde se entrega (Los Pinos o Matanza).', 'error'); return; }
       const ordenAct = pideSede && sedeAceptar ? await fijarSedeEntregaOc(orden, sedeAceptar, actorEmail) : orden;
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);

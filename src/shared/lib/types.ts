@@ -1337,6 +1337,9 @@ export interface DetalleServicioItem {
 }
 
 export interface Orden {
+  /** Productos excluidos de la OC por no tener precio en la modalidad elegida. */
+  items_no_cotizados?: ItemOrden[];
+  cotizacion_pendiente_origen_id?: string | null;
   id: string;
   codigo: string;
   /** Tipo de orden: 'producto' (compra normal, SP→OC) | 'servicio' (Solicitud→Control de Servicio, SS→CS). */

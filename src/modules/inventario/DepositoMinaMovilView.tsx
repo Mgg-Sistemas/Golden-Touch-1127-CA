@@ -69,7 +69,7 @@ import { trasladarEntreAlmacenes, trasladarVariosEntreAlmacenes } from './trasla
 import { costoProducto, docEntradaMovil, docSalidasMovil, docTrasladosMovil, type DocMovilPdf } from './inventarioMovilPdf';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
-import { mensajeEnvioTraslado, usaRecepcion } from './trasladosTransito';
+import { destinosTrasladoPermitidos, mensajeEnvioTraslado, usaRecepcion } from './trasladosTransito';
 import { MSG_FALTA_SQL_TRASLADOS, enviarTrasladoTransito } from './trasladosTransito.repository';
 import { FotosTrasladoInput, RecepcionTrasladosMovil, useTrasladosEnTransito } from './RecepcionTrasladosMovil';
 import { DESTINO_MATERIAL_LABEL, enviarMaterialAMgg, mensajeEnvioMaterial } from './materialInter.repository';
@@ -195,10 +195,10 @@ export function DepositoMinaMovilView({ deposito: propDeposito }: { deposito?: s
     });
     return Array.from(map.values()).filter((d) => puedeVerAlmacen(d.almacen));
   }, [almacenesList, puedeVerAlmacen]);
-  // Traslados: solo a depósitos donde el rol puede cargar.
+  // El envío con recepción necesita escritura en origen; el receptor da entrada en Mina.
   const destinosTraslado = useMemo(
-    () => depositosDisponibles.filter((d) => puedeEscribirAlmacen(d.almacen)),
-    [depositosDisponibles, puedeEscribirAlmacen],
+    () => destinosTrasladoPermitidos(DEP.almacen, depositosDisponibles, puedeEscribirAlmacen),
+    [DEP.almacen, depositosDisponibles, puedeEscribirAlmacen],
   );
 
   const lista = useMemo(() => {

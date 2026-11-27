@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALMACEN_MINA, DEPOSITOS_FIJOS } from './depositos';
 import {
-  errorFotosTraslado, mensajeEnvioTraslado, mensajeRecepcionTraslado, textoTraslado, usaRecepcion, type TrasladoTransito,
+  destinosTrasladoPermitidos, errorFotosTraslado, mensajeEnvioTraslado, mensajeRecepcionTraslado, textoTraslado, usaRecepcion, type TrasladoTransito,
 } from './trasladosTransito';
 
 const GENERAL = DEPOSITOS_FIJOS.general.almacen;
@@ -55,5 +55,22 @@ describe('traslados con recepción', () => {
     expect(errorFotosTraslado([{ name: 'a.jpg', type: 'image/jpeg' }])).toBeNull();
     expect(textoTraslado(t)).toContain('aceite');
     expect(textoTraslado(t)).toContain('tra-ang-0008');
+  });
+});
+
+describe('Destinos de traslado según permisos', () => {
+  it('permite a Los Pinos enviar a Mina aunque solo tenga escritura en origen', () => {
+    const permiso = (almacen: string) => almacen === GENERAL;
+    expect(destinosTrasladoPermitidos(GENERAL, [DEPOSITOS_FIJOS.general], permiso).map(d => d.almacen)).toEqual([ALMACEN_MINA]);
+    expect(permiso(ALMACEN_MINA)).toBe(false);
+  });
+  it('requiere escritura en origen y conserva las restricciones de los traslados directos', () => {
+    expect(destinosTrasladoPermitidos(GENERAL, Object.values(DEPOSITOS_FIJOS), () => false)).toEqual([]);
+    expect(destinosTrasladoPermitidos(ALMACEN_MINA, Object.values(DEPOSITOS_FIJOS), a => a === ALMACEN_MINA)).toEqual([]);
+  });
+  it('mantiene todos los destinos autorizados sin repetir Mina', () => {
+    const destinos = destinosTrasladoPermitidos(GENERAL, Object.values(DEPOSITOS_FIJOS), () => true);
+    expect(destinos.map(d => d.almacen)).toEqual(Object.values(DEPOSITOS_FIJOS).filter(d => d.almacen !== GENERAL).map(d => d.almacen));
+    expect(destinos.filter(d => d.almacen === ALMACEN_MINA)).toHaveLength(1);
   });
 });

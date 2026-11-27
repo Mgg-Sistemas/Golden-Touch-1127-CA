@@ -6,7 +6,7 @@
    usuario del Depósito Mina lo ve en «Recepción de traslados», adjunta sus
    fotos y le da entrada (supabase/2026-11-12-traslados-transito-recepcion.sql).
    ============================================================ */
-import { ALMACEN_MINA, DEPOSITOS_FIJOS } from './depositos';
+import { ALMACEN_MINA, DEPOSITOS_FIJOS, type InfoDeposito } from './depositos';
 import { nombreDepositoChat } from './inventarioMovil';
 import { fechaHoraVE, num } from './salidasMina';
 import { extraerSolicitadoPorDeNota } from './solicitantesMovil';
@@ -59,6 +59,19 @@ export interface TrasladoTransito {
 /** ¿Este traslado pasa por recepción? Hoy: de Los Pinos (General) al Depósito Mina. */
 export function usaRecepcion(origen: string, destino: string): boolean {
   return origen === DEPOSITOS_FIJOS.general.almacen && destino === ALMACEN_MINA;
+}
+
+export function destinosTrasladoPermitidos(
+  origen: string,
+  disponibles: InfoDeposito[],
+  puedeEscribir: (almacen: string) => boolean,
+): InfoDeposito[] {
+  if (!puedeEscribir(origen)) return [];
+  const destinos = disponibles.filter(d => d.almacen !== origen && puedeEscribir(d.almacen));
+  if (usaRecepcion(origen, ALMACEN_MINA) && !destinos.some(d => d.almacen === ALMACEN_MINA)) {
+    destinos.push(DEPOSITOS_FIJOS.mina);
+  }
+  return destinos;
 }
 
 export function errorFotosTraslado(archivos: { name: string; type: string }[], yaHay = 0): string | null {

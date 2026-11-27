@@ -3109,7 +3109,8 @@ export async function recibirOrdenParcial(
   } catch (e) {
     // Solo se suelta si no llegó a entrar nada: con entradas hechas, reintentar duplicaría.
     const { count } = await supabase.from('movimientos').select('id', { count: 'exact', head: true })
-      .eq('ref_tipo', 'orden').eq('ref_id', o.id).eq('tipo', 'entrada');
+      .eq('ref_tipo', 'orden').eq('ref_id', o.id).eq('tipo', 'entrada')
+      .is('revertido_en', null).is('reverso_de_id', null);
     if (!count) await supabase.rpc('orden_soltar_recepcion', { p_orden_id: o.id });
     throw e;
   }

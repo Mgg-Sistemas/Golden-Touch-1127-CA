@@ -11,6 +11,7 @@ begin
  where id='dd288660-6ffd-48f3-9c5c-387fa8688c1f' and oc_codigo='OC-2026-0304'
  for update;
  if not found or v_orden.recibida_en is not null then return; end if;
+ if coalesce(v_orden.historial,'[]'::jsonb) @> '[{"evento":"recepcion_reabierta"}]'::jsonb then return; end if;
  select count(*) into v_n from public.movimientos
  where ref_tipo='orden' and ref_id=v_orden.id::text and tipo='entrada';
  if v_n<>8 then raise exception 'La recepción cambió: se requiere volver a revisar los movimientos'; end if;
