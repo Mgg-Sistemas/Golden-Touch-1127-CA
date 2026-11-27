@@ -1122,9 +1122,34 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           ? s.docId ?? null
           : null;
 
-      const notaFinal = modoOrigen === 'buzon' && buzonSeleccionadaId
-        ? [nota.trim(), `Procedente de Buzón Móvil (ID: ${buzonSeleccionadaId})`].filter(Boolean).join(' · ')
-        : nota.trim() || null;
+      // Si la factura fue ensamblada en Modo Avanzado, se preserva el desglose renglón a renglón
+      const renglonesTexto = modoCaptura === 'valery' && renglonesValery.length > 0
+        ? [
+            '--- Desglose de Renglones de Factura (Modo Avanzado) ---',
+            ...renglonesValery.map((r, i) => {
+              const cant = Number(r.cantidad) || 0;
+              const pu = Number(r.precioUnitario) || 0;
+              const sub = Math.round(cant * pu * 100) / 100;
+              const aliStr = r.alicuota === 0 ? 'Exento' : `${r.alicuota}%`;
+              return `${i + 1}. ${r.descripcion || 'Sin descripción'} | Cant: ${cant} | P.U: Bs ${pu.toLocaleString('es-VE', { minimumFractionDigits: 2 })} | Alícuota: ${aliStr} | Total: Bs ${sub.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`;
+            }),
+            `Totales calculados: Base 16%: Bs ${calculoValery.base16.toLocaleString('es-VE', { minimumFractionDigits: 2 })} | Base 8%: Bs ${calculoValery.base8.toLocaleString('es-VE', { minimumFractionDigits: 2 })} | Exento: Bs ${calculoValery.exento.toLocaleString('es-VE', { minimumFractionDigits: 2 })} | IVA: Bs ${calculoValery.totalIva.toLocaleString('es-VE', { minimumFractionDigits: 2 })} | Total: Bs ${calculoValery.totalFactura.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
+          ].join('\n')
+        : null;
+
+      if (modoCaptura === 'valery' && renglonesValery.length > 0 && facturaNro.trim()) {
+        try {
+          localStorage.setItem(`factura_renglones:${facturaNro.trim()}`, JSON.stringify(renglonesValery));
+        } catch {
+          // localStorage no crítico
+        }
+      }
+
+      const notaFinal = [
+        nota.trim() || null,
+        modoOrigen === 'buzon' && buzonSeleccionadaId ? `Procedente de Buzón Móvil (ID: ${buzonSeleccionadaId})` : null,
+        renglonesTexto,
+      ].filter(Boolean).join('\n\n') || null;
 
       const facturaNueva: FacturaNueva = {
         direccion,

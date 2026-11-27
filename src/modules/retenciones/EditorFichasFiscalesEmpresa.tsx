@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { Modal } from '@/shared/ui/Modal';
 import {
   listEmpresasReceptoras,
   fichaFiscalEmpresaDisponible,
@@ -252,53 +253,54 @@ export function EditorFichasFiscalesEmpresa({
         </div>
       </div>
 
-      {/* ── Formulario de Creación / Edición inline ── */}
+      {/* ── Modal Flotante de Creación / Edición de Empresa ── */}
       {(creandoNueva || empresaEditando) && (
-        <div
-          style={{
-            padding: '1.2rem',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1.5px solid var(--primary, #f59e0b)',
+        <Modal
+          title={
+            creandoNueva
+              ? '✨ Crear nueva empresa receptora'
+              : modoEditor === 'fiscal'
+              ? `🌐 Ficha fiscal · ${empresaEditando?.nombreCorto || empresaEditando?.nombre}`
+              : `✏️ Editar empresa · ${empresaEditando?.nombreCorto || empresaEditando?.nombre}`
+          }
+          size="lg"
+          className="modal-empresa-popup"
+          onClose={() => {
+            setCreandoNueva(false);
+            setEmpresaEditando(null);
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.9rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '1.2rem' }}>{creandoNueva ? '✨' : '✏️'}</span>
-              <strong style={{ fontSize: '1rem', color: '#f8fafc' }}>
-                {creandoNueva ? 'Crear nueva empresa receptora' : `Editar ${empresaEditando?.nombreCorto || empresaEditando?.nombre}`}
-              </strong>
-              {empresaEditando && (
-                <div style={{ display: 'flex', gap: '.3rem', marginLeft: '.5rem' }}>
-                  <button
-                    type="button"
-                    className={`btn btn-xs ${modoEditor === 'completo' ? 'btn-primary' : ''}`}
-                    onClick={() => setModoEditor('completo')}
-                  >
-                    Identidad y Fiscal
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-xs ${modoEditor === 'fiscal' ? 'btn-primary' : ''}`}
-                    onClick={() => setModoEditor('fiscal')}
-                  >
-                    Solo Fiscal
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-xs"
-              onClick={() => {
-                setCreandoNueva(false);
-                setEmpresaEditando(null);
+          <style>{`
+            .modal-backdrop.modal-empresa-popup-backdrop { z-index: 10050 !important; }
+            .modal.modal-empresa-popup { z-index: 10051 !important; border: 1.5px solid var(--primary, #f59e0b); }
+          `}</style>
+          {empresaEditando && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '.5rem',
+                marginBottom: '1rem',
+                paddingBottom: '.6rem',
+                borderBottom: '1px solid var(--border)',
+                flexWrap: 'wrap',
               }}
             >
-              ✖ Cerrar
-            </button>
-          </div>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoEditor === 'completo' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setModoEditor('completo')}
+              >
+                ✏️ Identidad y Contacto
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${modoEditor === 'fiscal' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setModoEditor('fiscal')}
+              >
+                🌐 Ficha fiscal (ISAE, Licencia, Comprobantes)
+              </button>
+            </div>
+          )}
 
           <EmpresaEditor
             empresa={empresaEditando ?? undefined}
@@ -315,7 +317,7 @@ export function EditorFichasFiscalesEmpresa({
               setEmpresaEditando(null);
             }}
           />
-        </div>
+        </Modal>
       )}
 
       {/* ── Barra de búsqueda y contador ── */}

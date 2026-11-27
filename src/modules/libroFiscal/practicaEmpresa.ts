@@ -15,31 +15,43 @@ import { impuestosQuePractica } from './noAplica.repository';
 import { puedePracticar, TIPOS_IMPUESTO, type ConfigRetencion, type TipoImpuesto } from './retencionesCalculo';
 import { tipoAGt } from './retencionesFiscal.repository';
 
-/** Devuelve `puede(tipo, config)`: consulta la RPC retencion_empresa_practica (L6) tanto para GT como para cualquier empresa; degrada a puedePracticar(config). */
+/** Devuelve `puede(tipo, config)`: para GT se rige directamente por la gobernanza de Parámetros (ISLR + ISAE, sin IVA); para empresas externas del buzón consulta la RPC retencion_empresa_practica. */
 export function usePuedePracticarEmpresa(
   _empresaFicha: unknown | null | undefined,
   empresaId: string | null | undefined,
   fecha: string,
 ): (tipo: TipoImpuesto, config: ConfigRetencion) => boolean {
   const [practica, setPractica] = useState<Set<TipoImpuesto> | null>(null);
+  const esGt = !empresaId || empresaId === 'empresa-golden-touch' || empresaId === 'gt-default' || empresaId === 'golden_touch' || empresaId === 'GT';
+
   useEffect(() => {
     let vivo = true;
     const f = (fecha || hoyVenezuela()).slice(0, 10);
-    impuestosQuePractica(TIPOS_IMPUESTO.map((t) => tipoAGt(t.key)), f, empresaId ?? undefined)
-      .then((s) => {
-        if (vivo) {
-          setPractica(s ? new Set(TIPOS_IMPUESTO.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
-        }
-      })
-      .catch(() => {
-        if (vivo) setPractica(null);
-      });
+    if (!esGt) {
+      impuestosQuePractica(TIPOS_IMPUESTO.map((t) => tipoAGt(t.key)), f, empresaId ?? undefined)
+        .then((s) => {
+          if (vivo) {
+            setPractica(s ? new Set(TIPOS_IMPUESTO.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
+          }
+        })
+        .catch(() => {
+          if (vivo) setPractica(null);
+        });
+    } else {
+      setPractica(null);
+    }
     return () => { vivo = false; };
-  }, [empresaId, fecha]);
+  }, [empresaId, fecha, esGt]);
 
   return useCallback(
-    (tipo: TipoImpuesto, config: ConfigRetencion) =>
-      (practica ? practica.has(tipo) : puedePracticar(tipo, config)),
-    [practica],
+    (tipo: TipoImpuesto, config: ConfigRetencion) => {
+      if (esGt) {
+        if (tipo === 'iva') return config.esAgenteRetencionIva === true || config.esContribuyenteEspecial === true;
+        if (tipo === 'municipal') return config.retieneMunicipal !== false;
+        return puedePracticar(tipo, config);
+      }
+      return practica ? practica.has(tipo) : puedePracticar(tipo, config);
+    },
+    [esGt, practica],
   );
 }
