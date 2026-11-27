@@ -30,6 +30,10 @@ const RENGLONES: { impuesto: ClaveImpuesto | null; condicion: CondicionAgente; t
     ayuda: 'El especial también retiene IVA y percibe el IGTF.',
   },
   {
+    impuesto: 'MUNICIPAL', condicion: 'agente_retencion', titulo: 'Agente de retención municipal (ISAE)',
+    ayuda: 'Con esta designación formal de la Alcaldía, la empresa retiene Impuesto sobre Actividades Económicas (ISAE) a proveedores.',
+  },
+  {
     impuesto: 'IGTF', condicion: 'agente_percepcion', titulo: 'Agente de percepción de IGTF',
     ayuda: 'Condición específica de percepción de IGTF sobre pagos en divisas o criptoactivos.',
   },

@@ -1018,6 +1018,12 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     for (const l of lineas) {
       if (direccion === 'practicada') {
+        if (l.tipo === 'iva' && !puedePracticarEmpresa('iva', config)) {
+          return 'La empresa no está configurada como Agente de Retención de IVA en Parámetros (Providencia SNAT/2025/000054). Debes remover la retención de IVA para registrar.';
+        }
+        if (l.tipo === 'municipal' && !puedePracticarEmpresa('municipal', config)) {
+          return 'La empresa no está configurada como Agente de Retención Municipal (ISAE) en Parámetros. Debes remover la retención de ISAE para registrar.';
+        }
         const m = motivoNoPuedePracticar(l.tipo, config);
         if (m) return `${labelImpuesto(l.tipo)}: ${m}`;
       }
@@ -1034,6 +1040,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           return `IVA: el IVA no está discriminado en la factura. Aplica y confirma el IVA derivado del total (Bs ${numeroATexto(d.iva)}) antes de guardar.`;
         }
       }
+    }
+    if (totalRetenido <= 0 && !lineas.some((l) => l.tipo === 'islr' && l.descripcion.trim())) {
+      return 'El monto total a retener es Bs 0,00. Si esta factura no genera retención, no es necesario registrar comprobante.';
     }
     return null;
   }
@@ -2550,37 +2559,11 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{empresaFicha ? `La empresa no practica retención de ${labelImpuesto(l.tipo)} según su régimen (Parámetros → Régimen).` : motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
               {monto === 0 && (
-                l.tipo === 'iva' ? (
-                  <div className="card" style={{ margin: '.35rem 0 0', background: 'rgba(239, 68, 68, 0.05)', borderColor: 'var(--warning)', padding: '.45rem .7rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem' }}>
-                      <div>
-                        <strong style={{ fontSize: '.8rem', color: 'var(--warning)' }}>¿No retienes IVA a este proveedor?</strong>
-                        <span style={{ fontSize: '.75rem', display: 'block', color: 'var(--text-muted)' }}>
-                          Si Golden Touch no es agente de retención de IVA para este proveedor, pulsa «Quitar retención de IVA» y deja solo ISLR.
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-ghost"
-                        style={{ fontSize: '.74rem', padding: '2px 8px', color: 'var(--danger)', border: '1px solid var(--danger)' }}
-                        onClick={() => toggleImpuesto('iva')}
-                      >
-                        ✕ Quitar retención de IVA
-                      </button>
-                    </div>
-                    <div className="form-row" style={{ margin: '.35rem 0 0' }}>
-                      <label style={{ color: 'var(--warning)', fontSize: '.76rem' }}>Motivo legal del 0 % (solo si mantienes la retención en cero)</label>
-                      <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
-                        placeholder="Ej.: proveedor exento de retención / no designado agente" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="form-row" style={{ margin: '.3rem 0 0' }}>
-                    <label style={{ color: 'var(--warning)' }}>Motivo del 0 % (obligatorio si el monto a retener es 0)</label>
-                    <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
-                      placeholder="Ej.: el pago no supera el mínimo exento" />
-                  </div>
-                )
+                <div className="form-row" style={{ margin: '.3rem 0 0' }}>
+                  <label style={{ color: 'var(--warning)', fontSize: '.76rem' }}>Motivo del 0 % (obligatorio si el monto a retener es 0)</label>
+                  <input className="input" value={l.descripcion} onChange={(e) => setLinea(l.id, { descripcion: e.target.value })}
+                    placeholder="Ej.: el pago no supera el mínimo exento / actividad exenta" />
+                </div>
               )}
             </div>
           );

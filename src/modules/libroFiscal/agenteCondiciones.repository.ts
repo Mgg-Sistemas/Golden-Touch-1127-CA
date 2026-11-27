@@ -131,6 +131,18 @@ export async function registrarCondicion(c: CondicionNueva, empresaId?: string |
   }
   const id = (data as { id: string }[] | null)?.[0]?.id;
   if (!id) throw new Error('No se guardó el régimen: sin permiso de escritura en Retenciones.');
+  try {
+    const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+    if (cfgRow?.value) {
+      const v = { ...(cfgRow.value as Record<string, unknown>) };
+      if (c.condicion === 'agente_retencion' && c.impuestoClave === 'IVA') v.agente_retencion_iva = c.valor;
+      if (c.condicion === 'contribuyente_especial') v.contribuyente_especial = c.valor;
+      if (c.condicion === 'agente_retencion' && c.impuestoClave === 'MUNICIPAL') v.retiene_municipal = c.valor;
+      await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
   return id;
 }
 
