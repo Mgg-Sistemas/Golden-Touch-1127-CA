@@ -1,3 +1,4 @@
+import { EntradasReintegrosProveedor } from './EntradasReintegrosProveedor';
 /* ============================================================
    Conciliación (12/11/2026) · módulo de SOLO LECTURA.
 
@@ -90,7 +91,7 @@ export function ConciliacionPage() {
   const [notasDisponibles, setNotasDisponibles] = useState(true);
   const [reporte, setReporte] = useState(false);
   // Pestañas del módulo: Salidas (Compras) vs Entradas (Reintegros de Retención)
-  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas'>('salidas');
+  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas' | 'reintegros'>('salidas');
   const [entradas, setEntradas] = useState<FilaConciliacionEntrada[]>([]);
   const [cargandoEntradas, setCargandoEntradas] = useState(false);
 
@@ -243,7 +244,7 @@ export function ConciliacionPage() {
       ))}
 
       {/* ── Selector de Submódulo: Salidas (Compras/Pagos) vs Entradas (Reintegros de Retención) ── */}
-      <div className="conciliacion-pestanas" style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem' }}>
+      <div className="conciliacion-pestanas" style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', borderBottom: '1px solid var(--border)', marginBottom: '1.25rem' }}>
         <button
           type="button"
           className="btn btn-ghost"
@@ -282,9 +283,10 @@ export function ConciliacionPage() {
             </span>
           )}
         </button>
+        <button type="button" className={tabActiva === 'reintegros' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setTabActiva('reintegros')}>↩️ Entradas por reintegro</button>
       </div>
 
-      {tabActiva === 'entradas' ? (
+      {tabActiva === 'reintegros' ? <EntradasReintegrosProveedor /> : tabActiva === 'entradas' ? (
         <ConciliacionEntradasTab
           filasSalidas={filas}
           entradas={entradas}
