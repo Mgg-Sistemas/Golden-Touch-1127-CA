@@ -19,6 +19,8 @@ import { mensajeError } from '@/shared/lib/errores';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { FacturasOcModal, ordenTieneFotosDelivery } from './FacturasOcModal';
 import { OrdenPagarWhatsappModal } from './OrdenPagarWhatsappModal';
+import { mensajeConfirmarRetiroWhatsapp } from './confirmarRetiroWhatsapp';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { esCambioProveedor, leerCambioProveedor, textoCambioProveedor, textoReeleccionPorCambio, type EventoCambioProveedor } from './cambioProveedor';
 import { dateTime, money, montoMoneda, num, relTime } from '@/shared/lib/format';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -502,23 +504,6 @@ export function PedidosPage() {
   // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas
   // del kanban en cada render (KanbanCard está memoizado).
   const openDetail = useCallback((id: string) => setModal({ kind: 'detail', ordenId: id }), []);
-  // 07/11/2026 (urgente): confirmar el retiro con un clic desde la tarjeta de «Pendiente por recibir».
-  // Sin modalidad indicada se abre el detalle para elegirla.
-  const [confirmandoRetiro, setConfirmandoRetiro] = useState<string | null>(null);
-  const confirmarRetiroRapido = useCallback(async (o: Orden) => {
-    if (!o.modalidad_entrega) { openDetail(o.id); return; }
-    setConfirmandoRetiro(o.id);
-    try {
-      await confirmarRetiroOc(o, o.modalidad_entrega, user?.email ?? '');
-      notify(o.modalidad_entrega === 'proveedor'
-        ? `OC ${o.oc_codigo} · retiro confirmado: la trae el proveedor`
-        : `OC ${o.oc_codigo} · retiro confirmado: enviada a ${o.modalidad_entrega === 'carga_pesada' ? 'Carga pesada' : 'Delivery'}`, 'success', { link: '#/app/pedidos' });
-      await refresh();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo confirmar el retiro', 'error');
-    } finally { setConfirmandoRetiro(null); }
-  }, [openDetail, refresh, user?.email]);
-
   const proveedorMap = useMemo(
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
     [proveedoresAll]
@@ -536,6 +521,32 @@ export function PedidosPage() {
     () => crearMapaPersonasCompras(usuarios),
     [usuarios]
   );
+
+  // 07/11/2026 (urgente): confirmar el retiro con un clic desde la tarjeta de «Pendiente por recibir».
+  // Sin modalidad indicada se abre el detalle para elegirla.
+  const [confirmandoRetiro, setConfirmandoRetiro] = useState<string | null>(null);
+  // 27/11/2026: al confirmar el retiro se abre el WhatsApp ya armado. Nada se envía solo.
+  const [retiroWhatsappTexto, setRetiroWhatsappTexto] = useState<string | null>(null);
+  const confirmarRetiroRapido = useCallback(async (o: Orden) => {
+    if (!o.modalidad_entrega) { openDetail(o.id); return; }
+    setConfirmandoRetiro(o.id);
+    try {
+      const confirmada = await confirmarRetiroOc(o, o.modalidad_entrega, user?.email ?? '');
+      setRetiroWhatsappTexto(mensajeConfirmarRetiroWhatsapp(
+        confirmada,
+        confirmada.proveedor_id ? proveedorMap.get(confirmada.proveedor_id) ?? null : null,
+        confirmada.modalidad_entrega ?? o.modalidad_entrega,
+        user?.email,
+        personaMap,
+      ));
+      notify(o.modalidad_entrega === 'proveedor'
+        ? `OC ${o.oc_codigo} · retiro confirmado: la trae el proveedor`
+        : `OC ${o.oc_codigo} · retiro confirmado: enviada a ${o.modalidad_entrega === 'carga_pesada' ? 'Carga pesada' : 'Delivery'}`, 'success', { link: '#/app/pedidos' });
+      await refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo confirmar el retiro', 'error');
+    } finally { setConfirmandoRetiro(null); }
+  }, [openDetail, refresh, user?.email, proveedorMap, personaMap]);
 
   const isAdmin = isPermAdmin || usuario?.role === 'admin' || role === 'admin';
   // La matriz de permisos gobierna el acceso (no el rol hardcodeado). El "aprobar" final
@@ -1163,6 +1174,14 @@ export function PedidosPage() {
       {/* Modal: reporte «Pendientes por pagar» (PDF/Imprimir · Excel · WhatsApp) */}
       {pendientesPagarOpen && <ReportePendientesPagarModal onClose={() => setPendientesPagarOpen(false)} />}
 
+      {/* 27/11/2026: WhatsApp del retiro confirmado (viene del kanban o del detalle). */}
+      {retiroWhatsappTexto && (
+        <Modal title="💬 Confirmar retiro · WhatsApp" onClose={() => setRetiroWhatsappTexto(null)} minimizable={false}
+          footer={<button type="button" className="btn btn-primary" onClick={() => setRetiroWhatsappTexto(null)}>Cerrar</button>}>
+          <CompartirWhatsapp texto={retiroWhatsappTexto} />
+        </Modal>
+      )}
+
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (
         <OrdenDetailModal
@@ -1171,6 +1190,7 @@ export function PedidosPage() {
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
           personaMap={personaMap}
+          onRetiroWhatsapp={setRetiroWhatsappTexto}
           isAdmin={puedeAprobarPedidos}
           canManageProcurement={canManageProcurement}
           enOc={scope === 'oc' || scope === 'servicios'}
@@ -3385,6 +3405,8 @@ interface OrdenDetailModalProps {
   proveedor: Proveedor | null;
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
+  /** 27/11/2026: muestra el WhatsApp del retiro recién confirmado. */
+  onRetiroWhatsapp: (texto: string) => void;
   isAdmin: boolean;
   canManageProcurement: boolean;
   /** true cuando se abre desde la pestaña Órdenes de Compra (allí se gestionan ofertas/proveedor). */
@@ -3415,6 +3437,7 @@ function OrdenDetailModal({
   proveedor,
   proveedorMap,
   personaMap,
+  onRetiroWhatsapp,
   isAdmin,
   canManageProcurement,
   enOc,
@@ -4078,7 +4101,8 @@ function OrdenDetailModal({
       {/* 06/11/2026: «Pendientes por recibir» — el analista confirma el retiro antes del delivery. */}
       {esperaRetiro(o) && (
         canManageProcurement
-          ? <ConfirmarRetiroBox orden={o} actorEmail={actorEmail} onDone={onAcceptedOffer} />
+          ? <ConfirmarRetiroBox orden={o} actorEmail={actorEmail} proveedor={proveedor} personas={personaMap}
+              onMensaje={onRetiroWhatsapp} onDone={onAcceptedOffer} />
           : (
             <div className="detail-row">
               <div className="k">Retiro</div>
@@ -4556,14 +4580,25 @@ function EnviarPorCorreoModal({
 
 /* 06/11/2026 · «Pendientes por recibir»: el analista confirma que la OC pagada se retira y cómo.
    Recién al confirmar le llega al delivery / carga pesada (a domicilio no va a ninguno). */
-function ConfirmarRetiroBox({ orden: o, actorEmail, onDone }: { orden: Orden; actorEmail: string; onDone: () => void }) {
+function ConfirmarRetiroBox({
+  orden: o, actorEmail, proveedor, personas, onMensaje, onDone,
+}: {
+  orden: Orden;
+  actorEmail: string;
+  proveedor: Proveedor | null;
+  personas: Map<string, string>;
+  /** 27/11/2026: abre el WhatsApp armado con el retiro confirmado. */
+  onMensaje: (texto: string) => void;
+  onDone: () => void;
+}) {
   const [modalidad, setModalidad] = useState<ModalidadEntrega | null>(o.modalidad_entrega ?? null);
   const [saving, setSaving] = useState(false);
   async function confirmar() {
     if (!modalidad || saving) return;
     setSaving(true);
     try {
-      await confirmarRetiroOc(o, modalidad, actorEmail);
+      const confirmada = await confirmarRetiroOc(o, modalidad, actorEmail);
+      onMensaje(mensajeConfirmarRetiroWhatsapp(confirmada, proveedor, modalidad, actorEmail, personas));
       notify(modalidad === 'proveedor'
         ? `OC ${o.oc_codigo} · retiro confirmado: la trae el proveedor`
         : `OC ${o.oc_codigo} · retiro confirmado: enviada a ${modalidad === 'carga_pesada' ? 'Carga pesada' : 'Delivery'}`, 'success', { link: '#/app/pedidos' });
