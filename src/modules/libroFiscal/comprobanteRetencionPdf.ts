@@ -316,7 +316,7 @@ async function urlADataUrl(url: string): Promise<string> {
 }
 
 /** Carga las imágenes de logo, firma y sello digital de la empresa SOLO si están cargadas en Parámetros del módulo. */
-export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
+export async function cargarElementosDigitales(fecha = hoyVenezuela(), empresaId?: string | null): Promise<{
   logoDataUrl: string | null;
   firmaDataUrl: string | null;
   selloDataUrl: string | null;
@@ -355,7 +355,9 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
   } catch { /* noop */ }
 
   // ── Fallbacks institucionales para Golden Touch si no hay versión subida en la base ──
-  if (!logoDataUrl) {
+  // Si la retención pertenece a otra empresa receptora (NO-GT), NO se estampa el logo de Golden Touch.
+  const esGt = !empresaId || empresaId === 'empresa-golden-touch';
+  if (!logoDataUrl && esGt) {
     try {
       const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
       logoDataUrl = await loadLogoPdfDataUrl();
@@ -493,7 +495,7 @@ export async function generarDocComprobanteRetencionPdf(
 
   // 3. Resto del formato: Logo a la izquierda y Recuadro de Comprobante a la derecha
   const fechaEmisionRef = r.fecha || r.facturaFecha || diaVE(r.createdAt) || hoyVenezuela();
-  const cargados = await cargarElementosDigitales(fechaEmisionRef);
+  const cargados = await cargarElementosDigitales(fechaEmisionRef, r.empresaId);
   const logoDataUrl = opciones.logoDataUrl !== undefined ? opciones.logoDataUrl : cargados.logoDataUrl;
   const firmaDataUrl = opciones.firmaDataUrl !== undefined ? opciones.firmaDataUrl : cargados.firmaDataUrl;
   const selloDataUrl = opciones.selloDataUrl !== undefined ? opciones.selloDataUrl : cargados.selloDataUrl;

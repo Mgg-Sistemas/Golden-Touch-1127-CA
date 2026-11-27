@@ -2700,6 +2700,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
   function resumen(k: SeccionPa): string {
     switch (k) {
       case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
+      case 'empresas_fiscal': return cfg.multiempresaActivo !== false ? 'Multi-empresa activo · N empresas' : 'Modo Empresa Única · Anclado a GT';
       case 'compras': {
         const nEstados = cfg.estadosKanbanRetencion?.length ?? ESTADOS_KANBAN_RETENCION_DEFECTO.length;
         const imps = [
@@ -2709,6 +2710,8 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
         ].filter(Boolean);
         return `${nEstados} estatus kanban · Retiene: ${imps.length ? imps.join(', ') : 'ninguno'}`;
       }
+      case 'firma': return 'Logo, firma y sello para comprobantes';
+      case 'buzon_telefono': return cfg.buzonActivo !== false ? 'Buzón activo · Recepción móvil' : 'Buzón desactivado';
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
