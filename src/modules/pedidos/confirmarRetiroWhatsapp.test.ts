@@ -90,6 +90,18 @@ describe('mensajeConfirmarRetiroWhatsapp', () => {
     expect(mensaje(base)).not.toContain('CARGA PESADA');
   });
 
+  it('al reabrir una OC ya confirmada usa quien confirmó y no el usuario actual', () => {
+    const t = mensajeConfirmarRetiroWhatsapp(
+      { ...base, retiro_confirmado_por: 'sistema' },
+      proveedor,
+      'delivery',
+      'otro@gmail.com',
+      personas,
+    );
+    expect(t).toContain('✅ *Retiro confirmado:* SISTEMA');
+    expect(t).not.toContain('otro@gmail.com');
+  });
+
   it('maneja orden sin proveedor, nota ni productos y sin emojis con selector', () => {
     const t = mensajeConfirmarRetiroWhatsapp(
       { ...base, proveedor_id: null, items: [], notas: null, finalidad: null, urgente: false },

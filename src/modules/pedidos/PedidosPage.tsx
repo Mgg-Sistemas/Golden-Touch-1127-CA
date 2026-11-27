@@ -548,6 +548,18 @@ export function PedidosPage() {
     } finally { setConfirmandoRetiro(null); }
   }, [openDetail, refresh, user?.email, proveedorMap, personaMap]);
 
+  // 27/11/2026: las OC ya confirmadas también deben poder abrir el WhatsApp.
+  // Se arma con los datos guardados en la OC (quién y cuándo confirmó), no con el estado local.
+  const verWhatsappRetiro = useCallback((o: Orden) => {
+    setRetiroWhatsappTexto(mensajeConfirmarRetiroWhatsapp(
+      o,
+      o.proveedor_id ? proveedorMap.get(o.proveedor_id) ?? null : null,
+      o.modalidad_entrega ?? 'delivery',
+      user?.email,
+      personaMap,
+    ));
+  }, [proveedorMap, user?.email, personaMap]);
+
   const isAdmin = isPermAdmin || usuario?.role === 'admin' || role === 'admin';
   // La matriz de permisos gobierna el acceso (no el rol hardcodeado). El "aprobar" final
   // de la OC lo hacen el admin o los usuarios autorizados (regla de negocio).
@@ -1150,6 +1162,7 @@ export function PedidosPage() {
           noLeidos={noLeidos}
           analistaOferta={analistaOferta}
           onConfirmarRetiro={canManageProcurement ? confirmarRetiroRapido : undefined}
+          onVerWhatsappRetiro={canManageProcurement ? verWhatsappRetiro : undefined}
           confirmandoRetiro={confirmandoRetiro}
         />
       ) : (
@@ -3158,13 +3171,15 @@ interface KanbanBoardProps {
   noLeidos?: Map<string, number>;
   analistaOferta?: Map<string, string>;
   onConfirmarRetiro?: (o: Orden) => void;
+  /** 27/11/2026: volver a abrir el WhatsApp de una OC con el retiro ya confirmado. */
+  onVerWhatsappRetiro?: (o: Orden) => void;
   confirmandoRetiro?: string | null;
 }
 
 // Máximo de tarjetas visibles por columna del Kanban (salvo columnas `sinLimite`).
 // El resto de las órdenes sigue disponible en el Histórico.
 const KANBAN_MAX_POR_COL = 10;
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta, onConfirmarRetiro, confirmandoRetiro }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOferta, onConfirmarRetiro, onVerWhatsappRetiro, confirmandoRetiro }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<ColKey, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
@@ -3211,6 +3226,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, analistaOf
                       noLeidos={noLeidos?.get(o.id) ?? 0}
                       analista={o.oc_creada_por || o.aprobada_por || analistaOferta?.get(o.id) || null}
                       onConfirmarRetiro={onConfirmarRetiro}
+                      onVerWhatsappRetiro={onVerWhatsappRetiro}
                       confirmandoRetiro={confirmandoRetiro === o.id}
           />
                   ))}
@@ -3237,6 +3253,7 @@ const KanbanCard = memo(function KanbanCard({
   noLeidos = 0,
   analista = null,
   onConfirmarRetiro,
+  onVerWhatsappRetiro,
   confirmandoRetiro = false,
 }: {
   orden: Orden;
@@ -3247,6 +3264,8 @@ const KanbanCard = memo(function KanbanCard({
   analista?: string | null;
   /** 07/11/2026: confirmar el retiro desde la tarjeta (solo Compras). */
   onConfirmarRetiro?: (o: Orden) => void;
+  /** 27/11/2026: reabrir el WhatsApp del retiro ya confirmado. */
+  onVerWhatsappRetiro?: (o: Orden) => void;
   confirmandoRetiro?: boolean;
 }) {
   const changes = (orden.historial ?? []).filter((h) => esCambioProveedor(h as { evento: string; cambioProveedor?: boolean })).length;
@@ -3334,6 +3353,13 @@ const KanbanCard = memo(function KanbanCard({
       {orden.estado === 'pagada' && !orden.recibida_en && orden.retiro_confirmado_en && (
         <div className="meta" style={{ fontSize: '.72rem', marginTop: '.1rem' }} title="Retiro confirmado por Compras: esperando que llegue al almacén">
           <span className="badge">✅ Retiro confirmado · {etiquetaModalidadEntrega(orden.modalidad_entrega)}</span>
+          {onVerWhatsappRetiro && (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.35rem', width: '100%' }}
+              title="Abrir el mensaje de WhatsApp del retiro confirmado para copiar o compartir"
+              onClick={(e) => { e.stopPropagation(); onVerWhatsappRetiro(orden); }}>
+              💬 Ver msj de WhatsApp
+            </button>
+          )}
         </div>
       )}
       <div className="foot">
@@ -4113,7 +4139,22 @@ function OrdenDetailModal({
       {o.retiro_confirmado_en && (
         <div className="detail-row">
           <div className="k">Retiro confirmado</div>
-          <div className="v">{dateTime(o.retiro_confirmado_en)} <span className="muted">por {o.retiro_confirmado_por === 'sistema' ? 'el sistema (ya estaba con el delivery)' : persona(o.retiro_confirmado_por, personaMap)}</span></div>
+          <div className="v">
+            <div>{dateTime(o.retiro_confirmado_en)} <span className="muted">por {o.retiro_confirmado_por === 'sistema' ? 'el sistema (ya estaba con el delivery)' : persona(o.retiro_confirmado_por, personaMap)}</span></div>
+            {canManageProcurement && (
+              <button type="button" className="btn btn-ghost" style={{ marginTop: '.35rem' }}
+                title="Abrir el mensaje de WhatsApp del retiro confirmado para copiar o compartir"
+                onClick={() => onRetiroWhatsapp(mensajeConfirmarRetiroWhatsapp(
+                  o,
+                  proveedor,
+                  o.modalidad_entrega ?? 'delivery',
+                  actorEmail,
+                  personaMap,
+                ))}>
+                💬 Ver msj de WhatsApp
+              </button>
+            )}
+          </div>
         </div>
       )}
       {o.metodo_pago && o.metodo_pago.length > 0 && (
