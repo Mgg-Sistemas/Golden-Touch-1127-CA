@@ -139,7 +139,7 @@ function DetalleRecepcion({ p, actor, actorName, onVolver, onHecha }: {
         );
       })}
       <small className="muted">Vacío = llegó todo lo pedido. Si llegó menos, escribe lo que llegó.</small>
-      {parcial && <p className="surt-alerta">Al confirmar se generará el reintegro pendiente en Compras y Tesorería por los faltantes, al precio unitario de la OC.</p>}
+      {parcial && <p className="surt-alerta">Al confirmar se generarán el reintegro pendiente y una solicitud para cotizar las cantidades faltantes, vinculados a esta OC.</p>}
       <div className="surt-campo">
         <label htmlFor="rec-nota">Nota</label>
         <input id="rec-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)}
