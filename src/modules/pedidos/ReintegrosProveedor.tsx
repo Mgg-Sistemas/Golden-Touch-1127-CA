@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
+import { mensajeError } from '@/shared/lib/errores';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Orden, Caja } from '@/shared/lib/types';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
@@ -63,7 +64,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
           o.items.some(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad))));
       }
       setError('');
-    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron cargar los reintegros'); }
+    } catch (e) { setError(mensajeError(e)); }
     finally { setLoading(false); }
   }, [tesoreria]);
 
@@ -115,7 +116,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       setOrden(null); setOpciones([]); setCantidades({}); setMonto(''); setMotivo('');
       toast('Reintegro pendiente en Tesorería', 'success');
       await cargar();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(mensajeError(e)); }
     finally { setSaving(false); }
   }
 
@@ -133,7 +134,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       setRecibir(null); setArchivo(null);
       toast('Ingreso registrado y reintegro recibido', 'success');
       await cargar();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(mensajeError(e)); }
     finally { setSaving(false); }
   }
 
@@ -153,7 +154,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       if (errorOrden) throw errorOrden;
       toast('Faltantes en cotización · ' + nueva.codigo, 'success');
       await cargar();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { setError(mensajeError(e)); }
     finally { setSaving(false); }
   }
 
