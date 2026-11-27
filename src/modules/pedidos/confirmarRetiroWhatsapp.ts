@@ -10,8 +10,9 @@
    se destaca además la modalidad para que no pase desapercibida.
 
    Los renglones y el pie son los mismos de `delivery.ts` (🔹 Orden, 🏭
-   Proveedor, 🚨 Requerimiento, 🚚 Entrega, 📦 Productos, 🕒 y pie GT), para
-   que quien lo lee en el chat reconozca el formato de una vez.
+   Proveedor, 🚨 Requerimiento, 🚚 Entrega, 🕒 y pie GT), para que quien lo lee
+   en el chat reconozca el formato de una vez. Los productos NO se enumeran:
+   el mensaje manda expresamente a revisarlos en el sistema.
    ============================================================ */
 import type { ModalidadEntrega, Orden, Proveedor } from '@/shared/lib/types';
 import { MODALIDADES_ENTREGA, etiquetaSedeEntrega } from '@/shared/lib/types';
@@ -22,6 +23,8 @@ import { nombrePersonaCompras } from './personasCompras';
 export const TEXTO_CONFIRMAR_RETIRO = 'CONFIRMAR RETIRO POR SISTEMAS - DELIVERY';
 /** Solo se agrega cuando la modalidad es carga pesada. */
 export const TEXTO_CARGA_PESADA = 'CARGA PESADA';
+/** En lugar del listado: los productos se consultan en el sistema, nunca en el chat. */
+export const TEXTO_VER_PRODUCTOS = 'NO se muestran aquí · para verlos, *revise el sistema*.';
 const SEPARADOR = '━━━━━━━━━━━━━━━━━━━━━━━━';
 
 type DatosRetiro = Pick<Orden,
@@ -76,9 +79,9 @@ export function mensajeConfirmarRetiroWhatsapp(
   if (nota) L.push(`📌 *Nota:* ${nota}`);
 
   L.push(`💵 *Total:* ${montoTxt(Number(o.total) || 0, o.total_moneda || 'USD')}`);
-  const items = (o.items ?? []).filter((i) => i.comprar !== false).map((i) =>
-    `• ${i.nombre} — ${(Number(i.cantidad) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 })}${i.unidad ? ` ${i.unidad}` : ''}`);
-  if (items.length) L.push('', `📦 *Productos (${items.length}):*`, ...items);
+  // 27/11/2026: el WhatsApp no enumera productos. Va en negrita y claro: si quiere
+  // ver qué se retira, la persona debe abrir el sistema. Nada de «SUBELO».
+  L.push('', `📦 *Productos:* ${TEXTO_VER_PRODUCTOS}`);
 
   L.push('', SEPARADOR, `✅ *Retiro confirmado:* ${por || '—'} · 🕒 ${fechaHoraVE(cuando)}`, PIE_DELIVERY);
   return L.join('\n');

@@ -3,7 +3,8 @@
 
    El texto es un acuerdo con quien lo lee en el grupo de Delivery: se fija
    el encabezado en grande (negrita + separadores), el formato heredado de
-   delivery.ts y que en carga pesada NO se escribe la palabra «SUBELO».
+   delivery.ts, que los productos NUNCA se enumeran (se manda al sistema) y
+   que en carga pesada NO se escribe la palabra «SUBELO».
    ============================================================ */
 import { describe, expect, it } from 'vitest';
 import type { Orden, Proveedor } from '@/shared/lib/types';
@@ -67,14 +68,21 @@ describe('mensajeConfirmarRetiroWhatsapp', () => {
       '📌 *Nota:* Retirar temprano',
       '💵 *Total:* $72,56',
       '',
-      '📦 *Productos (2):*',
-      '• CORREA B63 — 5 UND',
-      '• ACEITE 15W40 — 2 L',
+      '📦 *Productos:* NO se muestran aquí · para verlos, *revise el sistema*.',
       '',
       '━━━━━━━━━━━━━━━━━━━━━━━━',
       '✅ *Retiro confirmado:* JOSE LIENDRO · 🕒 27/11/2026, 09:30 a. m.',
       '🏢 *GOLDEN TOUCH 1127 C.A.* · Delivery',
     ].join('\n'));
+  });
+
+  it('nunca enumera productos y manda expresamente a revisar el sistema', () => {
+    const t = mensaje(base);
+    expect(t).toContain('📦 *Productos:* NO se muestran aquí · para verlos, *revise el sistema*.');
+    expect(t).not.toContain('CORREA B63');
+    expect(t).not.toContain('ACEITE 15W40');
+    expect(t).not.toContain('• ');
+    expect(t.toUpperCase()).not.toContain('SUBELO');
   });
 
   it('en carga pesada destaca CARGA PESADA y NO incluye la palabra SUBELO', () => {
@@ -102,7 +110,7 @@ describe('mensajeConfirmarRetiroWhatsapp', () => {
     expect(t).not.toContain('otro@gmail.com');
   });
 
-  it('maneja orden sin proveedor, nota ni productos y sin emojis con selector', () => {
+  it('maneja orden sin proveedor, nota ni items y sin emojis con selector', () => {
     const t = mensajeConfirmarRetiroWhatsapp(
       { ...base, proveedor_id: null, items: [], notas: null, finalidad: null, urgente: false },
       null,
@@ -112,7 +120,8 @@ describe('mensajeConfirmarRetiroWhatsapp', () => {
     );
     expect(t).toContain('🏭 *Proveedor:* —');
     expect(t).toContain('🟢 *Requerimiento:* Normal');
-    expect(t).not.toContain('📦 *Productos');
+    expect(t).not.toContain('📦 *Productos (');
+    expect(t).toContain('📦 *Productos:* NO se muestran aquí · para verlos, *revise el sistema*.');
     expect(t).toContain('✅ *Retiro confirmado:* JOSE LIENDRO');
     expect(t).not.toContain('\uFE0F');
     expect(t).not.toContain('@');
