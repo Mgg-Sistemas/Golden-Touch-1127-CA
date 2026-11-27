@@ -57,6 +57,8 @@ export interface EmpresaReceptora {
   /** Alícuota del Impuesto Municipal (ISAE) de la empresa según su municipio (F-ME1, default = la global de hoy). */
   alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
+  /** Designada Contribuyente Especial por el SENIAT (retiene IVA y percibe IGTF). */
+  esContribuyenteEspecial?: boolean;
 }
 
 export type EmpresaReceptoraInput = Omit<EmpresaReceptora, 'id' | 'clave' | 'orden'> & { id?: string; clave?: string; orden?: number };
@@ -87,6 +89,7 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
     alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
     imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
+    esContribuyenteEspecial: r.es_contribuyente_especial === true,
   };
 }
 

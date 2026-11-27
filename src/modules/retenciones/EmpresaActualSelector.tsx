@@ -39,7 +39,7 @@ export function EmpresaActualSelector({
   }, [lista, empresaId]);
 
   const esGtActiva = esEmpresaGt(empresaActiva);
-  const esEspecialActiva = esEspecial !== undefined ? esEspecial : (esGtActiva ? false : Boolean(empresaActiva?.pctIvaEspecial));
+  const esEspecialActiva = esEspecial !== undefined ? esEspecial : (esGtActiva ? false : Boolean(empresaActiva?.esContribuyenteEspecial));
 
   // Opciones para el buscador rápido de N empresas
   const opcionesSearch: SearchOption[] = useMemo(() => {

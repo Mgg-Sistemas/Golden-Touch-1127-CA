@@ -156,7 +156,28 @@ async function leerJsonParametros(): Promise<JsonParametros | null> {
 }
 
 export async function getConfigRetencion(): Promise<ConfigRetencion> {
-  return configDeJson(await leerJsonParametros());
+  const cfg = configDeJson(await leerJsonParametros());
+  try {
+    const { data: conds } = await supabase.from('retencion_agente_condiciones')
+      .select('condicion, valor, desde, hasta')
+      .is('empresa_id', null)
+      .eq('condicion', 'contribuyente_especial');
+    if (conds && conds.length > 0) {
+      const hoy = hoyVenezuela().slice(0, 10);
+      const vigente = conds
+        .filter((c) => String(c.desde) <= hoy && (!c.hasta || String(c.hasta) >= hoy))
+        .sort((a, b) => String(b.desde).localeCompare(String(a.desde)))[0];
+      cfg.esContribuyenteEspecial = vigente ? vigente.valor === true : false;
+      cfg.esAgenteRetencionIva = cfg.esContribuyenteEspecial;
+    } else {
+      // Golden Touch es Contribuyente Ordinario ante el SENIAT: no retiene IVA salvo designación formal expresa
+      cfg.esContribuyenteEspecial = false;
+      cfg.esAgenteRetencionIva = false;
+    }
+  } catch {
+    /* fallback seguro */
+  }
+  return cfg;
 }
 
 /** La Providencia SNAT/2025/000054 (que derogó a la SNAT/2015/0049) solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */

@@ -14,6 +14,7 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { impuestosQuePractica } from './noAplica.repository';
 import { puedePracticar, TIPOS_IMPUESTO, type ConfigRetencion, type TipoImpuesto } from './retencionesCalculo';
 import { tipoAGt } from './retencionesFiscal.repository';
+import { esEmpresaGt } from '../retenciones/empresaActual';
 
 /** Devuelve `puede(tipo, config)`: para GT se rige directamente por la gobernanza de Parámetros (ISLR + ISAE, sin IVA); para empresas externas del buzón consulta la RPC retencion_empresa_practica. */
 export function usePuedePracticarEmpresa(
@@ -22,7 +23,7 @@ export function usePuedePracticarEmpresa(
   fecha: string,
 ): (tipo: TipoImpuesto, config: ConfigRetencion) => boolean {
   const [practica, setPractica] = useState<Set<TipoImpuesto> | null>(null);
-  const esGt = !empresaId || empresaId === 'empresa-golden-touch' || empresaId === 'gt-default' || empresaId === 'golden_touch' || empresaId === 'GT';
+  const esGt = !empresaId || esEmpresaGt({ id: empresaId }) || (_empresaFicha ? esEmpresaGt(_empresaFicha as any) : false);
 
   useEffect(() => {
     let vivo = true;

@@ -191,7 +191,7 @@ export function RetencionesPage() {
         setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
       })
       .catch(() => { setPracticaClaves(null); setPractica(null); });
-  }, [empresaId]);
+  }, [empresaId, esGt, configFiscal.esContribuyenteEspecial]);
   useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
   // Las vistas (tarjetas, filtros y columnas por impuesto) salen de los impuestos
@@ -502,7 +502,7 @@ export function RetencionesPage() {
             empresaId={empresaId}
             onChange={setEmpresaId}
             conteos={conteosPorEmpresa}
-            esEspecial={esGt ? (configFiscal.esContribuyenteEspecial === true) : Boolean(empresaActual?.pctIvaEspecial)}
+            esEspecial={esGt ? (configFiscal.esContribuyenteEspecial === true) : Boolean(empresaActual?.esContribuyenteEspecial)}
           />
         )}
         <div className="lfv8-cabeza-acciones">
