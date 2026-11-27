@@ -1170,7 +1170,7 @@ export async function anexarPaginasComprobantePdf(
   opciones: OpcionesComprobantePdf = {},
   docExistente?: any,
 ): Promise<any> {
-  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const permitirDoble = (opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia) === true;
   const modo: ModoEjemplar = opciones.modoEjemplar || (!permitirDoble ? 'estandar' : 'ambos');
   let doc = docExistente;
 
@@ -1263,7 +1263,7 @@ export async function verComprobanteRetencionPdf(
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
-  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const permitirDoble = (opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia) === true;
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
     ?? (!permitirDoble ? 'estandar' : ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos'));
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (config?.incluirLogo ?? true));
@@ -1418,7 +1418,7 @@ export async function verTodosComprobantesFacturaPdf(
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
-  const permitirDoble = opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia ?? true;
+  const permitirDoble = (opciones.imprimirOriginalYCopia ?? config?.imprimirOriginalYCopia) === true;
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
     ?? (!permitirDoble ? 'estandar' : ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos'));
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (config?.incluirLogo ?? true));

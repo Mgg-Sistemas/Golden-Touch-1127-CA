@@ -122,11 +122,13 @@ export async function listEmpresasReceptoras(): Promise<EmpresaReceptora[]> {
         .filter((c) => String(c.desde) <= hoy && (!c.hasta || String(c.hasta) >= hoy))
         .sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
       for (const c of validas) {
+        const val = c.valor === true;
         if (c.empresa_id) {
-          mapaEspecial.set(String(c.empresa_id), c.valor === true);
+          mapaEspecial.set(String(c.empresa_id).trim().toLowerCase(), val);
         } else {
-          mapaEspecial.set('empresa-golden-touch', c.valor === true);
-          mapaEspecial.set('null', c.valor === true);
+          mapaEspecial.set('empresa-golden-touch', val);
+          mapaEspecial.set('golden_touch', val);
+          mapaEspecial.set('null', val);
         }
       }
     }
@@ -137,13 +139,19 @@ export async function listEmpresasReceptoras(): Promise<EmpresaReceptora[]> {
   return (data ?? []).map((r, idx) => {
     const emp = mapearFilaEmpresa(r as Record<string, unknown>, idx);
     if (mapaEspecial) {
-      const idStr = String(emp.id);
-      const rifClean = (emp.rif || '').replace(/[^A-Za-z0-9]/g, '');
-      const esGt = idStr === 'empresa-golden-touch' || emp.clave === 'golden_touch' || rifClean.includes('50129993');
-      if (mapaEspecial.has(idStr)) {
-        emp.esContribuyenteEspecial = mapaEspecial.get(idStr)!;
-      } else if (esGt && (mapaEspecial.has('empresa-golden-touch') || mapaEspecial.has('null'))) {
-        emp.esContribuyenteEspecial = (mapaEspecial.get('empresa-golden-touch') ?? mapaEspecial.get('null'))!;
+      const idClean = String(emp.id).trim().toLowerCase();
+      const claveClean = String(emp.clave || '').trim().toLowerCase();
+      const rifClean = (emp.rif || '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+      const esGt = idClean === 'empresa-golden-touch' || claveClean === 'golden_touch' || rifClean.includes('50129993');
+
+      if (mapaEspecial.has(idClean)) {
+        emp.esContribuyenteEspecial = mapaEspecial.get(idClean)!;
+      } else if (claveClean && mapaEspecial.has(claveClean)) {
+        emp.esContribuyenteEspecial = mapaEspecial.get(claveClean)!;
+      } else if (rifClean && mapaEspecial.has(rifClean)) {
+        emp.esContribuyenteEspecial = mapaEspecial.get(rifClean)!;
+      } else if (esGt && (mapaEspecial.has('empresa-golden-touch') || mapaEspecial.has('golden_touch') || mapaEspecial.has('null'))) {
+        emp.esContribuyenteEspecial = (mapaEspecial.get('empresa-golden-touch') ?? mapaEspecial.get('golden_touch') ?? mapaEspecial.get('null'))!;
       }
     }
     return emp;

@@ -228,7 +228,7 @@ export async function aplicarRegimenMaestro({
       await supabase
         .from('retencion_empresas_receptoras')
         .update({ es_contribuyente_especial: esEspecial })
-        .eq('id', empresaId);
+        .or(`id.eq.${empresaId},clave.eq.${empresaId}`);
     }
     if (esGt) {
       await supabase

@@ -140,7 +140,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
-    imprimir_original_copia: c.imprimirOriginalYCopia !== false,
+    imprimir_original_copia: c.imprimirOriginalYCopia === true,
     comprobante_logo: c.incluirLogo !== false,
     comprobante_firma: c.incluirFirma !== false,
     comprobante_sello: c.incluirSello !== false,

@@ -189,7 +189,7 @@ export function EmpresaEditor({ empresa, modo, onGuardada, onClose, idForm, conf
           const cfgActual = await getConfigRetencion();
           await guardarConfigRetencion({
             ...cfgActual,
-            imprimirOriginalYCopia: emp.imprimirOriginalYCopia !== false,
+            imprimirOriginalYCopia: emp.imprimirOriginalYCopia === true,
             licenciaMunicipal: emp.licenciaMunicipal ?? cfgActual.licenciaMunicipal,
             alicuotaMunicipal: emp.alicuotaMunicipal,
           });

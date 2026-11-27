@@ -2857,7 +2857,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
 
   function resumen(k: SeccionPa): string {
     switch (k) {
-      case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
+      case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia === true ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
       case 'empresas_fiscal': return cfg.multiempresaActivo !== false ? 'Multi-empresa activo · N empresas' : 'Modo Empresa Única · Anclado a GT';
       case 'compras': {
         const nEstados = cfg.estadosKanbanRetencion?.length ?? ESTADOS_KANBAN_RETENCION_DEFECTO.length;
@@ -3039,7 +3039,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
                 <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer', fontWeight: 600 }}>
                   <input
                     type="checkbox"
-                    checked={cfg.imprimirOriginalYCopia !== false}
+                    checked={cfg.imprimirOriginalYCopia === true}
                     onChange={(e) => set('imprimirOriginalYCopia', e.target.checked)}
                   />
                   <span>Imprimir Original y Copia (Página 1: Sujeto Retenido · Página 2: Agente de Retención)</span>
