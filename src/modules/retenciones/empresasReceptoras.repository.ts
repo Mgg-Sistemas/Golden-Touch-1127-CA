@@ -14,6 +14,7 @@ import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
 import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
 import { columnaDisponible } from '@/modules/libroFiscal/disponibilidad';
 import { errorPorcentajesIva } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const TABLA = 'retencion_empresas_receptoras';
 
@@ -66,6 +67,10 @@ export type EmpresaReceptoraInput = Omit<EmpresaReceptora, 'id' | 'clave' | 'ord
 const texto = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v));
 
 function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaReceptora {
+  // Modalidad de emisión: Solo Original (1 página) por defecto estándar del sistema,
+  // salvo que explícitamente se guarde como true (Original y Copia).
+  const impOrigCopia = r.imprimir_original_y_copia === true;
+
   return {
     id: String(r.id),
     clave: String(r.clave || r.id),
@@ -88,7 +93,7 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : undefined,
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
     alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
-    imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
+    imprimirOriginalYCopia: impOrigCopia,
     esContribuyenteEspecial: r.es_contribuyente_especial === true,
   };
 }
@@ -101,7 +106,48 @@ export async function listEmpresasReceptoras(): Promise<EmpresaReceptora[]> {
     .order('orden', { ascending: true })
     .order('nombre', { ascending: true });
   if (error) throw errorRetencion(error, 'No se pudieron leer las empresas.');
-  return (data ?? []).map((r, idx) => mapearFilaEmpresa(r as Record<string, unknown>, idx));
+
+  // Reconciliación con retencion_agente_condiciones:
+  // Prevalece la condición formal vigente para hoy en la tabla de régimen
+  const hoy = hoyVenezuela().slice(0, 10);
+  let mapaEspecial: Map<string, boolean> | null = null;
+  try {
+    const { data: conds } = await supabase
+      .from('retencion_agente_condiciones')
+      .select('empresa_id, valor, desde, hasta')
+      .eq('condicion', 'contribuyente_especial');
+    if (conds && conds.length > 0) {
+      mapaEspecial = new Map();
+      const validas = conds
+        .filter((c) => String(c.desde) <= hoy && (!c.hasta || String(c.hasta) >= hoy))
+        .sort((a, b) => String(a.desde).localeCompare(String(b.desde)));
+      for (const c of validas) {
+        if (c.empresa_id) {
+          mapaEspecial.set(String(c.empresa_id), c.valor === true);
+        } else {
+          mapaEspecial.set('empresa-golden-touch', c.valor === true);
+          mapaEspecial.set('null', c.valor === true);
+        }
+      }
+    }
+  } catch {
+    /* si la tabla no está disponible, se preserva el valor de retencion_empresas_receptoras */
+  }
+
+  return (data ?? []).map((r, idx) => {
+    const emp = mapearFilaEmpresa(r as Record<string, unknown>, idx);
+    if (mapaEspecial) {
+      const idStr = String(emp.id);
+      const rifClean = (emp.rif || '').replace(/[^A-Za-z0-9]/g, '');
+      const esGt = idStr === 'empresa-golden-touch' || emp.clave === 'golden_touch' || rifClean.includes('50129993');
+      if (mapaEspecial.has(idStr)) {
+        emp.esContribuyenteEspecial = mapaEspecial.get(idStr)!;
+      } else if (esGt && (mapaEspecial.has('empresa-golden-touch') || mapaEspecial.has('null'))) {
+        emp.esContribuyenteEspecial = (mapaEspecial.get('empresa-golden-touch') ?? mapaEspecial.get('null'))!;
+      }
+    }
+    return emp;
+  });
 }
 
 /** La clave interna de la empresa, sacada de su nombre (no se muestra en pantalla). */
@@ -177,6 +223,7 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
   const filaFiscal: Record<string, unknown> = {};
   if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
   if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
+  if (empresa.esContribuyenteEspecial !== undefined) filaFiscal.es_contribuyente_especial = empresa.esContribuyenteEspecial;
   const fila = { ...filaBase, ...filaFiscal };
 
   const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };

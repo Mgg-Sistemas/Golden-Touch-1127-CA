@@ -23,7 +23,7 @@ import {
 } from './empresasReceptoras.repository';
 import { esEmpresaGt } from './empresaActual';
 import { EmpresaEditor } from './EmpresaEditor';
-import { getConfigRetencion, guardarConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { getConfigRetencion, guardarConfigRetencion, type ConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
 
 export interface EditorFichasFiscalesEmpresaProps {
   puedeEditar: boolean;
@@ -39,6 +39,7 @@ export function EditorFichasFiscalesEmpresa({
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [multiempresaActivo, setMultiempresaActivo] = useState(true);
+  const [cfgRetencion, setCfgRetencion] = useState<ConfigRetencion | null>(null);
 
   // Modos de edición inline
   const [creandoNueva, setCreandoNueva] = useState(false);
@@ -52,10 +53,21 @@ export function EditorFichasFiscalesEmpresa({
       getConfigRetencion().catch(() => null),
     ]);
     setDisponible(hay);
-    setEmpresas(lista);
     if (cfg) {
       setMultiempresaActivo(cfg.multiempresaActivo !== false);
+      setCfgRetencion(cfg);
     }
+    const listaNormalizada = lista.map((e) => {
+      if (esEmpresaGt(e) && cfg) {
+        return {
+          ...e,
+          imprimirOriginalYCopia: cfg.imprimirOriginalYCopia === true,
+          esContribuyenteEspecial: cfg.esContribuyenteEspecial === true,
+        };
+      }
+      return e;
+    });
+    setEmpresas(listaNormalizada);
   }, []);
 
   useEffect(() => {
@@ -271,8 +283,32 @@ export function EditorFichasFiscalesEmpresa({
           }}
         >
           <style>{`
-            .modal-backdrop.modal-empresa-popup-backdrop { z-index: 10050 !important; }
-            .modal.modal-empresa-popup { z-index: 10051 !important; border: 1.5px solid var(--primary, #f59e0b); }
+            .modal-backdrop.modal-empresa-popup-backdrop {
+              z-index: 10050 !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
+              padding: 1.5rem !important;
+            }
+            .modal.modal-empresa-popup {
+              z-index: 10051 !important;
+              width: min(740px, calc(100vw - 2.5rem)) !important;
+              max-width: min(740px, calc(100vw - 2.5rem)) !important;
+              height: auto !important;
+              max-height: min(85vh, 680px) !important;
+              border-radius: 14px !important;
+              border: 1.5px solid var(--primary, #f59e0b) !important;
+              box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
+              margin: auto !important;
+              display: flex !important;
+              flex-direction: column !important;
+              overflow: hidden !important;
+            }
+            .modal.modal-empresa-popup .modal-body {
+              max-height: calc(85vh - 110px) !important;
+              overflow-y: auto !important;
+              padding: 1.25rem 1.4rem !important;
+            }
           `}</style>
           {empresaEditando && (
             <div
@@ -305,6 +341,7 @@ export function EditorFichasFiscalesEmpresa({
           <EmpresaEditor
             empresa={empresaEditando ?? undefined}
             modo={modoEditor}
+            configGt={cfgRetencion}
             onGuardada={(guardada) => {
               toast(`Empresa «${guardada.nombreCorto || guardada.nombre}» guardada con éxito.`, 'success');
               setCreandoNueva(false);
@@ -457,6 +494,19 @@ export function EditorFichasFiscalesEmpresa({
                         }}
                       >
                         {esGt ? '🛒 Compras + 📱 Buzón' : '📱 Solo Buzón Móvil'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '.68rem',
+                          color: e.imprimirOriginalYCopia === false ? 'var(--primary, #f59e0b)' : '#94a3b8',
+                          background: e.imprimirOriginalYCopia === false ? 'rgba(245, 158, 11, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                          border: `1px solid ${e.imprimirOriginalYCopia === false ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255, 255, 255, 0.06)'}`,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                        }}
+                        title={e.imprimirOriginalYCopia === false ? 'Comprobante configurado en Solo Original (1 página)' : 'Comprobante configurado en Original y Copia (2 páginas)'}
+                      >
+                        {e.imprimirOriginalYCopia === false ? '📄 Solo Original' : '📑 Original y Copia'}
                       </span>
                     </div>
 

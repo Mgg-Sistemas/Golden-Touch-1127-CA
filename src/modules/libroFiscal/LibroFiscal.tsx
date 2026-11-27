@@ -26,6 +26,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
+import { supabase } from '@/shared/lib/supabase';
 import { diaVE, getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
 import { r1Disponible, r2Disponible } from './disponibilidad';
 import { ParametrosImpuestos } from './ParametrosImpuestos';
@@ -73,6 +74,8 @@ import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
 import { formatoParaImprimir, r8Disponible } from './formatos.repository';
 import { ParametrosFormatos } from './ParametrosFormatos';
+import { FacturaEnsambladaModal, extraerRenglonesDeTexto, type FacturaEnsambladaModalProps } from './FacturaEnsambladaModal';
+import { AsignarOrdenModal, type AsignarOrdenModalProps } from './AsignarOrdenModal';
 import { faltaEnPctConcepto, faltaEnValoresSinR3, rifEmpresaParaGuardar } from './parametrosEmpresa';
 import { aplicarFiltros, buscaEn, paginar, type FiltroLista } from './listas';
 import { Paginador } from './ListaControles';
@@ -207,6 +210,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [retenerSobreAdjunto, setRetenerSobreAdjunto] = useState<{ nombre: string; bucket: string; path: string } | null>(null);
   const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
   const [decisionRetener, setDecisionRetener] = useState(false);
+  const [asignarOrdenData, setAsignarOrdenData] = useState<AsignarOrdenModalProps | null>(null);
+  const [facturaEnsambladaData, setFacturaEnsambladaData] = useState<FacturaEnsambladaModalProps | null>(null);
 
   // Un «Ver en libro» desde la cola debe sentirse contextual: se precarga la
   // búsqueda, se amplía el rango y, si la factura aún está pendiente, se abre
@@ -924,15 +929,116 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                             </span>
                           )}
                         </div>
-                        <div className="lfv8-meta">
-                          {f.fecha ? fechaCorta(f.fecha) : '—'}
-                          {f.doc && <> · {(() => {
-                            const ruta = canVerPedidos ? rutaDocumento(f.docKind, f.docId) : null;
-                            return ruta
-                              ? <a href={`#${ruta}`} className="lfv8-doc">{f.doc}</a>
-                              : <span className="lfv8-doc">{f.doc}</span>;
-                          })()}</>}
-                          {' · '}{monto(f.total, f.moneda)}
+                        <div className="lfv8-meta" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                          <span>{f.fecha ? fechaCorta(f.fecha) : '—'}</span>
+                          {f.doc ? (
+                            <>
+                              <span>·</span>
+                              {(() => {
+                                const ruta = canVerPedidos ? rutaDocumento(f.docKind, f.docId) : null;
+                                return ruta
+                                  ? <a href={`#${ruta}`} className="lfv8-doc">{f.doc}</a>
+                                  : <span className="lfv8-doc">{f.doc}</span>;
+                              })()}
+                            </>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: '0.72rem',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(234, 179, 8, 0.15)',
+                                color: '#f59e0b',
+                                border: '1px solid rgba(234, 179, 8, 0.3)',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Sin OC
+                            </span>
+                          )}
+                          <span>· {monto(f.total, f.moneda)}</span>
+
+                          {/* Asignar a OC para retenciones sin asociar */}
+                          {canWrite && (!f.doc || !f.docId || f.docKind === 'manual') && (
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-outline"
+                              style={{ marginLeft: '4px', fontSize: '0.72rem', padding: '1px 6px', borderRadius: '4px', height: 'auto', minHeight: 'unset' }}
+                              title="Asignar retención a una Orden de Compra existente"
+                              onClick={() => {
+                                const rPrimera = [...f.retenciones.values()][0];
+                                setAsignarOrdenData({
+                                  retencionId: rPrimera?.id ?? '',
+                                  documentoId: f.documentoId,
+                                  comprobanteNro: rPrimera?.numeroComprobante,
+                                  facturaNro: f.num,
+                                  proveedorNombre: prov.nombre,
+                                  proveedorRif: prov.rif,
+                                  proveedorId: f.proveedorId,
+                                  montoRetenido: totalRet,
+                                  moneda: f.moneda,
+                                  onAsignada: async () => {
+                                    setAsignarOrdenData(null);
+                                    await reload();
+                                  },
+                                  onClose: () => setAsignarOrdenData(null),
+                                });
+                              }}
+                            >
+                              🔗 Asignar OC
+                            </button>
+                          )}
+
+                          {/* Ver Factura Ensamblada si fue digitalizada en Modo Avanzado (Valery) */}
+                          {(() => {
+                            const rConDesglose = [...f.retenciones.values()].find((rv) => rv.observacion?.includes('Desglose de Renglones'));
+                            const tieneLocalStorage = typeof window !== 'undefined' && Boolean(localStorage.getItem('factura_renglones:' + f.num));
+                            if (rConDesglose || tieneLocalStorage) {
+                              return (
+                                <button
+                                  type="button"
+                                  className="btn btn-xs"
+                                  style={{
+                                    marginLeft: '4px',
+                                    fontSize: '0.72rem',
+                                    padding: '1px 7px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #8b5cf6',
+                                    color: '#c4b5fd',
+                                    background: 'rgba(139, 92, 246, 0.15)',
+                                    height: 'auto',
+                                    minHeight: 'unset',
+                                  }}
+                                  title="Ver factura ensamblada y comparar contra soporte físico original"
+                                  onClick={() => {
+                                    const rItem = rConDesglose || [...f.retenciones.values()][0];
+                                    let renglones = rConDesglose ? extraerRenglonesDeTexto(rConDesglose.observacion) : [];
+                                    if (!renglones.length && tieneLocalStorage) {
+                                      try {
+                                        renglones = JSON.parse(localStorage.getItem('factura_renglones:' + f.num) || '[]');
+                                      } catch {}
+                                    }
+                                    const retConArchivo = [...f.retenciones.values()].find((rv) => !!rv.comprobantePath);
+                                    setFacturaEnsambladaData({
+                                      facturaNro: f.num,
+                                      facturaControl: rItem?.facturaControl,
+                                      facturaFecha: f.fecha,
+                                      proveedorNombre: prov.nombre,
+                                      proveedorRif: prov.rif,
+                                      moneda: f.moneda,
+                                      renglones,
+                                      archivoUrl: retConArchivo?.comprobantePath ? supabase.storage.from('comprobantes').getPublicUrl(retConArchivo.comprobantePath).data.publicUrl : undefined,
+                                      archivoNombre: retConArchivo?.comprobanteNombre ?? undefined,
+                                      onClose: () => setFacturaEnsambladaData(null),
+                                    });
+                                  }}
+                                >
+                                  👁️ Ver Ensamblada
+                                </button>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                       <div className="lfv8-tira" style={{ '--n': nCasillas } as React.CSSProperties}
@@ -1238,7 +1344,61 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 </span>
                 <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
                 <span data-l="Contraparte">{r.contraparteNombre ?? '—'}<small className="mono">{r.contraparteRif ?? ''}{fueraDelSistema(r) ? ' · Fuera del sistema' : ''}</small></span>
-                <span data-l="Factura" className="mono">{r.facturaNumero ?? r.docCodigo ?? '—'}</span>
+                <span data-l="Factura" className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+                  {r.facturaNumero ?? r.docCodigo ?? '—'}
+                  {canWrite && (!r.docId || r.docKind === 'manual') && (
+                    <button
+                      type="button"
+                      className="lfv8-mini"
+                      style={{ color: '#f59e0b', borderColor: 'rgba(245, 158, 11, 0.4)', padding: '0 .35rem' }}
+                      title="Asignar retención a una Orden de Compra existente"
+                      onClick={() => {
+                        setAsignarOrdenData({
+                          retencionId: r.id,
+                          documentoId: r.documentoId,
+                          comprobanteNro: r.numeroComprobante,
+                          facturaNro: r.facturaNumero,
+                          proveedorNombre: r.contraparteNombre,
+                          proveedorRif: r.contraparteRif,
+                          proveedorId: r.contraparteId,
+                          montoRetenido: r.montoRetenido,
+                          moneda: r.moneda,
+                          onAsignada: async () => {
+                            setAsignarOrdenData(null);
+                            await reload();
+                          },
+                          onClose: () => setAsignarOrdenData(null),
+                        });
+                      }}
+                    >
+                      🔗 Asignar OC
+                    </button>
+                  )}
+                  {r.observacion?.includes('Desglose de Renglones') && (
+                    <button
+                      type="button"
+                      className="lfv8-mini"
+                      style={{ color: '#c4b5fd', borderColor: 'rgba(139, 92, 246, 0.4)', padding: '0 .35rem' }}
+                      title="Ver factura ensamblada (Valery) y comparar con soporte original"
+                      onClick={() => {
+                        setFacturaEnsambladaData({
+                          facturaNro: r.facturaNumero || '—',
+                          facturaControl: r.facturaControl,
+                          facturaFecha: r.facturaFecha,
+                          proveedorNombre: r.contraparteNombre,
+                          proveedorRif: r.contraparteRif,
+                          moneda: r.moneda,
+                          renglones: extraerRenglonesDeTexto(r.observacion),
+                          archivoUrl: r.comprobantePath ? supabase.storage.from('comprobantes').getPublicUrl(r.comprobantePath).data.publicUrl : undefined,
+                          archivoNombre: r.comprobanteNombre ?? undefined,
+                          onClose: () => setFacturaEnsambladaData(null),
+                        });
+                      }}
+                    >
+                      👁️ Ensamblada
+                    </button>
+                  )}
+                </span>
                 <span data-l="Retenido" className="n">{monto(r.montoRetenido, r.moneda)}</span>
                 <span data-l="En Bs" className="n">{enBs(r) ? monto(enBs(r), 'Bs') : '—'}</span>
                 <span data-l="Estado">
@@ -1525,6 +1685,16 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         style={{ display: 'none' }}
         onChange={(e) => void handleArchivoSoporteSeleccionado(e)}
       />
+      {asignarOrdenData && (
+        <AsignarOrdenModal
+          {...asignarOrdenData}
+        />
+      )}
+      {facturaEnsambladaData && (
+        <FacturaEnsambladaModal
+          {...facturaEnsambladaData}
+        />
+      )}
     </div>
   );
 }

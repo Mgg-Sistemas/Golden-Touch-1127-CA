@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listEmpresasReceptoras, type EmpresaReceptora } from './empresasReceptoras.repository';
 import { multiEmpresaDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { useRealtime } from '@/shared/lib/useRealtime';
 
 /** Dónde recuerda el navegador la empresa elegida (comodidad por usuario, no es dato fiscal). */
 export const CLAVE_EMPRESA_ACTUAL = 'gt.retenciones.empresaActual';
@@ -77,6 +78,7 @@ export interface EmpresaActual {
   /** La ficha de la empresa seleccionada, o null. */
   empresaActual: EmpresaReceptora | null;
   setEmpresaId: (id: string) => void;
+  refrescar: () => Promise<void>;
   cargando: boolean;
 }
 
@@ -91,28 +93,36 @@ export function useEmpresaActual(multiempresaHabilitado: boolean = true): Empres
   const [empresaId, setEmpresaIdState] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
 
-  useEffect(() => {
-    let vivo = true;
-    (async () => {
-      if (!multiempresaHabilitado) {
-        setMultiempresa(false);
-        setEmpresas([]);
-        setEmpresaIdState(null);
-        setCargando(false);
-        return;
-      }
-      const hay = await multiEmpresaDisponible().catch(() => false);
-      if (!vivo) return;
-      if (!hay) { setMultiempresa(false); setEmpresas([]); setEmpresaIdState(null); setCargando(false); return; }
-      const lista = await listEmpresasReceptoras().catch(() => [] as EmpresaReceptora[]);
-      if (!vivo) return;
-      setMultiempresa(true);
-      setEmpresas(lista);
-      setEmpresaIdState(empresaPorDefecto(lista, leerGuardada()));
+  const refrescar = useCallback(async () => {
+    if (!multiempresaHabilitado) {
+      setMultiempresa(false);
+      setEmpresas([]);
+      setEmpresaIdState(null);
       setCargando(false);
-    })();
-    return () => { vivo = false; };
+      return;
+    }
+    const hay = await multiEmpresaDisponible().catch(() => false);
+    if (!hay) {
+      setMultiempresa(false);
+      setEmpresas([]);
+      setEmpresaIdState(null);
+      setCargando(false);
+      return;
+    }
+    const lista = await listEmpresasReceptoras().catch(() => [] as EmpresaReceptora[]);
+    setMultiempresa(true);
+    setEmpresas(lista);
+    setEmpresaIdState((actual) => actual || empresaPorDefecto(lista, leerGuardada()));
+    setCargando(false);
   }, [multiempresaHabilitado]);
+
+  useEffect(() => {
+    void refrescar();
+  }, [refrescar]);
+
+  useRealtime(['retencion_empresas_receptoras', 'retencion_agente_condiciones'], () => {
+    void refrescar();
+  });
 
   const setEmpresaId = useCallback((id: string) => {
     setEmpresaIdState(id);
@@ -120,5 +130,5 @@ export function useEmpresaActual(multiempresaHabilitado: boolean = true): Empres
   }, []);
 
   const empresaActual = empresaId ? empresas.find((e) => e.id === empresaId) ?? null : null;
-  return { multiempresa, empresas, empresaId, empresaActual, setEmpresaId, cargando };
+  return { multiempresa, empresas, empresaId, empresaActual, setEmpresaId, refrescar, cargando };
 }

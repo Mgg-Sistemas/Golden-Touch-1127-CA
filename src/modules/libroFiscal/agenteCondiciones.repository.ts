@@ -13,6 +13,7 @@ import type { ClaveImpuesto } from './entes.repository';
 import { errorRetencion } from './erroresRetencion';
 import { faltaEnFechaRango } from './parametrosNumeros';
 import { regimenPorEmpresaDisponible } from './disponibilidad';
+import { esEmpresaGt } from '../retenciones/empresaActual';
 
 const T_CONDICIONES = 'retencion_agente_condiciones';
 
@@ -219,17 +220,39 @@ export async function aplicarRegimenMaestro({
     await guardarOActualizarCondicion(cond, empresaId);
   }
 
-  // Sincronización explícita en tabla config
+  const esGt = !empresaId || esEmpresaGt({ id: empresaId });
+
+  // Sincronización en retencion_empresas_receptoras (para multi-empresa)
   try {
-    const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
-    if (cfgRow?.value) {
-      const v = { ...(cfgRow.value as Record<string, unknown>) };
-      v.agente_retencion_iva = esEspecial;
-      v.contribuyente_especial = esEspecial;
-      await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+    if (empresaId) {
+      await supabase
+        .from('retencion_empresas_receptoras')
+        .update({ es_contribuyente_especial: esEspecial })
+        .eq('id', empresaId);
+    }
+    if (esGt) {
+      await supabase
+        .from('retencion_empresas_receptoras')
+        .update({ es_contribuyente_especial: esEspecial })
+        .or('id.eq.empresa-golden-touch,clave.eq.golden_touch,rif.ilike.%50129993%');
     }
   } catch {
     /* sincronización accesoria */
+  }
+
+  // Sincronización en tabla config (exclusivamente para Golden Touch)
+  if (esGt) {
+    try {
+      const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+      if (cfgRow?.value) {
+        const v = { ...(cfgRow.value as Record<string, unknown>) };
+        v.agente_retencion_iva = esEspecial;
+        v.contribuyente_especial = esEspecial;
+        await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+      }
+    } catch {
+      /* sincronización accesoria */
+    }
   }
 }
 

@@ -30,6 +30,7 @@ import {
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 export { formatoComprobante, formatoSerie };
+export type { ConfigRetencion };
 import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
@@ -108,7 +109,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
     ivaAlicuota: n(j.iva_alicuota) || CONFIG_RETENCION_DEFECTO.ivaAlicuota,
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
-    imprimirOriginalYCopia: bool('imprimir_original_copia', true),
+    imprimirOriginalYCopia: bool('imprimir_original_copia', false),
     incluirLogo: bool('comprobante_logo', true),
     incluirFirma: bool('comprobante_firma', true),
     incluirSello: bool('comprobante_sello', true),
@@ -159,8 +160,8 @@ export async function getConfigRetencion(): Promise<ConfigRetencion> {
   const cfg = configDeJson(await leerJsonParametros());
   try {
     const { data: conds } = await supabase.from('retencion_agente_condiciones')
-      .select('condicion, valor, desde, hasta')
-      .is('empresa_id', null)
+      .select('condicion, valor, desde, hasta, empresa_id')
+      .or('empresa_id.is.null,empresa_id.eq.empresa-golden-touch')
       .eq('condicion', 'contribuyente_especial');
     if (conds && conds.length > 0) {
       const hoy = hoyVenezuela().slice(0, 10);

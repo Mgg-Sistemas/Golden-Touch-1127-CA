@@ -147,7 +147,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   valorUt: 0, pctIgtf: 3,
   ivaAlicuota: 16,
   licenciaMunicipal: null,
-  imprimirOriginalYCopia: true,
+  imprimirOriginalYCopia: false,
   incluirLogo: true,
   incluirFirma: true,
   incluirSello: true,

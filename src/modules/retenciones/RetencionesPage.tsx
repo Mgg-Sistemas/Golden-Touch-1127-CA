@@ -52,12 +52,14 @@ import { rifValido } from '@/shared/lib/rif';
 import { list as listProveedores, insert as insertProveedor } from '@/modules/proveedores/proveedores.repository';
 import { EmpresaActualSelector } from './EmpresaActualSelector';
 import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
+import { ReintegrosPendientesView, leerReintegrosLocales } from './ReintegrosPendientesView';
+import { cargarOrdenesEsperandoReintegro, type FilaConciliacionEntrada } from '@/modules/conciliacion/conciliacionEntradas';
 import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon' | 'reintegros';
 
 // C-g: marca por-navegador de hasta dónde se «vio» el buzón (el sello de creación de la
 // factura más nueva ya vista). El badge cuenta las creadas después de esa marca; al abrir
@@ -104,13 +106,18 @@ export function RetencionesPage() {
   // C4a (D6): el buzón se muestra si está en la base Y activado en Parámetros (config.buzonActivo).
   // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
   // queda inerte (multiempresa=false) y el selector no se muestra.
-  const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId } = useEmpresaActual(configFiscal.multiempresaActivo !== false);
+  const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId, refrescar: refrescarEmpresas } = useEmpresaActual(configFiscal.multiempresaActivo !== false);
   // La ficha fiscal a usar para config/régimen: solo para una empresa NO-GT. GT (o
   // single-empresa) → null, y el libro/registro/reportes usan la config global (R1), como hoy.
   const empresaFicha = multiempresa && empresaActual && !esEmpresaGt(empresaActual) ? empresaActual : null;
   // «Por realizar» nace del flujo de compras de Golden Touch; una empresa NO-GT
   // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
   const esGt = empresaFicha == null;
+
+  // Condición formal de la empresa activa (reconciliada con retencion_agente_condiciones)
+  const esEspecialEmpresa = empresaActual
+    ? Boolean(empresaActual.esContribuyenteEspecial)
+    : (esGt ? (configFiscal.esContribuyenteEspecial === true) : false);
 
   const buzonVisible = conBuzon && configFiscal.buzonActivo !== false;
   // C-g: contador PERSISTENTE de facturas nuevas en el buzón, segregado por la empresa activa
@@ -184,15 +191,14 @@ export function RetencionesPage() {
     ];
     impuestosQuePractica(claves, hoyVE(), empresaId ?? 'empresa-golden-touch')
       .then((s) => {
-        const esEspecial = esGt ? (configFiscal.esContribuyenteEspecial === true) : Boolean(empresaActual?.esContribuyenteEspecial);
-        if (s && !esEspecial) {
+        if (s && !esEspecialEmpresa) {
           s.delete('IVA');
         }
         setPracticaClaves(s);
         setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
       })
       .catch(() => { setPracticaClaves(null); setPractica(null); });
-  }, [empresaId, esGt, configFiscal.esContribuyenteEspecial, empresaActual?.esContribuyenteEspecial]);
+  }, [empresaId, esEspecialEmpresa]);
   useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
   // Las vistas (tarjetas, filtros y columnas por impuesto) salen de los impuestos
@@ -228,20 +234,28 @@ export function RetencionesPage() {
   const [orden, setOrden] = useState<'reciente' | 'antiguo' | 'proveedor'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
+  const [reintegrosCount, setReintegrosCount] = useState(0);
   const limpiarFiltros = () => { setFDesde(''); setFHasta(''); setFTipo(''); setFTesoreria(''); setFTexto(''); };
   useEffect(() => { setPag(1); }, [vista, fDesde, fHasta, fTipo, fTesoreria, fTexto, orden]);
 
   const reload = useCallback(async () => {
+    void refrescarEmpresas?.();
     const cfg = await getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO);
     setConfigFiscal(cfg);
-    const [p, h, libro, fc, fb, sf] = await Promise.all([
+    const [p, h, libro, fc, fb, sf, reintegrosEsperando] = await Promise.all([
       listRetencionesPendientes(cfg.estadosKanbanRetencion).catch(() => [] as RetencionItem[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
       listRetenciones({ direccion: 'practicada' }).catch(() => []),
       facturasPorRegistrar().catch(() => [] as FacturaDeOrigen[]),
       listFacturasBuzon().catch(() => [] as FacturaBuzon[]),
       cargarSoportesFisicos().catch(() => ({} as SoportesFisicosMap)),
+      cargarOrdenesEsperandoReintegro().catch(() => [] as FilaConciliacionEntrada[]),
     ]);
+    const localesReint = new Set(leerReintegrosLocales().map((x: { codigoOc?: string | null; id?: string }) => x.codigoOc || x.id));
+    const pendientesReint = reintegrosEsperando.filter(
+      (r) => !localesReint.has(r.codigoOc || '') && !localesReint.has(r.id)
+    ).length;
+    setReintegrosCount(pendientesReint);
     const reg: Registradas = new Map();
     for (const r of libro) {
       if (!r.docId) continue;
@@ -522,8 +536,20 @@ export function RetencionesPage() {
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
               Por hacer{colaPorHacer.length ? ` (${colaPorHacer.length})` : ''}
             </button>
-            <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📋 Control de Retenciones</button>
+            <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+            <button
+              className={vista === 'reintegros' ? 'active' : ''}
+              onClick={() => setVista('reintegros')}
+              style={{
+                position: 'relative',
+                ...(vista === 'reintegros'
+                  ? { background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: '#fff', fontWeight: 700 }
+                  : {}),
+              }}
+            >
+              Reintegros{reintegrosCount > 0 ? ` (${reintegrosCount})` : ''}
+            </button>
             {buzonVisible && (
               <button className={vista === 'buzon' ? 'active' : ''} onClick={() => { setVista('buzon'); marcarBuzonVisto(); }}>
                 📥 Buzón Móvil{buzonNuevas > 0 ? ` (${buzonNuevas})` : ''}
@@ -571,6 +597,16 @@ export function RetencionesPage() {
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
+
+      {/* ── Reintegros pendientes de proveedores (post-pago) ── */}
+      {vista === 'reintegros' && (
+        <ReintegrosPendientesView
+          empresaId={empresaId}
+          empresaNombre={empresaActual?.nombre}
+          canWrite={canWrite}
+          actorName={actorName}
+        />
+      )}
 
       {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
       {vista === 'buzon' && buzonVisible && (

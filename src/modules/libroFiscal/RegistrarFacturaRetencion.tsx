@@ -61,6 +61,7 @@ import { montoPagadoDeOrden, type MontoPagado } from '@/modules/retenciones/pago
 import { supabase } from '@/shared/lib/supabase';
 import { listRetencionesPendientes, type RetencionItem } from '@/modules/retenciones/retenciones.repository';
 import { listFacturasBuzon, actualizarEstatusFacturaBuzon, type FacturaExternaBuzon } from '@/modules/retenciones/facturasBuzon.repository';
+import { FacturaEnsambladaModal } from './FacturaEnsambladaModal';
 
 /** Para calcular mientras se escribe. Lo ilegible lo señala `ilegibles` antes de registrar. */
 const nDec = (v: string) => leerMonto(v) ?? 0;
@@ -234,8 +235,21 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
   const [archivoFacturaUrl, setArchivoFacturaUrl] = useState<string | null>(null);
   const [adjuntoExistente, setAdjuntoExistente] = useState<{ nombre: string; bucket: string; path: string } | null>(null);
+  const [soporteRemotoUrl, setSoporteRemotoUrl] = useState<string | null>(null);
 
   const soporteActivo = s.adjunto ?? adjuntoExistente;
+
+  useEffect(() => {
+    let vivo = true;
+    if (soporteActivo) {
+      urlFacturaDeOrigen(soporteActivo)
+        .then((u) => { if (vivo) setSoporteRemotoUrl(u); })
+        .catch(() => { if (vivo) setSoporteRemotoUrl(null); });
+    } else {
+      setSoporteRemotoUrl(null);
+    }
+    return () => { vivo = false; };
+  }, [soporteActivo]);
 
   const [modoOrigen, setModoOrigen] = useState<'oc' | 'buzon' | 'manual'>(() => {
     if (empresaFicha) return 'buzon';
@@ -269,6 +283,8 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   // Modo de ensamblaje de factura estilo Valery Software
   const [modoCaptura, setModoCaptura] = useState<'rapido' | 'valery'>('rapido');
   const [renglonesValery, setRenglonesValery] = useState<RenglonValery[]>([]);
+  const [verComparativaEnsamblada, setVerComparativaEnsamblada] = useState(false);
+  const [soporteOrigenUrl, setSoporteOrigenUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!proveedorId) {
@@ -2177,6 +2193,33 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   <strong className="mono" style={{ fontSize: '.98rem', color: 'var(--success, #22c55e)' }}>{money(calculoValery.totalFactura, moneda)}</strong>
                 </div>
               </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  style={{ color: 'var(--primary, #f59e0b)', borderColor: 'rgba(245, 158, 11, 0.4)', fontSize: '.78rem' }}
+                  onClick={async () => {
+                    if (archivoFacturaUrl) {
+                      setSoporteOrigenUrl(archivoFacturaUrl);
+                    } else if (soporteActivo) {
+                      try {
+                        const u = await urlFacturaDeOrigen(soporteActivo);
+                        setSoporteOrigenUrl(u);
+                      } catch {
+                        setSoporteOrigenUrl(null);
+                      }
+                    } else {
+                      setSoporteOrigenUrl(null);
+                    }
+                    setVerComparativaEnsamblada(true);
+                  }}
+                  disabled={renglonesValery.length === 0}
+                  title="Ver y comparar la factura ensamblada lado a lado con el soporte físico original"
+                >
+                  👁️ Comparar factura ensamblada vs original
+                </button>
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -2606,6 +2649,22 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </small>
       )}
       {avisoRecibida && <div className="lfv8-alerta-media" style={{ marginTop: '.5rem' }}><span>⚠️ {avisoRecibida}</span></div>}
+
+      {verComparativaEnsamblada && (
+        <FacturaEnsambladaModal
+          facturaNro={facturaNro}
+          facturaControl={facturaControl}
+          facturaFecha={facturaFecha}
+          proveedorNombre={contraparte}
+          proveedorRif={rif}
+          moneda={moneda}
+          renglones={renglonesValery}
+          calculoValery={calculoValery}
+          archivoUrl={archivoFacturaUrl || soporteRemotoUrl || soporteOrigenUrl}
+          archivoNombre={archivoFactura?.name || soporteActivo?.nombre}
+          onClose={() => setVerComparativaEnsamblada(false)}
+        />
+      )}
     </Modal>
   );
 }
