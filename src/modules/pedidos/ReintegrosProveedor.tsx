@@ -64,7 +64,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
           o.items.some(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad))));
       }
       setError('');
-    } catch (e) { setError(mensajeError(e)); }
+    } catch (e) { setError(mensajeError(e, 'No se pudo completar la operación')); }
     finally { setLoading(false); }
   }, [tesoreria]);
 
@@ -116,7 +116,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       setOrden(null); setOpciones([]); setCantidades({}); setMonto(''); setMotivo('');
       toast('Reintegro pendiente en Tesorería', 'success');
       await cargar();
-    } catch (e) { setError(mensajeError(e)); }
+    } catch (e) { setError(mensajeError(e, 'No se pudo completar la operación')); }
     finally { setSaving(false); }
   }
 
@@ -134,7 +134,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       setRecibir(null); setArchivo(null);
       toast('Ingreso registrado y reintegro recibido', 'success');
       await cargar();
-    } catch (e) { setError(mensajeError(e)); }
+    } catch (e) { setError(mensajeError(e, 'No se pudo completar la operación')); }
     finally { setSaving(false); }
   }
 
@@ -154,7 +154,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
       if (errorOrden) throw errorOrden;
       toast('Faltantes en cotización · ' + nueva.codigo, 'success');
       await cargar();
-    } catch (e) { setError(mensajeError(e)); }
+    } catch (e) { setError(mensajeError(e, 'No se pudo completar la operación')); }
     finally { setSaving(false); }
   }
 
