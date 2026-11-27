@@ -32,7 +32,7 @@ vi.mock('@/shared/lib/supabase', () => ({
 
 import { rifValido } from '@/shared/lib/rif';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { CONFIG_RETENCION_DEFECTO } from './retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
 import {
   SIN_PERMISO, aRetencion, anularRetencion, conceptosDeFilaGt, conceptosLocales, configDeJson, direccionDeGt,
   errorPorcentajesIva, guardarConfigRetencion,

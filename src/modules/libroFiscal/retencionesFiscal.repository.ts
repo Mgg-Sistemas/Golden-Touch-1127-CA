@@ -377,6 +377,8 @@ export type DocKind = 'oc' | 'compra_directa' | 'servicio_directo' | 'manual';
 
 export interface RetencionPracticada {
   id: string;
+  /** Multi-empresa: ID de la empresa a la que pertenece la retención. */
+  empresaId?: string | null;
   /** VF: el documento fiscal (factura) al que pertenece la línea, si lo tiene. */
   documentoId?: string | null;
   tipo: TipoImpuesto;
@@ -517,6 +519,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     declaradaEn: texto(r.declarada_at),
     declaradaPor: texto(r.declarada_por),
     actorName: texto(r.actor_name),
+    empresaId: texto(r.empresa_id ?? (doc as any)?.empresa_id),
     createdAt: String(r.created_at ?? ''),
     updatedAt: texto(r.updated_at),
   };
