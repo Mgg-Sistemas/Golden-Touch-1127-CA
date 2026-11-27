@@ -147,6 +147,93 @@ export async function registrarCondicion(c: CondicionNueva, empresaId?: string |
 }
 
 /**
+ * Guarda o actualiza una condición en la base de datos sin fallar por duplicados de la misma fecha «desde».
+ */
+export async function guardarOActualizarCondicion(c: CondicionNueva, empresaId?: string | null): Promise<string> {
+  const falta = faltaEnCondicion(c);
+  if (falta) throw new Error(falta);
+
+  let q = supabase.from(T_CONDICIONES).select('id').eq('condicion', c.condicion).eq('desde', c.desde);
+  if (c.condicion === 'contribuyente_especial') {
+    q = q.is('impuesto_clave', null);
+  } else {
+    q = q.eq('impuesto_clave', c.impuestoClave);
+  }
+  if (empresaId && (await regimenPorEmpresaDisponible())) {
+    q = q.eq('empresa_id', empresaId);
+  }
+  const { data: existente } = await q.maybeSingle();
+
+  if (existente?.id) {
+    await actualizarCondicion(existente.id, c);
+    return existente.id;
+  }
+  return registrarCondicion(c, empresaId);
+}
+
+/**
+ * Aplica el régimen maestro (Contribuyente Ordinario o Contribuyente Especial)
+ * actualizando en bloque las condiciones pertinentes y sincronizando la configuración general.
+ */
+export async function aplicarRegimenMaestro({
+  empresaId,
+  esEspecial,
+  desde,
+  motivo,
+  fuente,
+}: {
+  empresaId?: string | null;
+  esEspecial: boolean;
+  desde: string;
+  motivo: string;
+  fuente?: string | null;
+}): Promise<void> {
+  const condiciones: CondicionNueva[] = [
+    {
+      impuestoClave: 'IVA',
+      condicion: 'agente_retencion',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+    {
+      impuestoClave: null,
+      condicion: 'contribuyente_especial',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+    {
+      impuestoClave: 'IGTF',
+      condicion: 'agente_percepcion',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+  ];
+
+  for (const cond of condiciones) {
+    await guardarOActualizarCondicion(cond, empresaId);
+  }
+
+  // Sincronización explícita en tabla config
+  try {
+    const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+    if (cfgRow?.value) {
+      const v = { ...(cfgRow.value as Record<string, unknown>) };
+      v.agente_retencion_iva = esEspecial;
+      v.contribuyente_especial = esEspecial;
+      await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
+}
+
+/**
  * Fecha más antigua desde la cual la empresa fue designada como agente de retención (IVA o especial).
  * Si no hay registros en retencion_agente_condiciones, devuelve el fallback '2026-10-01'.
  */

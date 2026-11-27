@@ -346,12 +346,147 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-pa-que dd { margin: 0; color: #cbd5e1; }
 .lfv8-pa-aviso { padding: .65rem .95rem; border: 1px solid rgba(245, 158, 11, 0.28); border-radius: 10px; background: rgba(245, 158, 11, 0.07); font-size: .84rem; color: #fef3c7; line-height: 1.5; margin-bottom: .85rem; }
 .lfv8-pa-placeholder { text-align: center; padding: 2rem 1rem; color: var(--text-muted); font-size: .85rem; border: 1px dashed var(--border-strong); border-radius: var(--r-md); }
-.lfv8-pa-placeholder { text-align: center; padding: 2rem 1rem; color: var(--text-muted); font-size: .85rem; border: 1px dashed var(--border-strong); border-radius: var(--r-md); }
 @media (max-width: 640px) {
   .lfv8-pa-grid { grid-template-columns: 1fr; }
   .lfv8-pa-btn { min-height: 0; }
   .lfv8-pa-que { grid-template-columns: 1fr; gap: .1rem; }
   .lfv8-pa-que dd { margin-bottom: .35rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Modal de Parámetros Rediseñado (Centrado, contenido, no full-screen)
+   ═══════════════════════════════════════════════════════════════ */
+.modal.lfv8-modal-parametros {
+  width: min(1060px, calc(100vw - 2.5rem)) !important;
+  max-width: min(1060px, calc(100vw - 2.5rem)) !important;
+  height: auto !important;
+  max-height: calc(100vh - 4.5rem) !important;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16)) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.85) !important;
+  margin: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.modal.lfv8-modal-parametros .modal-header {
+  padding: 1rem 1.4rem !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--surface-1, #13171f);
+}
+
+.modal.lfv8-modal-parametros .modal-body {
+  padding: 1.25rem 1.4rem !important;
+  flex: 1 1 auto;
+  overflow-y: auto !important;
+  max-height: calc(100vh - 12rem);
+}
+
+.modal.lfv8-modal-parametros .modal-footer {
+  padding: .75rem 1.4rem !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: var(--surface-1, #13171f);
+}
+
+/* Selector Maestro de Régimen Tributario */
+.lfv8-regimen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  margin: .85rem 0 1rem;
+}
+
+.lfv8-regimen-card {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  padding: 1.2rem 1.3rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.005) 100%), var(--bg-1, #13171f);
+  transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  text-align: left;
+}
+
+.lfv8-regimen-card:hover {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.06) 0%, rgba(255, 255, 255, 0.015) 100%), var(--bg-1, #13171f);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.lfv8-regimen-card.active {
+  border-color: var(--primary, #f59e0b);
+  box-shadow: 0 0 0 1px var(--primary, #f59e0b), 0 8px 30px rgba(245, 158, 11, 0.16);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.085) 0%, rgba(245, 158, 11, 0.02) 100%), var(--bg-1, #13171f);
+}
+
+.lfv8-regimen-badge {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  width: fit-content;
+}
+
+.lfv8-regimen-badge.ordinario {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+}
+
+.lfv8-regimen-badge.especial {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.lfv8-regimen-title {
+  font-size: 1.12rem;
+  font-weight: 700;
+  color: var(--text-normal, #f8fafc);
+  margin-bottom: .3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lfv8-regimen-desc {
+  font-size: .82rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.4;
+  margin-bottom: .85rem;
+}
+
+.lfv8-regimen-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  font-size: .81rem;
+}
+
+.lfv8-regimen-bullets li {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  line-height: 1.35;
+}
+
+.lfv8-regimen-action-box {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.1rem;
+  margin-top: .75rem;
 }
 
 /* ═══════════════════════════════════════════════════════════════

@@ -2526,6 +2526,9 @@ type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'f
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
+  { key: 'regimen', capa: 'ajustes', titulo: '📋 Régimen fiscal de la empresa', linea: 'Contribuyente Ordinario vs. Especial · Agente de retención de IVA, IGTF, ISLR e ISAE.',
+    que: 'Las condiciones de la empresa ante el SENIAT y Alcaldía.', ingresa: 'Selector asistido: Ordinario (no retiene IVA) o Especial (designado por SENIAT), fecha y providencia.',
+    efecto: 'Determina si la empresa retiene IVA (75 % / 100 %) y percibe IGTF (3 %) en facturas de compras.', noCambia: 'Las retenciones históricas ya emitidas.' },
   { key: 'motivos', capa: 'ajustes', titulo: '🏷️ Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
     que: 'Las razones que se eligen al marcar que una factura no lleva retención.', ingresa: 'El texto del motivo y el impuesto en que se ofrece (o todos).',
     efecto: 'Se ofrecen al registrar una retención en 0 %, según el impuesto y la fecha de la factura.', noCambia: 'Lo ya registrado conserva el texto de su motivo, aunque el motivo se edite o se desactive.' },
@@ -2575,9 +2578,6 @@ const AVANZADOS_PA: DefSeccionPa[] = [
   { key: 'numeracion', capa: 'avanzados', titulo: '🔢 Períodos y numeración', linea: 'Periodicidad, series de comprobantes y paso inicial de cada impuesto.',
     que: 'Cómo se agrupan las retenciones para declarar y cómo se numeran los comprobantes.', ingresa: 'Periodicidad, quién numera la serie, período en curso y último número del otro sistema.',
     efecto: 'Cambia los períodos por declarar y el número que se propone al registrar.', noCambia: 'Nunca se cambia dentro de un período declarado. Un número usado no se repite.' },
-  { key: 'regimen', capa: 'avanzados', titulo: '📋 Régimen fiscal de la empresa', linea: 'Agente de retención de IVA, contribuyente especial y % de retención del IVA.',
-    que: 'Las condiciones de la empresa ante el SENIAT.', ingresa: 'Si es agente de retención de IVA, si es contribuyente especial y los porcentajes de retención del IVA (75 y 100).',
-    efecto: '«Agente de retención de IVA» decide si se propone la retención de IVA. «Contribuyente especial» habilita el IGTF.', noCambia: 'Lo ya registrado. Todavía no guarda la fecha ni el historial del cambio.' },
   { key: 'formatos', capa: 'avanzados', titulo: '🖨️ Formatos de impresión', linea: 'Textos, rótulos y columnas del comprobante de cada impuesto, por fecha.',
     que: 'Cómo se imprime el comprobante de cada impuesto: encabezado, nota legal, pie, rótulos, columnas y orientación.', ingresa: 'Una versión con su fecha «desde» y su motivo; o la vuelta al diseño de fábrica.',
     efecto: 'El comprobante usa la versión vigente a su fecha de emisión.', noCambia: 'Los datos de las retenciones: solo cambia cómo se imprimen.' },
@@ -2712,7 +2712,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
       }
       case 'firma': return 'Logo, firma y sello para comprobantes';
       case 'buzon_telefono': return cfg.buzonActivo !== false ? 'Buzón activo · Recepción móvil' : 'Buzón desactivado';
-      case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
+      case 'regimen': {
+        const esEsp = cfg.esContribuyenteEspecial || cfg.esAgenteRetencionIva;
+        return esEsp ? '⭐ Especial (Agente IVA · IGTF)' : '🏢 Ordinario (No retiene IVA · ISAE/ISLR)';
+      }
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
       default: return '';
@@ -2726,7 +2729,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
 
   return (
     <>
-    <Modal title={tituloModal} size="xl" onClose={pedirCierre}
+    <Modal title={tituloModal} size="xl" className="lfv8-modal-parametros" onClose={pedirCierre}
       footer={
         <>
           <span className="hint muted" style={{ fontSize: '.78rem', marginRight: 'auto' }}>
@@ -2785,17 +2788,27 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmp
         const def = seccion === 'valores' && r3 ? DEF_VALORES_R3 : TODAS_PA[seccion];
         return (
         <>
-          <button type="button" className="lfv8-pa-volver" onClick={volver}>
-            {def.capa === 'avanzados' ? '← Ajustes avanzados' : '← Parámetros'}
-          </button>
-          {def.capa === 'avanzados' && <div className="lfv8-pa-aviso" style={{ marginTop: '.4rem' }}>{AVISO_AVANZADOS}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.6rem', flexWrap: 'wrap', gap: '.5rem' }}>
+            <button type="button" className="lfv8-pa-volver" onClick={volver}>
+              {def.capa === 'avanzados' ? '← Volver a Ajustes avanzados' : '← Volver a Parámetros'}
+            </button>
+            <span className="hint muted" style={{ fontSize: '.78rem' }}>
+              {def.capa === 'avanzados' ? 'Ajustes avanzados' : 'Ajustes'} › {def.titulo}
+            </span>
+          </div>
+          {def.capa === 'avanzados' && <div className="lfv8-pa-aviso" style={{ marginTop: '.2rem' }}>{AVISO_AVANZADOS}</div>}
           <h4 className="lfv8-pa-sec-t">{def.titulo}</h4>
-          <dl className="lfv8-pa-que">
-            <dt>Qué es</dt><dd>{def.que}</dd>
-            <dt>Qué se ingresa</dt><dd>{def.ingresa}</dd>
-            <dt>Qué efecto tiene</dt><dd>{def.efecto}</dd>
-            <dt>Qué no cambia</dt><dd>{def.noCambia}</dd>
-          </dl>
+          <details style={{ marginBottom: '.9rem', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 10, padding: '.55rem .85rem', background: 'rgba(255, 255, 255, 0.015)' }}>
+            <summary style={{ cursor: 'pointer', fontSize: '.82rem', color: '#94a3b8', userSelect: 'none' }}>
+              💡 <strong>Guía normativa:</strong> {def.linea} <span style={{ color: 'var(--primary)', textDecoration: 'underline', marginLeft: '.5rem', fontSize: '.76rem' }}>Ver detalles</span>
+            </summary>
+            <dl className="lfv8-pa-que" style={{ marginTop: '.5rem', marginBottom: 0 }}>
+              <dt>Qué es</dt><dd>{def.que}</dd>
+              <dt>Qué se ingresa</dt><dd>{def.ingresa}</dd>
+              <dt>Qué efecto tiene</dt><dd>{def.efecto}</dd>
+              <dt>Qué no cambia</dt><dd>{def.noCambia}</dd>
+            </dl>
+          </details>
           {soloLectura && (
             <div className="hint muted" style={{ marginBottom: '.6rem', fontSize: '.82rem' }}>
               Para cambiar los parámetros fiscales hace falta permiso de escritura en Retenciones.
