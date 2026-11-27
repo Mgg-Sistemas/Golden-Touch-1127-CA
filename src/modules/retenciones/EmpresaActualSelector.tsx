@@ -19,7 +19,6 @@ export interface EmpresaActualSelectorProps {
   empresaId: string | null;
   onChange: (id: string) => void;
   conteos?: Record<string, number>;
-  onGestionarEmpresas?: () => void;
 }
 
 export function EmpresaActualSelector({
@@ -27,7 +26,6 @@ export function EmpresaActualSelector({
   empresaId,
   onChange,
   conteos,
-  onGestionarEmpresas,
 }: EmpresaActualSelectorProps) {
   const activas = empresas.filter((e) => e.activo);
   const lista = activas.length ? activas : empresas;
@@ -85,14 +83,14 @@ export function EmpresaActualSelector({
           <span style={{ fontSize: '1.25rem' }}>🏢</span>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <strong style={{ fontSize: '.9rem', color: 'var(--text-normal)' }}>
+              <strong style={{ fontSize: '.9rem', color: '#f8fafc' }}>
                 Empresa Agente de Retención Activa
               </strong>
               <span
                 style={{
                   fontSize: '.7rem',
                   fontWeight: 700,
-                  color: 'var(--text-muted)',
+                  color: '#94a3b8',
                   background: 'rgba(255, 255, 255, 0.05)',
                   border: '1px solid var(--border)',
                   padding: '1px 7px',
@@ -101,29 +99,6 @@ export function EmpresaActualSelector({
               >
                 {lista.length} {lista.length === 1 ? 'empresa' : 'empresas registradas'}
               </span>
-              {onGestionarEmpresas && (
-                <button
-                  type="button"
-                  className="btn btn-xs"
-                  onClick={onGestionarEmpresas}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '.3rem',
-                    padding: '2px 9px',
-                    fontSize: '.72rem',
-                    fontWeight: 700,
-                    background: 'rgba(245, 158, 11, 0.12)',
-                    color: 'var(--primary, #f59e0b)',
-                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                  }}
-                  title="Gestionar empresas receptoras, sincronizar con Administración o editar datos fiscales"
-                >
-                  ⚙️ Gestionar empresas
-                </button>
-              )}
             </div>
             <small className="muted" style={{ display: 'block', fontSize: '.74rem', marginTop: '1px' }}>
               Los libros fiscales, comprobantes emitidos y facturas en cola corresponden a la empresa seleccionada:
@@ -246,7 +221,7 @@ export function EmpresaActualSelector({
               marginBottom: '.4rem',
             }}
           >
-            <span style={{ fontSize: '.74rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '.74rem', fontWeight: 600, color: '#94a3b8' }}>
               Cambiar a otra empresa receptora ({lista.length}):
             </span>
             {lista.length > 3 && (
@@ -313,12 +288,13 @@ export function EmpresaActualSelector({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '.3rem',
+                    color: '#f8fafc',
                     border: esActiva
                       ? '1.5px solid var(--primary, #f59e0b)'
                       : '1px solid var(--border)',
                     background: esActiva
                       ? 'rgba(245, 158, 11, 0.08)'
-                      : 'rgba(255, 255, 255, 0.02)',
+                      : 'rgba(255, 255, 255, 0.03)',
                   }}
                 >
                   <div
@@ -334,7 +310,7 @@ export function EmpresaActualSelector({
                       style={{
                         fontWeight: 700,
                         fontSize: '.84rem',
-                        color: esActiva ? 'var(--primary, #f59e0b)' : 'var(--text-normal)',
+                        color: esActiva ? 'var(--primary, #f59e0b)' : '#f8fafc',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -350,7 +326,8 @@ export function EmpresaActualSelector({
                           fontSize: '.68rem',
                           fontWeight: 700,
                           color: '#22c55e',
-                          background: 'rgba(34, 197, 94, 0.12)',
+                          background: 'rgba(34, 197, 94, 0.15)',
+                          border: '1px solid rgba(34, 197, 94, 0.3)',
                           padding: '1px 6px',
                           borderRadius: '4px',
                         }}
@@ -361,8 +338,10 @@ export function EmpresaActualSelector({
                       <span
                         style={{
                           fontSize: '.68rem',
-                          color: 'var(--text-muted)',
-                          background: 'rgba(255, 255, 255, 0.04)',
+                          fontWeight: 600,
+                          color: '#94a3b8',
+                          background: 'rgba(255, 255, 255, 0.06)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
                           padding: '1px 6px',
                           borderRadius: '4px',
                         }}
@@ -372,15 +351,15 @@ export function EmpresaActualSelector({
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.72rem', color: 'var(--text-muted)' }}>
-                    <code style={{ fontSize: '.71rem' }}>{e.rif}</code>
-                    <span style={{ color: esGt ? 'var(--text-muted)' : 'var(--info, #38bdf8)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.72rem', color: '#94a3b8' }}>
+                    <code style={{ fontSize: '.71rem', color: '#cbd5e1' }}>{e.rif}</code>
+                    <span style={{ color: esGt ? '#94a3b8' : 'var(--info, #38bdf8)' }}>
                       {esGt ? 'Compras + Buzón' : 'Solo Buzón'}
                     </span>
                   </div>
 
                   {cantidad !== undefined && (
-                    <div style={{ fontSize: '.71rem', fontWeight: 600, color: cantidad > 0 ? 'var(--warning, #eab308)' : 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '.71rem', fontWeight: 600, color: cantidad > 0 ? 'var(--warning, #eab308)' : '#94a3b8' }}>
                       {cantidad > 0 ? `⚡ ${cantidad} por retener` : '✓ Sin pendientes'}
                     </div>
                   )}

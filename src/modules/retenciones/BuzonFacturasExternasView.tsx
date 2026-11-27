@@ -79,14 +79,12 @@ export interface BuzonFacturasExternasViewProps {
   empresaId?: string | null;
   onEmpresaChange?: (id: string) => void;
   onRegistrar?: (fac: FacturaBuzon) => void;
-  onAbrirGestionEmpresas?: () => void;
 }
 
 export function BuzonFacturasExternasView({
   empresaId,
   onEmpresaChange,
   onRegistrar,
-  onAbrirGestionEmpresas,
 }: BuzonFacturasExternasViewProps = {}) {
   const { can } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
@@ -365,11 +363,11 @@ export function BuzonFacturasExternasView({
 
           <button
             type="button"
-            className="btn btn-sm btn-primary"
-            onClick={onAbrirGestionEmpresas || (() => setModalEmpresas(true))}
-            title={canWrite ? 'Ver, agregar, sincronizar con Administración y editar las empresas receptoras' : 'Ver las empresas receptoras'}
+            className="btn btn-sm"
+            onClick={() => setModalEmpresas(true)}
+            title={canWrite ? 'Ver, agregar y editar las empresas que reciben facturas y su ficha fiscal' : 'Ver las empresas que reciben facturas'}
           >
-            ⚙️ Gestionar empresas ({empresas.length})
+            🏢 Empresas ({empresas.length})
           </button>
 
           {empresaSeleccionadaActual && (
