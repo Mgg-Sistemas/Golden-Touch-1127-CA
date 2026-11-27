@@ -66,10 +66,10 @@ export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial
   const hoy = hoyIso();
   const empresaNombre = empresas.find((e) => e.id === empresaId)?.nombre ?? 'Golden Touch 1127 C.A.';
 
-  // Condiciones vigentes hoy
+  // Condiciones vigentes hoy: en Venezuela, solo la calificación formal como Contribuyente Especial otorga la cualidad
   const vIva = historial ? condicionVigente(historial, 'IVA', 'agente_retencion', hoy) : null;
   const vEsp = historial ? condicionVigente(historial, null, 'contribuyente_especial', hoy) : null;
-  const esEspecialActual = Boolean(vIva?.valor || vEsp?.valor);
+  const esEspecialActual = Boolean(vEsp?.valor);
   const esOrdinarioActual = !esEspecialActual;
 
   const [targetRegimen, setTargetRegimen] = useState<'ordinario' | 'especial'>('ordinario');

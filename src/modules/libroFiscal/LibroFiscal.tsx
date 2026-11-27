@@ -399,11 +399,14 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     pendientes: number; registradas: number;
   };
 
-  // El IGTF no es tarjeta (es costo, ni se practica ni se sufre); del resto, solo los activos.
-  const impuestosTarjeta = useMemo(
-    () => soloImpuestosActivos(TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf'), impuestosActivos),
-    [impuestosActivos],
-  );
+  // Las tarjetas de impuestos obedecen a lo que la empresa activa estipuló en Parámetros (y retenciones existentes)
+  const impuestosTarjeta = useMemo(() => {
+    const activos = soloImpuestosActivos(TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf'), impuestosActivos);
+    return activos.filter((t) =>
+      puedePracticarEmpresa(t.key as TipoImpuesto, config) ||
+      visibles.some((r) => r.tipo === t.key && !r.anulada)
+    );
+  }, [impuestosActivos, puedePracticarEmpresa, config, visibles]);
 
   const agruparPorProveedor = useCallback((fuente: RetencionPracticada[]): ProveedorAgrupado[] => {
     const provMap = new Map<string, Map<string, FacturaAgrupada>>();
@@ -442,21 +445,18 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       const facturas = [...fMap.values()];
       let pendientes = 0, registradas = 0;
       for (const f of facturas) {
-        const esPracticada = [...f.retenciones.values()].some((r) => r.direccion === 'practicada');
         for (const t of impuestosTarjeta) {
           const r = f.retenciones.get(t.key as TipoImpuesto);
           if (r && !r.anulada) {
             if (r.estado === 'registrada' || r.estado === 'declarada') registradas++;
             else pendientes++;
-          } else if (!r && esPracticada && puedePracticarEmpresa(t.key as TipoImpuesto, config)) {
-            pendientes++;
           }
         }
       }
       result.push({ ...info, facturas, pendientes, registradas });
     }
     return result;
-  }, [impuestosTarjeta, config, puedePracticarEmpresa]);
+  }, [impuestosTarjeta]);
 
   const proveedores = useMemo<ProveedorAgrupado[]>(() => agruparPorProveedor(visibles), [agruparPorProveedor, visibles]);
   const proveedoresPagina = useMemo<ProveedorAgrupado[]>(() => agruparPorProveedor(pagina.filas), [agruparPorProveedor, pagina.filas]);
@@ -473,20 +473,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       else if (r.estado === 'registrada') c.registradas++;
       else c.pendientes++;
     }
-    for (const prov of proveedores) {
-      for (const f of prov.facturas) {
-        const esPracticada = [...f.retenciones.values()].some((r) => r.direccion === 'practicada');
-        if (!esPracticada) continue;
-        for (const t of impuestosTarjeta) {
-          const r = f.retenciones.get(t.key as TipoImpuesto);
-          if (!r && puedePracticarEmpresa(t.key as TipoImpuesto, config)) {
-            m[t.key].pendientes++;
-          }
-        }
-      }
-    }
     return m;
-  }, [visibles, impuestosTarjeta, proveedores, config, puedePracticarEmpresa]);
+  }, [visibles, impuestosTarjeta]);
 
   async function verComprobante(r: RetencionPracticada) {
     try {
@@ -957,12 +945,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                               return null;
                             }
                             return (
-                              <div key={t.key} className="lfv8-casilla falta">
+                              <div key={t.key} className="lfv8-casilla nc" style={{ borderStyle: 'dashed', opacity: 0.85 }}>
                                 <span className="lfv8-imp">{t.corto}</span>
-                                <span className="lfv8-est" style={{ color: 'var(--warning)' }}>— Falta cargar</span>
+                                <span className="lfv8-est" style={{ color: 'var(--text-muted)', fontWeight: 500 }}>— No retenido</span>
                                 {canWrite && (
                                   <span className="lfv8-acciones" style={{ marginTop: '4px' }}>
-                                    <button type="button" className="lfv8-mini registrar"
+                                    <button type="button" className="lfv8-mini"
                                       onClick={() => {
                                         const rExistente = [...f.retenciones.values()][0];
                                         const retencionConArchivo = [...f.retenciones.values()].find((rv) => !!rv.comprobantePath);
@@ -1027,8 +1015,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                           facturaFecha: f.fecha ?? null,
                                         });
                                       }}
-                                      title={`Practicar ${t.corto} y los demás impuestos pendientes de la Factura ${f.num}`}>
-                                      + Retener pendientes
+                                      title={`Practicar retención de ${t.corto} para la Factura ${f.num}`}>
+                                      + Retener {t.corto}
                                     </button>
                                   </span>
                                 )}

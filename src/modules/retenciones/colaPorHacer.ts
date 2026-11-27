@@ -89,8 +89,10 @@ export function impuestosPendientesDeOrden(
 ): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
-  const retiene = (k: ImpuestoPendiente) =>
-    (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
+  const retiene = (k: ImpuestoPendiente) => {
+    if (k === 'iva' && config && config.esContribuyenteEspecial !== true) return false;
+    return (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
+  };
 
   if (retiene('iva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
   if (retiene('islr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
@@ -109,8 +111,10 @@ export function impuestosAplicablesBuzon(
   activos?: Set<string> | null,
 ): ImpuestoPendiente[] {
   const out: ImpuestoPendiente[] = [];
-  const retiene = (k: ImpuestoPendiente) =>
-    (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
+  const retiene = (k: ImpuestoPendiente) => {
+    if (k === 'iva' && config && config.esContribuyenteEspecial !== true) return false;
+    return (practica ? practica.has(k) : (config ? puedePracticar(k, config) : false));
+  };
 
   if (retiene('iva')) out.push('iva');
   if (retiene('islr')) out.push('islr');

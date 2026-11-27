@@ -46,7 +46,8 @@ export function usePuedePracticarEmpresa(
   return useCallback(
     (tipo: TipoImpuesto, config: ConfigRetencion) => {
       if (esGt) {
-        if (tipo === 'iva') return config.esAgenteRetencionIva === true || config.esContribuyenteEspecial === true;
+        // Golden Touch es Contribuyente Ordinario ante el SENIAT: NO retiene IVA a proveedores salvo designación formal como Contribuyente Especial
+        if (tipo === 'iva') return config.esContribuyenteEspecial === true;
         if (tipo === 'municipal') return config.retieneMunicipal !== false;
         return puedePracticar(tipo, config);
       }

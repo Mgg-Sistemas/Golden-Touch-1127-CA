@@ -19,6 +19,7 @@ export interface EmpresaActualSelectorProps {
   empresaId: string | null;
   onChange: (id: string) => void;
   conteos?: Record<string, number>;
+  esEspecial?: boolean;
 }
 
 export function EmpresaActualSelector({
@@ -26,6 +27,7 @@ export function EmpresaActualSelector({
   empresaId,
   onChange,
   conteos,
+  esEspecial,
 }: EmpresaActualSelectorProps) {
   const activas = empresas.filter((e) => e.activo);
   const lista = activas.length ? activas : empresas;
@@ -35,6 +37,9 @@ export function EmpresaActualSelector({
   const empresaActiva = useMemo(() => {
     return lista.find((e) => e.id === empresaId) ?? lista[0];
   }, [lista, empresaId]);
+
+  const esGtActiva = esEmpresaGt(empresaActiva);
+  const esEspecialActiva = esEspecial !== undefined ? esEspecial : (esGtActiva ? false : Boolean(empresaActiva?.pctIvaEspecial));
 
   // Opciones para el buscador rápido de N empresas
   const opcionesSearch: SearchOption[] = useMemo(() => {
@@ -173,6 +178,23 @@ export function EmpresaActualSelector({
                   }}
                 >
                   <span style={{ fontSize: '.6rem' }}>●</span> ACTIVA
+                </span>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '.72rem',
+                    fontWeight: 700,
+                    color: esEspecialActiva ? '#fbbf24' : '#38bdf8',
+                    background: esEspecialActiva ? 'rgba(245, 158, 11, 0.15)' : 'rgba(56, 189, 248, 0.12)',
+                    border: `1px solid ${esEspecialActiva ? 'rgba(245, 158, 11, 0.4)' : 'rgba(56, 189, 248, 0.35)'}`,
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                  }}
+                  title={esEspecialActiva ? 'Designada Sujeto Pasivo Especial por el SENIAT (Retiene IVA y percibe IGTF)' : 'Contribuyente Ordinario ante el SENIAT (No retiene IVA · Retiene ISLR e ISAE)'}
+                >
+                  {esEspecialActiva ? '⭐ Especial' : '🏢 Ordinario'}
                 </span>
               </div>
               <div style={{ fontSize: '.76rem', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
