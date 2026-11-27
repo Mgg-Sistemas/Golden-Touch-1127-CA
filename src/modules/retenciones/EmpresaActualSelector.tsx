@@ -53,7 +53,6 @@ export function EmpresaActualSelector({
 
   if (lista.length === 0) return null;
 
-  const esGtActiva = esEmpresaGt(empresaActiva);
   const cantidadActiva = empresaActiva ? conteos?.[empresaActiva.id] : undefined;
 
   const scrollRail = (delta: number) => {
