@@ -1,3 +1,4 @@
+import { importeRecepcionComprada } from './recepcionExcedentes';
 import { supabase } from '@/shared/lib/supabase';
 import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { cambiarPapeleraCompras } from './papeleraCompras';
@@ -3147,12 +3148,14 @@ async function recibirOrdenParcialApartada(
   // Almacén al que entra la mercancía: el elegido al recibir manda; si no, el de la OC.
   const destinoFinal = (almacenDestino && almacenDestino.trim()) || (o.almacen_destino && o.almacen_destino.trim()) || null;
   const recMap = new Map(recepciones.map((r) => [r.sku, Math.max(0, Number(r.cantidad_recibida) || 0)]));
+  if (o.items.some(it => (recMap.get(it.sku) ?? 0) !== Number(it.cantidad)) && !nota?.trim()) throw new Error('Indica el motivo de la diferencia de recepción.');
   // Marca/modelo que LLEGÓ por renglón (lo pedido si no se tocó). Es lo que entra al inventario.
   const escritoPorSku = new Map(recepciones.map((r) => [r.sku, r]));
   const recibidoDe = (it: ItemOrden) => marcaRecibida(it, escritoPorSku.get(it.sku));
   for (const it of o.items) {
     const rec = recMap.get(it.sku) ?? 0;
-    if (rec > Number(it.cantidad)) throw new Error(`No puedes recibir más de lo pedido en ${it.sku}.`);
+    if (!Number.isFinite(rec)) throw new Error('Indica una cantidad recibida válida.');
+    if (o.tipo === 'servicio' && rec > Number(it.cantidad)) throw new Error('No puedes recibir más unidades de servicio que las contratadas.');
   }
   if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0) && (o.tipo === 'servicio' || !nota?.trim()))
     throw new Error('Indica el motivo por el que no llegó ningún producto.');
@@ -3294,8 +3297,8 @@ async function recibirOrdenParcialApartada(
     return { ...it, cantidad_recibida: rec, marca_recibida: r.marca ?? null, modelo_recibido: r.modelo ?? null };
   });
   const cambiosMarca = cambiosDeMarcaEnRecepcion(o, recepciones);
-  const recibidoTotal = Math.round(itemsRec.reduce((a, it) => a + (it.cantidad_recibida ?? 0) * Number(it.precio), 0) * 100) / 100;
-  const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) < Number(it.cantidad));
+  const recibidoTotal = importeRecepcionComprada(itemsRec);
+  const huboDiferencia = itemsRec.some((it) => (it.cantidad_recibida ?? 0) !== Number(it.cantidad));
   // Crédito recibido sin terminar de pagar: queda RECIBIDO pero la cuenta sigue
   // abierta (pendiente por pagar). Cuando se salde, pasará a 'recibida' y se finaliza.
   const esCredito = o.condiciones_pago === 'credito';

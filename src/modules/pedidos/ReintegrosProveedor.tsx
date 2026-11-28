@@ -1,3 +1,4 @@
+import { ExcedentesRecepcion } from './ExcedentesRecepcion';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { mensajeReintegroRecibido } from './mensajeReintegroRecibido';
 import { CompraYReintegroDetalle } from './CompraYReintegroDetalle';
@@ -43,7 +44,8 @@ export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria
   }, []);
   useEffect(() => { void cargarPendientes(); }, [cargarPendientes]);
   useRealtime(['compras_reintegros'], () => { void cargarPendientes(); }, { pollMs: 30000 });
-  return <div className="compras-acceso-reintegros">
+  return <div className="compras-acceso-reintegros" style={{ gap: '.4rem', flexWrap: 'wrap' }}>
+    {!tesoreria && <ExcedentesRecepcion />}
     <button className="btn btn-ghost" style={pendientes && pendientes > 0 ? { background: 'var(--warning, #ffb51b)', color: '#111', borderColor: 'transparent', fontWeight: 700 } : undefined}
       title={errorContador ? 'No se pudo actualizar el contador. Abre la vista para consultar los reintegros.' : 'Consultar reintegros de proveedores'} onClick={() => setOpen(true)}>
       ↩ Reintegros de proveedores <span aria-live="polite">{pendientes !== null ? `(${pendientes})` : ''}</span>

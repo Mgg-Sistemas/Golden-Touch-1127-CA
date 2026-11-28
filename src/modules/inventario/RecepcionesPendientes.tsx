@@ -145,8 +145,8 @@ function RecibirOrdenModal({
     setRecs((r) => ({ ...r, [sku]: v }));
   }
 
-  const recibidoTotal = orden.items.reduce((a, it) => a + (Number(recs[it.sku]) || 0) * Number(it.precio), 0);
-  const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) < Number(it.cantidad));
+  const recibidoTotal = orden.items.reduce((a, it) => a + Math.min(Number(recs[it.sku]) || 0, Number(it.cantidad)) * Number(it.precio), 0);
+  const hayDiferencia = orden.items.some((it) => (Number(recs[it.sku]) || 0) !== Number(it.cantidad));
 
   async function handleConfirm() {
     setError(null);
@@ -157,7 +157,7 @@ function RecibirOrdenModal({
     if (recepciones.every((r) => r.cantidad_recibida <= 0) && (esServicio || !nota.trim())) { setError(esServicio ? 'Indica al menos una cantidad recibida.' : 'Indica el motivo por el que no llegó ningún producto.'); return; }
     // Un servicio no entra a ningún almacén: no se le pide destino.
     if (!esServicio && !almacen.trim()) { setError('Elige el almacén destino al que entra la mercancía.'); return; }
-    if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indica una nota explicando la diferencia.'); return; }
+    if (hayDiferencia && !nota.trim()) { setError('Hay diferencias con lo pedido: indica el motivo (faltante o excedente del proveedor).'); return; }
     setSaving(true);
     try {
       await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName, esServicio ? null : almacen.trim());
@@ -317,7 +317,7 @@ function RecibirOrdenModal({
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <input className="input mono" type="number" min={0} max={it.cantidad} step="any"
+                    <input className="input mono" type="number" min={0}  step="any"
                       value={recs[it.sku]} onChange={(e) => setRec(it.sku, Number(it.cantidad), e.target.value)}
                       style={{ width: 90, textAlign: 'right', borderColor: falta ? 'var(--warning)' : undefined }} />
                   </td>
