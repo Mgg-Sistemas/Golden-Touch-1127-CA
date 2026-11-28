@@ -1,3 +1,4 @@
+import { ALMACEN_MINA, ALMACEN_REUTILIZABLES, ALMACEN_DANADOS } from './depositos';
 /* ============================================================
    Golden Touch · Depósito Mina · Salida y retorno en el teléfono (13/10/2026)
 
@@ -138,6 +139,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
   onCancel: () => void; onSaved: () => void;
 }) {
   const lugar = almacen === 'General' ? 'el inventario' : 'el depósito';
+  const evidenciaPersona = [ALMACEN_MINA, ALMACEN_REUTILIZABLES, ALMACEN_DANADOS].includes(almacen);
   const [items, setItems] = useState<ItemLoteMovil[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
@@ -291,6 +293,30 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
     }
   }
 
+  const campoFotos = (
+      <div className="surt-campo">
+        <label htmlFor="mina-salida-fotos">{evidenciaPersona ? '📷 Fotos de la persona que recibe la entrega' : 'Fotos'} ({fotos.length}/{MAX_FOTOS_SALIDA_MINA}) · opcional</label>
+        {evidenciaPersona && <small className="muted">Fotografía a la persona a quien entregas el material. Máximo cuatro fotos por salida; quedan guardadas y van con el mensaje de WhatsApp.</small>}
+        {evidenciaPersona && fotos.length < MAX_FOTOS_SALIDA_MINA && <label className="btn btn-ghost btn-grande" htmlFor="mina-salida-camara">📸 Tomar foto
+          <input id="mina-salida-camara" type="file" accept="image/*" capture="environment" disabled={guardando} style={{ display: 'none' }} onChange={e => { agregarFotos(e.target.files); e.target.value = ''; }} />
+        </label>}
+        {fotos.length < MAX_FOTOS_SALIDA_MINA && (
+          <input id="mina-salida-fotos" className="input surt-input" type="file" accept="image/*" multiple disabled={guardando}
+            onChange={(e) => { agregarFotos(e.target.files); e.target.value = ''; }} />
+        )}
+        {!!fotos.length && (
+          <div className="rep-fotos">
+            {fotos.map((f, i) => (
+              <div key={`${f.name}-${i}`} className="rep-foto surt-foto-quitar">
+                <img src={previas[i]} alt={f.name} />
+                <button type="button" aria-label={`Quitar ${f.name}`} disabled={guardando} onClick={() => setFotos((xs) => xs.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+  );
+
   if (preHecha) {
     return (
       <Listo
@@ -369,6 +395,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
         disabled={guardando}
         notaExtra={mostrarPreSalidas ? <small className="muted">(para salida directa)</small> : undefined}
       />
+      {evidenciaPersona && campoFotos}
       <div className="surt-campo">
         <label htmlFor="mina-salida-unidad">Unidad solicitante</label>
         <div className="surt-buscable">
@@ -399,23 +426,7 @@ export function FormSalidaMina({ producto, productos = [], almacen, actor, actor
         </div>
         {retorna && <small className="muted">Queda en «Por retornar» y desde ahí se le da retorno al inventario (todo o una parte).</small>}
       </div>
-      <div className="surt-campo">
-        <label htmlFor="mina-salida-fotos">Fotos ({fotos.length}/{MAX_FOTOS_SALIDA_MINA}) · opcional</label>
-        {fotos.length < MAX_FOTOS_SALIDA_MINA && (
-          <input id="mina-salida-fotos" className="input surt-input" type="file" accept="image/*" multiple
-            onChange={(e) => { agregarFotos(e.target.files); e.target.value = ''; }} />
-        )}
-        {!!fotos.length && (
-          <div className="rep-fotos">
-            {fotos.map((f, i) => (
-              <div key={`${f.name}-${i}`} className="rep-foto surt-foto-quitar">
-                <img src={previas[i]} alt={f.name} />
-                <button type="button" aria-label={`Quitar ${f.name}`} onClick={() => setFotos((xs) => xs.filter((_, j) => j !== i))}>✕</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {!evidenciaPersona && campoFotos}
       <div style={{ display: 'grid', gap: '.5rem', marginTop: '.75rem' }}>
         {mostrarPreSalidas && (
           <button
