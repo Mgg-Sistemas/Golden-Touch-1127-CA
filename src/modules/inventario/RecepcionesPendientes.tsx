@@ -206,7 +206,7 @@ function RecibirOrdenModal({
       ) : (
         <p className="muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
           Confirma cuánto entró realmente por ítem y elige el <strong>almacén destino</strong>. Solo lo recibido se suma al inventario.
-          Si llegó menos de lo pedido, deja una <strong>nota</strong>. Al confirmar se generan automáticamente el reintegro pendiente y una solicitud para cotizar las cantidades faltantes, vinculados a esta OC.
+          Si llegó más o menos de lo pedido, registra la cantidad real y deja una <strong>nota</strong>. Los excedentes se muestran a Compras. Al confirmar se generan automáticamente el reintegro pendiente y una solicitud para cotizar las cantidades faltantes, vinculados a esta OC.
         </p>
       )}
       <div
@@ -333,7 +333,7 @@ function RecibirOrdenModal({
       </div>
 
       <div className="form-row" style={{ marginTop: '.5rem' }}>
-        <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · llegó menos de lo pedido)</span>}</label>
+        <label>Nota de recepción {hayDiferencia && <span style={{ color: 'var(--warning)' }}>(obligatoria · diferencia con lo pedido)</span>}</label>
         <textarea className="input" rows={2} name="recep-nota" defaultValue={nota} onChange={(e) => setNota(e.target.value)}
           placeholder="Diferencias, faltantes, observaciones de la recepción…" />
       </div>
