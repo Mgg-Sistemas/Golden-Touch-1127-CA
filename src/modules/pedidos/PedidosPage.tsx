@@ -851,7 +851,7 @@ export function PedidosPage() {
                     : 'Crea solicitudes de pedido. El administrador aprueba antes de emitir la orden de compra.'}
           </p>
         </div>
-        <div className="actions">
+        <div className="actions compras-acciones-cabecera">
           {canVerCompras && <ReintegrosProveedor canWrite={canManageProcurement} />}
           {canVerCompras && <PendientesCotizar />}
           {/* El Histórico lista TODAS las órdenes: solo para quien ve Compras (31/10/2026). */}
@@ -878,15 +878,7 @@ export function PedidosPage() {
               📄 Reporte
             </button>
           )}
-          {canManageProcurement && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => setCierreDiarioOpen(true)}
-              title="Resumen de Compras: Pedidos, Órdenes pendientes por aprobar, por pagar y pagadas, por día, semana, mes o rango · PDF/Imprimir, Excel y WhatsApp"
-            >
-              📊 Cierre diario
-            </button>
-          )}
+
           {/* Reporte Pendientes por pagar ocultado a petición
           {canManageProcurement && (
             <button
@@ -1184,7 +1176,7 @@ export function PedidosPage() {
 
       {/* Modal: reporte «Compras por estado» (PDF/Imprimir · Excel · WhatsApp) */}
       {reporteComprasOpen && <ReporteComprasModal onClose={() => setReporteComprasOpen(false)} />}
-      {reporteMoldeableOpen && <ExportarComprasModal onClose={() => setReporteMoldeableOpen(false)} />}
+      {reporteMoldeableOpen && <ExportarComprasModal onClose={() => setReporteMoldeableOpen(false)} onCierreDiario={() => { setReporteMoldeableOpen(false); setCierreDiarioOpen(true); }} />}
       {/* Modal: «Cierre diario» (resumen por período · PDF/Imprimir · Excel · WhatsApp) */}
       {cierreDiarioOpen && <CierreDiarioModal onClose={() => setCierreDiarioOpen(false)} />}
 

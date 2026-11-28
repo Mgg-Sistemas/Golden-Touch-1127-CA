@@ -117,9 +117,9 @@ const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDi
 const fmtBs = (v: number) => `Bs ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtNum = (v: number) => v.toLocaleString('es-VE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-interface Props { onClose: () => void }
+interface Props { onClose: () => void; onCierreDiario?: () => void }
 
-export function ExportarComprasModal({ onClose }: Props) {
+export function ExportarComprasModal({ onClose, onCierreDiario }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
 
   const [desde, setDesde] = useState<string>(primerDiaMesActual());
@@ -365,6 +365,7 @@ export function ExportarComprasModal({ onClose }: Props) {
               : `${resumen.totalCompras} compra(s) · ${filas.length} fila(s)${incluirCreditos && resumen.creditosCount > 0 ? ` · ${resumen.creditosCount} a crédito (OC/OS)` : ''}`}
           </div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+            {onCierreDiario && <button className="btn btn-ghost" onClick={onCierreDiario}>📊 Cierre diario</button>}
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
             <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || sinDatosExportar}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>

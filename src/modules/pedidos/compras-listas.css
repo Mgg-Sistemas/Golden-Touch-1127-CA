@@ -41,3 +41,7 @@
 .compras-ingreso-reintegro, .compras-resumen-pago { padding:1rem; margin:1rem 0; }
 .compras-ingreso-reintegro .form-row, .compras-resumen-pago .form-row { display:flex; flex-direction:column; gap:.4rem; min-width:0; }
 .compras-ingreso-reintegro .form-grid { gap:1rem; }
+
+.compras-acciones-cabecera { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.compras-acciones-cabecera .compras-acceso-reintegros { margin:0; }
+.compras-acciones-cabecera .btn { min-height:44px; padding:.65rem .85rem; }

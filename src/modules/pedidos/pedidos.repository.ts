@@ -930,7 +930,7 @@ export async function aprobarOrdenConOferta(
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
-  const ocCodigo = o.oc_codigo ?? (o.tipo === 'servicio' ? await nextCsCodigo() : await nextOcCodigo());
+
   const nowIso = new Date().toISOString();
   // Copiamos las condiciones de pago de la oferta elegida a la orden.
   // OJO: `ofertaProveedorId` es el id del PROVEEDOR (se guarda en proveedor_id),
@@ -978,6 +978,18 @@ export async function aprobarOrdenConOferta(
   const anticipoMontoOf = Math.max(0, Number((ofRow?.anticipo_monto as number | null) ?? 0) || 0);
   const anticipoMonedaOf: 'USD' | 'Bs' = (ofRow?.anticipo_moneda as string | null) === 'Bs' ? 'Bs' : 'USD';
   const aplicaAnticipoParcial = o.tipo === 'servicio' && condOferta === 'anticipado' && anticipoMontoOf > 0;
+  const comprables = itemsFinal.filter(it => it.comprar !== false && Number(it.cantidad) > 0);
+  const cotizados = comprables.filter(it => Number(pagaEnDivisa && it.precio_usd != null ? it.precio_usd : it.precio) > 0);
+  if (o.tipo !== 'servicio' && !o.op_padre_id && cotizados.length > 0 && cotizados.length < comprables.length) {
+    const [hija] = await repartirOpEntreProveedores(o, [{
+      proveedorId: ofertaProveedorId, items: cotizados.map(i => pagaEnDivisa && i.precio_usd != null ? { ...i, precio: Number(i.precio_usd) } : i), pagoEnDivisa: pagaEnDivisa,
+      total: Math.round(cotizados.reduce((a, i) => a + Number(i.cantidad) * Number(pagaEnDivisa && i.precio_usd != null ? i.precio_usd : i.precio), 0) * 100) / 100,
+      totalDivisa: pagaEnDivisa ? precioDivisa : null, condicionesPago: condOferta,
+      descuentoObtenido, ivaAplicado, ivaPct, ivaMonto, ivaIncluido, igtfAplicado, igtfPct, igtfMonto,
+    }], actorEmail);
+    return hija;
+  }
+  const ocCodigo = o.oc_codigo ?? (o.tipo === 'servicio' ? await nextCsCodigo() : await nextOcCodigo());
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
@@ -1127,6 +1139,7 @@ export async function reabrirEleccionOferta(
 /** Un grupo del reparto: los ítems (ya con precio de la oferta de ese proveedor)
  *  que se le compran a UN proveedor, con su total BCV y total en divisa. */
 export interface GrupoReparto {
+  pagoEnDivisa?: boolean;
   proveedorId: string;
   items: ItemOrden[];
   total: number;
@@ -1136,6 +1149,7 @@ export interface GrupoReparto {
   descuentoObtenido?: number | null;
   /** IVA/IGTF de la oferta, prorrateados a la parte de esta hija. Se SUMAN al total de la
    *  OC hija y quedan guardados (igual que en la aceptación simple: fuente única = la oferta). */
+  ivaIncluido?: boolean;
   ivaAplicado?: boolean;
   ivaPct?: number | null;
   ivaMonto?: number | null;
@@ -1202,7 +1216,7 @@ export async function repartirOpEntreProveedores(
     const gIgtfAplicado = !!g.igtfAplicado;
     const gIgtfPct = gIgtfAplicado ? Math.max(0, Math.min(100, Number(g.igtfPct) || 0)) : 0;
     const gIgtfMonto = gIgtfAplicado ? Math.max(0, Math.round((Number(g.igtfMonto) || 0) * 100) / 100) : 0;
-    const gImpuestos = gIvaMonto + gIgtfMonto;
+    const gImpuestos = (g.ivaIncluido ? 0 : gIvaMonto) + gIgtfMonto;
     const gTotal = Math.round(((gUsaDescuento ? gDivisa! : g.total) - gDescuento + gImpuestos) * 100) / 100;
     const row = {
       codigo: `${op.codigo}-${maxSuf + i + 1}`,
@@ -1214,11 +1228,12 @@ export async function repartirOpEntreProveedores(
       items: gItems,
       total: gTotal,
       total_divisa: gDivisa != null ? Math.round((gDivisa - gDescuento + gImpuestos) * 100) / 100 : null,
-      pago_en_divisa: gUsaDescuento,
+      pago_en_divisa: g.pagoEnDivisa ?? gUsaDescuento,
       descuento_obtenido: gDescuento,
       iva_aplicado: gIvaAplicado,
       iva_pct: gIvaPct,
       iva_monto: gIvaAplicado ? gIvaMonto : null,
+      iva_incluido: !!g.ivaIncluido,
       igtf_aplicado: gIgtfAplicado,
       igtf_pct: gIgtfPct,
       igtf_monto: gIgtfAplicado ? gIgtfMonto : null,

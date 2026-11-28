@@ -1,3 +1,4 @@
+import { CancelarPendienteCotizar } from './CancelarPendienteCotizar';
 import { DetalleCompraTarjeta } from './DetalleCompraTarjeta';
 import { ContextoCompraTarjeta, type OrdenTarjeta } from './ContextoCompraTarjeta';
 import { PaginasCompras, POR_PAGINA_COMPRAS } from './ComprasListaCompacta';
@@ -87,6 +88,7 @@ export function PendientesCotizar({ origenId, compacto = false }: { origenId?: s
         <div className="compras-acciones">
         <Link className="btn btn-primary" to={'/app/pedidos?tab=oc&detalle=' + f.id} onClick={() => setOpen(false)}>Abrir solicitud para cotizar</Link>
         {f.cotizacion_pendiente_origen_id && <Link className="btn btn-ghost" to={'/app/pedidos?tab=oc&detalle=' + f.cotizacion_pendiente_origen_id} onClick={() => setOpen(false)}>Ver OC de origen</Link>}
+        <CancelarPendienteCotizar id={f.id} onCancelled={cargar} />
         </div></div>
       </DetalleCompraTarjeta></article>)}</div>
       <PaginasCompras total={visibles.length} pagina={paginaActual} onChange={setPagina} />
